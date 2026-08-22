@@ -226,6 +226,12 @@ fake.__instances.length = 0;
     options.disallowedTools.includes("Agent") && options.disallowedTools.includes("Task"));
   check("E2b the Lead cannot message live agents out of band",
     options.disallowedTools.includes("SendMessage"));
+  // These each multiply what a run costs, off-screen. A brief is the only
+  // fan-out the team gets, and it is visible and counted.
+  for (const tool of ["Workflow", "CronCreate", "ScheduleWakeup", "RemoteTrigger", "Monitor"]) {
+    check(`E2c ${tool} is unavailable to the Lead`,
+      options.disallowedTools.includes(tool) && !options.tools.includes(tool));
+  }
   check("E3 the Lead can brief both teammates",
     options.allowedTools.includes("mcp__team__brief_researcher") &&
     options.allowedTools.includes("mcp__team__brief_engineer"));

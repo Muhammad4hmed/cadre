@@ -113,6 +113,10 @@ your own Claude Code settings grant broader permissions than you remember.
 | `plan` | Designs and reports, changes nothing |
 | `autonomous` | No prompts |
 
+Tools that fan work out or schedule it off-screen — `Workflow`, `Agent`, `CronCreate`,
+`ScheduleWakeup`, `Monitor` — are blocked for every teammate. A brief is the only fan-out
+the team has, and it is visible in a lane and counted against the session's spend.
+
 Reads of `.env`, ssh keys and cloud credentials are **denied at every level**, including
 `autonomous`. The Lead and Researcher cannot write outside `.cadre/` and your docs folder.
 Permission prompts offer a narrowly scoped grant — *Always allow `pytest`* — rather than

@@ -8,6 +8,28 @@ import engineerPrompt from "./prompts/engineer.md";
 export const TEAM_SERVER = "team";
 export const ns = (tool: string): string => `mcp__${TEAM_SERVER}__${tool}`;
 
+/**
+ * Tools that spawn work, schedule it, or run it somewhere the user cannot see.
+ *
+ * None are in any teammate's `tools` allowlist, so they should already be
+ * unavailable — but each one can silently multiply what a run costs, and the
+ * allowlist is one edit away from being widened. Blocked explicitly for every
+ * teammate: the team's only fan-out is a brief, which is visible in a lane and
+ * counted against the session's spend.
+ */
+export const NEVER_AVAILABLE = [
+  "Agent",           // raw subagent spawn — briefs are the only delegation path
+  "Task",            // legacy alias for Agent
+  "Workflow",        // fans out many agents at once
+  "CronCreate",      // schedules runs the user is not present for
+  "CronDelete",
+  "CronList",
+  "ScheduleWakeup",  // re-invokes later, off-screen
+  "RemoteTrigger",
+  "Monitor",         // polls in the background
+  "SendMessage",     // out-of-band messaging between live agents
+] as const;
+
 export interface TeammateSpec {
   id: TeammateId;
   name: string;
@@ -36,7 +58,7 @@ const LEAD: TeammateSpec = {
     "Read", "Grep", "Glob", "Write", "Edit", "AskUserQuestion",
     ns("brief_researcher"), ns("brief_engineer"), ns("git_view"),
   ],
-  disallowedTools: ["Bash", "NotebookEdit", "WebSearch", "WebFetch", "Agent", "Task", "SendMessage", "TodoWrite"],
+  disallowedTools: [...NEVER_AVAILABLE, "Bash", "NotebookEdit", "WebSearch", "WebFetch", "TodoWrite"],
   model: "opus",
   effort: "high",
   maxTurns: 60,
@@ -48,7 +70,7 @@ const RESEARCHER: TeammateSpec = {
   role: "Reads papers, docs and the web; reports findings",
   prompt: researcherPrompt,
   tools: ["WebSearch", "WebFetch", "Read", "Grep", "Glob", "Write", ns("ask_engineer")],
-  disallowedTools: ["Edit", "Bash", "AskUserQuestion", "Agent", "Task", "SendMessage"],
+  disallowedTools: [...NEVER_AVAILABLE, "Edit", "Bash", "AskUserQuestion"],
   model: "opus",
   effort: "high",
   maxTurns: 30,
@@ -60,7 +82,7 @@ const ENGINEER: TeammateSpec = {
   role: "Writes, edits and runs the code",
   prompt: engineerPrompt,
   tools: ["Read", "Write", "Edit", "Bash", "Grep", "Glob", ns("ask_researcher")],
-  disallowedTools: ["WebSearch", "WebFetch", "AskUserQuestion", "Agent", "Task", "SendMessage"],
+  disallowedTools: [...NEVER_AVAILABLE, "WebSearch", "WebFetch", "AskUserQuestion"],
   model: "opus",
   effort: "xhigh",
   maxTurns: 60,

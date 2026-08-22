@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.3.1
+
+Tools that fan work out or schedule it off-screen — `Workflow`, `Agent`, `CronCreate`,
+`ScheduleWakeup`, `RemoteTrigger`, `Monitor`, `SendMessage` — are now explicitly blocked for
+every teammate. They were already absent from each allowlist, but each one can multiply what
+a run costs without the user seeing it, and an allowlist is one edit away from being widened.
+
+A brief is the team's only fan-out: visible in a lane, counted against the session's spend.
+
 ## 0.3.0
 
 **Questions are now asked in the conversation, not in a dropdown.**
