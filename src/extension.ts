@@ -173,13 +173,14 @@ async function chooseBilling(controller: TeamController): Promise<void> {
 
 async function chooseAutonomy(controller: TeamController): Promise<void> {
   const options: { label: string; detail: string; value: Autonomy }[] = [
-    { label: "Standard", detail: "Edits flow; shell commands ask. Recommended.", value: "standard" },
+    { label: "Standard", detail: "Edits flow; risky commands ask. Recommended.", value: "standard" },
     { label: "Supervised", detail: "Every edit and command needs your approval.", value: "supervised" },
     { label: "Plan only", detail: "The team designs and reports but changes nothing.", value: "plan" },
     { label: "Autonomous", detail: "No prompts at all. Secret files are still blocked.", value: "autonomous" },
   ];
   const picked = await vscode.window.showQuickPick(options, {
     title: "How much rope does the team get?",
+    placeHolder: "Applies everywhere. Use “Apply a project profile” for one project only.",
     ignoreFocusOut: true,
   });
   if (!picked) return;
@@ -193,14 +194,16 @@ async function chooseAutonomy(controller: TeamController): Promise<void> {
     if (confirmed !== "I understand") return;
   }
 
-  const folder = controller.activeFolder();
+  // Global, not workspace. How much you trust the agent is a judgement about
+  // you, not about the folder — and workspace scope is precisely where a cloned
+  // repo's settings live, so writing there makes your own choice
+  // indistinguishable from one a repo shipped, and the trust layer refuses it.
+  // Per-project overrides still exist via "Apply a project profile".
   await vscode.workspace
-    .getConfiguration("cadre", folder?.uri)
-    .update("autonomy", picked.value, vscode.ConfigurationTarget.Workspace);
+    .getConfiguration("cadre")
+    .update("autonomy", picked.value, vscode.ConfigurationTarget.Global);
 
-  // The trust layer cannot tell a value the user picked here from one a cloned
-  // repo shipped — both land in workspace scope. Standing in front of this
-  // modal IS the approval, so record it, or we clamp the user's own choice.
+  // Belt and braces for a folder that already carries this value.
   await controller.trust.approve("autonomy", picked.value);
   controller.forgetShownWarnings();
   await controller.refreshSendability();

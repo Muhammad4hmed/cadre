@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.1.3
+
+**Fixed: Cadre kept refusing the autonomy level you had chosen.**
+
+`Set Autonomy` wrote to workspace scope — which is exactly where a cloned repo's
+`.vscode/settings.json` lands. The trust layer cannot tell those apart, so it clamped your
+own setting back to the default and said a repository could not widen its permissions.
+You had not touched a repository; you had used the command.
+
+How much you trust the agent is a judgement about you, not about the folder, so it is now
+a machine-level preference and the clamp never sees it. Per-project overrides still exist
+through **Apply a project profile**, which records its own approval.
+
+A repository still cannot exceed the level you chose.
+
 ## 0.1.2
 
 **Fixed: the Lead could ask you a question and you would never see it.**

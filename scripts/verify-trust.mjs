@@ -108,6 +108,34 @@ vetted = trust.vet(changed);
 check("editing an approved connector revokes the approval",
   Object.keys(vetted.connectors).length === 0);
 
+// ---- a global choice must never be clamped ---------------------------------
+// Set Autonomy writes globally, so the common path never touches the clamp at
+// all. This is what stops the extension arguing with its own user.
+const globalStore = new Map();
+const globalTrust = new SettingsTrust({
+  get: (k, d) => (globalStore.has(k) ? globalStore.get(k) : d),
+  update: async (k, v) => { globalStore.set(k, v); },
+});
+const userChose = globalTrust.vet(config({
+  autonomy: { defaultValue: "standard", globalValue: "autonomous" },
+}));
+check("a globally chosen level is honoured with no approval step",
+  userChose.autonomy === "autonomous" && userChose.warnings.length === 0);
+
+// And a repo agreeing with the user is not treated as an escalation.
+const bothAgree = globalTrust.vet(config({
+  autonomy: { defaultValue: "standard", globalValue: "autonomous", workspaceValue: "autonomous" },
+}));
+check("a folder echoing the user's own level is not flagged",
+  bothAgree.autonomy === "autonomous" && bothAgree.warnings.length === 0);
+
+// A repo still cannot go beyond what the user chose.
+const repoGoesFurther = globalTrust.vet(config({
+  autonomy: { defaultValue: "standard", globalValue: "supervised", workspaceFolderValue: "autonomous" },
+}));
+check("a repo still cannot exceed the user's own level",
+  repoGoesFurther.autonomy === "supervised" && repoGoesFurther.warnings.length === 1);
+
 console.log("=== workspace settings trust ===");
 let failed = false;
 for (const [label, ok] of checks) {
