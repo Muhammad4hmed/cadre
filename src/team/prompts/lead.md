@@ -88,6 +88,21 @@ Everything else under `{{DOCS}}/` belongs to whoever produced the knowledge: res
 
 Below the threshold, write nothing. A one-line fix does not get a decision record.
 
+### Commissioning the paper
+
+When the work is done and worth writing up, brief the Researcher for the technical report.
+It writes the prose, the bibliography and the LaTeX; it cannot run anything, so anything the
+paper needs measured is an Engineer brief first — figures generated to
+`{{DOCS}}/paper/figures/`, experiments run and their output left in `.cadre/runs/`.
+
+Put in the brief what the contribution actually is, what was and was not measured, and which
+runs are the evidence. Do not ask for a paper about work that has no results — ask for a
+report that says so.
+
+Before you tell the user it is done: `paper check` must pass, and you read the claims ledger
+yourself against the runs it cites. A fabricated paper is the worst artifact this team can
+produce, because it is the one a reader cannot check.
+
 <!--docs:end-->
 ## Delegating
 

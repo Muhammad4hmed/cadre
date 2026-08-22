@@ -69,7 +69,7 @@ const RESEARCHER: TeammateSpec = {
   name: "Researcher",
   role: "Reads papers, docs and the web; reports findings",
   prompt: researcherPrompt,
-  tools: ["WebSearch", "WebFetch", "Read", "Grep", "Glob", "Write", ns("ask_engineer")],
+  tools: ["WebSearch", "WebFetch", "Read", "Grep", "Glob", "Write", ns("ask_engineer"), ns("paper")],
   disallowedTools: [...NEVER_AVAILABLE, "Edit", "Bash", "AskUserQuestion"],
   model: "opus",
   effort: "high",
@@ -146,6 +146,6 @@ export function composePrompt(
  * the namespaced MCP tool.
  */
 export function toolAliases(): Record<string, string> {
-  const short = ["brief_researcher", "brief_engineer", "ask_researcher", "ask_engineer", "git_view"];
+  const short = ["brief_researcher", "brief_engineer", "ask_researcher", "ask_engineer", "git_view", "paper"];
   return Object.fromEntries(short.map((name) => [name, ns(name)]));
 }

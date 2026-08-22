@@ -90,6 +90,25 @@ how it is built, run and tested — with the commands *verified* rather than inf
 config files — what a newcomer would get wrong, and what is risky. The result is written
 to `PROJECT.md`, so later sessions start informed instead of re-deriving it.
 
+## The research paper
+
+When the work is done, the Lead can commission a technical report — LaTeX under
+`docs/paper/`, with figures the Engineer generated and citations the Researcher fetched.
+**Cadre: Install LaTeX Toolchain** fetches Tectonic (one binary, no sudo) so
+**Build the Paper** can produce the PDF locally; without it the source still compiles
+anywhere.
+
+The interesting part is what stops it being fiction. Asked for a paper, a model will write
+a convincing one with invented baselines and citations to work that does not say what is
+claimed. So every factual claim is marked `\claim{id}` in the prose and declared in
+`claims.json` — kind, source file or URL, the literal supporting line, the date it was read
+or run. `paper check` verifies that the evidence exists, that the quote is really in it, and
+that nothing in the paper is undeclared.
+
+That is the floor. It proves evidence exists, not that it supports the sentence — so the
+Researcher re-reads each claim against its quote, and an unsupported claim is removed rather
+than softened.
+
 ## Images and long sessions
 
 Attach a screenshot with **＋**, a paste, or a drop anywhere on the composer — the team

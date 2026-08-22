@@ -1,10 +1,12 @@
 import { execFile } from "node:child_process";
+import * as path from "node:path";
 import { promisify } from "node:util";
 import * as z from "zod";
 import { createSdkMcpServer, tool } from "@anthropic-ai/claude-agent-sdk";
 import type { McpSdkServerConfigWithInstance } from "@anthropic-ai/claude-agent-sdk";
 import type { TeammateId } from "./events";
 import { TEAM_SERVER } from "./roster";
+import { buildPaper, checkClaims } from "../paper";
 
 const run = promisify(execFile);
 
@@ -223,11 +225,48 @@ export function createTeamServer(ctx: TeamToolContext): McpSdkServerConfigWithIn
     },
   );
 
+  /**
+   * The Researcher has no shell, but it cannot finish a paper it cannot compile
+   * or check. This is the narrow capability that closes that gap — compile and
+   * verify only, no arbitrary execution, same shape as `git_view`.
+   */
+  const paper = tool(
+    "paper",
+    "Compile the LaTeX paper, or check its claims ledger. 'build' returns the first LaTeX error so you can fix it. 'check' verifies that every \\claim{} in main.tex is declared in claims.json and that each declared claim's quoted evidence actually exists in the file it names.",
+    {
+      action: z.enum(["build", "check"]),
+      dir: z
+        .string()
+        .default("docs/paper")
+        .describe("Paper directory, relative to the workspace."),
+    },
+    async (args) => {
+      const dir = path.resolve(ctx.cwd, String(args.dir ?? "docs/paper"));
+      if (!dir.startsWith(ctx.cwd)) return text("The paper must live inside the workspace.");
+
+      if (args.action === "check") {
+        const result = checkClaims(dir, ctx.cwd);
+        const lines = result.verdicts
+          .filter((v) => !v.ok)
+          .map((v) => `  ✗ ${v.id}: ${v.reason}`);
+        return text(
+          `${result.summary}\n${lines.join("\n")}\n\n` +
+            (result.ok
+              ? "Every claim traces to evidence that exists. This does not prove a source supports the sentence — read each one."
+              : "Fix these before the paper is finished. A claim you cannot support must be removed, not softened."),
+        );
+      }
+
+      const built = await buildPaper(dir);
+      return text(built.ok ? `${built.detail} PDF at ${built.pdf}` : built.detail);
+    },
+  );
+
   return createSdkMcpServer({
     name: TEAM_SERVER,
     version: "1.0.0",
     instructions:
       "Tools for running your team. Briefs go to a teammate who starts with an empty context and returns exactly one report.",
-    tools: [briefResearcher, briefEngineer, askResearcher, askEngineer, gitView],
+    tools: [briefResearcher, briefEngineer, askResearcher, askEngineer, gitView, paper],
   });
 }

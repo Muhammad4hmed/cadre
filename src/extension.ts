@@ -3,6 +3,7 @@ import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { TeamController } from "./team/controller";
 import { DISPLAY_NAME, TEAMMATES, type TeammateId } from "./team/events";
 import { describeAuth, logout, readAuthStatus } from "./auth";
+import { buildPaper, detectToolchain, installToolchain, toolchainHome } from "./paper";
 import { resolveClaudeExecutable } from "./cli";
 import type { Autonomy } from "./policy";
 import type { BillingMode } from "./billing";
@@ -52,6 +53,8 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cadre.resumeSession", () => resumeSession(controller)),
     vscode.commands.registerCommand("cadre.rewindFiles", () => rewindFiles(controller)),
     vscode.commands.registerCommand("cadre.compact", () => controller.compactNow()),
+    vscode.commands.registerCommand("cadre.installToolchain", () => setupToolchain()),
+    vscode.commands.registerCommand("cadre.buildPaper", () => buildThePaper(controller)),
     vscode.commands.registerCommand("cadre.selectProject", () => selectProject(controller)),
     vscode.commands.registerCommand("cadre.onboard", () => onboard(controller)),
     vscode.commands.registerCommand("cadre.saveProfile", () => applyProfile(controller)),
@@ -454,6 +457,66 @@ async function confirmLogout(controller: TeamController): Promise<void> {
   else if (next === "Use an API key") await vscode.commands.executeCommand("cadre.setApiKey");
 }
 
+/**
+ * Fetches a LaTeX toolchain on request. Never automatic: it is a 60 MB download,
+ * and it is the user's machine.
+ */
+async function setupToolchain(): Promise<void> {
+  const existing = await detectToolchain();
+  if (existing.builder) {
+    void vscode.window.showInformationMessage(
+      `LaTeX is already available (${existing.managed ?? existing.builder}).`,
+    );
+    return;
+  }
+  const go = await vscode.window.showInformationMessage(
+    "Install a LaTeX toolchain for Cadre?",
+    {
+      modal: true,
+      detail:
+        `Downloads Tectonic (~60 MB) into ${toolchainHome()}. No sudo, nothing outside that folder, ` +
+        `and removing it is deleting the folder. Without it the team still writes the paper — you just ` +
+        `cannot build the PDF here.`,
+    },
+    "Install",
+  );
+  if (go !== "Install") return;
+
+  await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: "Installing Tectonic" },
+    async (progress) => {
+      const result = await installToolchain((line) => progress.report({ message: line }));
+      if (result.ok) void vscode.window.showInformationMessage(result.detail);
+      else void vscode.window.showErrorMessage(`Could not install: ${result.detail}`);
+    },
+  );
+}
+
+async function buildThePaper(controller: TeamController): Promise<void> {
+  const folder = controller.activeFolder();
+  if (!folder) {
+    void vscode.window.showWarningMessage("Open a folder first.");
+    return;
+  }
+  const docs = vscode.workspace.getConfiguration("cadre", folder.uri).get<string>("docsPath") || "docs";
+  const dir = vscode.Uri.joinPath(folder.uri, docs, "paper").fsPath;
+
+  const built = await vscode.window.withProgress(
+    { location: vscode.ProgressLocation.Notification, title: "Building the paper" },
+    () => buildPaper(dir),
+  );
+  if (built.ok && built.pdf) {
+    const open = await vscode.window.showInformationMessage(built.detail, "Open PDF");
+    if (open === "Open PDF") {
+      await vscode.commands.executeCommand("vscode.open", vscode.Uri.file(built.pdf));
+    }
+    return;
+  }
+  const fix = /toolchain/i.test(built.detail) ? "Install a toolchain" : undefined;
+  const choice = await vscode.window.showErrorMessage(built.detail, ...(fix ? [fix] : []));
+  if (choice === fix) await setupToolchain();
+}
+
 /** One place to reach everything, mirroring the shape of Claude Code's own menu. */
 async function settingsHub(controller: TeamController): Promise<void> {
   const cfg = vscode.workspace.getConfiguration("cadre");
@@ -484,6 +547,7 @@ async function settingsHub(controller: TeamController): Promise<void> {
     { label: "$(book) Playbooks…", run: () => openSetting("cadre.playbooks") },
     { label: "$(file-text) Documentation…", run: () => openSetting("cadre.documentation") },
     { label: "$(extensions) Plugins…", run: () => openSetting("cadre.plugins") },
+    { label: "$(file-pdf) Build the paper", run: () => buildThePaper(controller) },
     { label: "$(gear) All settings…", run: () => openSetting("cadre") },
   ];
 

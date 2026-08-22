@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -160,6 +160,17 @@
         "command": "cadre.compact",
         "title": "Compact Conversation",
         "category": "Cadre"
+      },
+      {
+        "command": "cadre.installToolchain",
+        "title": "Install LaTeX Toolchain",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.buildPaper",
+        "title": "Build the Paper",
+        "category": "Cadre",
+        "icon": "$(file-pdf)"
       }
     ],
     "menus": {
