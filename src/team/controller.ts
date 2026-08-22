@@ -5,7 +5,7 @@ import { Billing } from "../billing";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { TEAMMATES, type TeamEvent, type TeammateId, type UiCommand } from "./events";
+import { TEAMMATES, type Attachment, type TeamEvent, type TeammateId, type UiCommand } from "./events";
 import { TeamSession, type TeamConfig } from "./orchestrator";
 import { discoverProjects } from "./project";
 import { SettingsTrust } from "./trust";
@@ -275,7 +275,7 @@ export class TeamController implements vscode.Disposable {
         for (const surface of this.surfaces) this.hydrate(surface);
         return;
       case "send":
-        return this.send(command.text);
+        return this.send(command.text, command.images);
       case "stop":
         void this.session?.interrupt();
         return;
@@ -343,9 +343,10 @@ export class TeamController implements vscode.Disposable {
     }
   }
 
-  private send(text: string): void {
+  private send(text: string, images: Attachment[] = []): void {
     const trimmed = text.trim();
-    if (!trimmed) return;
+    // An image on its own is a complete message; do not require a caption.
+    if (!trimmed && !images.length) return;
 
     this.atHome = false;
     const session = this.ensureSession();
@@ -354,7 +355,7 @@ export class TeamController implements vscode.Disposable {
       for (const surface of this.surfaces) void surface.postMessage({ kind: "restoreInput", text: trimmed });
       return;
     }
-    session.send(trimmed);
+    session.send(trimmed, images);
   }
 
   private setChannel(to: TeammateId): void {
@@ -388,6 +389,10 @@ export class TeamController implements vscode.Disposable {
 
   stop(): void {
     void this.session?.interrupt();
+  }
+
+  compactNow(): void {
+    this.session?.compactNow();
   }
 
   /** Reopens a stored conversation. The next send starts against its history. */

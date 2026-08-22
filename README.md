@@ -76,6 +76,16 @@ tool calls that resolve to ✓ or ✕, collapsed reasoning, running cost.
 </tr>
 </table>
 
+## Images and long sessions
+
+Attach a screenshot with **＋**, a paste, or a drop anywhere on the composer — the team
+sees it. Oversized images are downscaled to 1568px on the long edge, past which the API
+downsamples anyway and the extra pixels only cost tokens.
+
+The header shows how full the context window is and turns amber past 80%. When it fills,
+the history is summarised and the run continues rather than failing; the boundary is
+recorded in the transcript so you know detail was dropped.
+
 ## Safety
 
 Autonomy is enforced by the extension, not requested politely. It applies a

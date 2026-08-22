@@ -11,7 +11,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import { DISPLAY_NAME, ROLE_BLURB, TEAMMATES, type Assignment, type TeamEvent, type TeammateId, type TeammateStatus } from "./events";
+import { DISPLAY_NAME, ROLE_BLURB, TEAMMATES, type Assignment, type Attachment, type TeamEvent, type TeammateId, type TeammateStatus } from "./events";
 import { ROSTER, composePrompt, consultVariant, toolAliases, type TeammateSpec } from "./roster";
 import { createTeamServer } from "./tools";
 import { contextPreamble, surveyProject } from "./project";
@@ -55,11 +55,14 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   private waiting: ((r: IteratorResult<SDKUserMessage>) => void)[] = [];
   private closed = false;
 
-  push(text: string, uuid: `${string}-${string}-${string}-${string}-${string}`): void {
+  push(
+    content: SDKUserMessage["message"]["content"],
+    uuid: `${string}-${string}-${string}-${string}-${string}`,
+  ): void {
     if (this.closed) return;
     const message: SDKUserMessage = {
       type: "user",
-      message: { role: "user", content: text },
+      message: { role: "user", content },
       parent_tool_use_id: null,
       session_id: "",
       uuid,
@@ -121,12 +124,17 @@ export class TeamSession implements vscode.Disposable {
 
   // --------------------------------------------------------------- lifecycle
 
-  send(text: string): void {
+  send(text: string, images: Attachment[] = []): void {
     if (this.disposed) return;
     this.runId += 1;
     const id = crypto.randomUUID();
     this.turns.push({ id, text, at: Date.now() });
-    this.emit({ kind: "userSaid", to: this.channel, text });
+    this.emit({
+      kind: "userSaid",
+      to: this.channel,
+      text,
+      images: images.map((i) => ({ name: i.name, dataUrl: `data:${i.mediaType};base64,${i.data}` })),
+    });
     this.setBusy(true);
     this.setStatus(this.channel, "thinking");
 
@@ -135,7 +143,18 @@ export class TeamSession implements vscode.Disposable {
     void this.prepare().then(() => {
       if (this.disposed) return;
       if (!this.stream) this.start();
-      this.input.push(text, id);
+      // Images go before the text: the model reads them as context for the
+      // sentence that follows, which is how people write when they paste one.
+      const content = images.length
+        ? [
+            ...images.map((i) => ({
+              type: "image" as const,
+              source: { type: "base64" as const, media_type: i.mediaType, data: i.data },
+            })),
+            ...(text ? [{ type: "text" as const, text }] : []),
+          ]
+        : text;
+      this.input.push(content, id);
     });
   }
 
@@ -335,6 +354,17 @@ export class TeamSession implements vscode.Disposable {
     }
   }
 
+  /** Summarises the conversation now rather than waiting for the window to fill. */
+  compactNow(): void {
+    if (!this.stream) {
+      this.emit({ kind: "notice", level: "info", text: "Nothing to compact — no session running." });
+      return;
+    }
+    this.runId += 1;
+    this.setBusy(true);
+    this.input.push("/compact", crypto.randomUUID());
+  }
+
   /** Ends every teammate currently running. */
   private async stopNested(): Promise<void> {
     const running = [...this.nested];
@@ -360,6 +390,20 @@ export class TeamSession implements vscode.Disposable {
 
       switch (message.type) {
         case "system": {
+          if (message.subtype === "compact_boundary") {
+            // Only the main thread's compaction concerns the user; a teammate
+            // compacting is internal to a run that ends anyway.
+            if (isMain) {
+              const meta = message.compact_metadata;
+              this.emit({
+                kind: "compacted",
+                trigger: meta.trigger,
+                before: meta.pre_tokens,
+                after: meta.post_tokens,
+              });
+            }
+            break;
+          }
           if (message.subtype !== "init") break;
           if (isMain && !this.initSeen) {
             this.initSeen = true;
@@ -404,6 +448,15 @@ export class TeamSession implements vscode.Disposable {
 
         case "assistant": {
           if (message.parent_tool_use_id !== null) break;
+          if (isMain && message.context_usage) {
+            const u = message.context_usage;
+            this.emit({
+              kind: "context",
+              percent: u.percentage,
+              tokens: u.total_tokens,
+              max: u.raw_max_tokens,
+            });
+          }
           for (const block of message.message.content) {
             if (block.type !== "tool_use") continue;
             const input = (block.input ?? {}) as Record<string, unknown>;
@@ -561,6 +614,9 @@ export class TeamSession implements vscode.Disposable {
       // Snapshots so rewindFiles() can put the workspace back.
       enableFileCheckpointing: this.config.checkpoints !== false,
       persistSession: this.config.persistSessions !== false,
+      // When the window fills, summarise and keep going rather than failing the
+      // turn. The boundary is surfaced so the user knows detail was dropped.
+      settings: { autoCompactEnabled: true },
       // Disposal and interrupt must actually reach the subprocess.
       abortController: abort ?? this.abort,
       includePartialMessages: true,

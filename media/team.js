@@ -18,9 +18,14 @@
     autonomy: /** @type {HTMLElement} */ (document.getElementById("autonomy")),
     billing: /** @type {HTMLElement} */ (document.getElementById("billing")),
     connectors: /** @type {HTMLElement} */ (document.getElementById("connectors")),
+    context: /** @type {HTMLElement} */ (document.getElementById("context")),
     spend: /** @type {HTMLElement} */ (document.getElementById("spend")),
     account: /** @type {HTMLButtonElement} */ (document.getElementById("account")),
     floorButton: /** @type {HTMLButtonElement} */ (document.getElementById("openFloor")),
+    composer: /** @type {HTMLElement} */ (document.querySelector(".composer")),
+    attach: /** @type {HTMLButtonElement} */ (document.getElementById("attach")),
+    file: /** @type {HTMLInputElement} */ (document.getElementById("file")),
+    attachments: /** @type {HTMLElement} */ (document.getElementById("attachments")),
     screens: {
       auth: document.getElementById("screen-auth"),
       projects: document.getElementById("screen-projects"),
@@ -50,7 +55,17 @@
     live: new Map(),
     acts: new Map(),
     assignments: new Map(),
+    /** Images staged for the next message. */
+    pending: [],
   };
+
+  // The API accepts up to ~5 MB an image; a phone screenshot often exceeds that
+  // and costs tokens for detail the model cannot use. 1568px on the long edge is
+  // the point past which it downsamples anyway.
+  const MAX_EDGE = 1568;
+  const MAX_BYTES = 3_500_000;
+  const MAX_IMAGES = 5;
+  const ACCEPTED = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
   // ----------------------------------------------------------- scaffolding
 
@@ -150,9 +165,22 @@
 
   function renderEvent(e) {
     switch (e.kind) {
-      case "userSaid":
-        utterance(e.to, "you → " + NAME[e.to], "user").textContent = e.text;
+      case "userSaid": {
+        const body = utterance(e.to, "you → " + NAME[e.to], "user");
+        if (e.text) body.textContent = e.text;
+        if (e.images?.length) {
+          const shots = node("div", "shots");
+          for (const img of e.images) {
+            const el_ = document.createElement("img");
+            el_.src = img.dataUrl;
+            el_.alt = img.name;
+            el_.title = img.name;
+            shots.appendChild(el_);
+          }
+          body.appendChild(shots);
+        }
         return;
+      }
 
       case "say": {
         const key = e.who + ":" + e.turn;
@@ -232,6 +260,13 @@
       case "notice":
         place(e.who || "lead", node("div", "notice " + e.level, e.text));
         return;
+
+      case "compacted": {
+        const shrunk = e.after ? ` — ${fmtTokens(e.before)} → ${fmtTokens(e.after)}` : "";
+        place("lead", node("div", "notice compacted",
+          `Context was full, so the history was summarised${shrunk}. The team keeps going; older detail is gone.`));
+        return;
+      }
 
       case "spend": {
         state.spendUsd = e.usd;
@@ -408,6 +443,7 @@
 
   function renderComposer() {
     el.send.disabled = state.busy || !state.canSend;
+    el.attach.disabled = state.busy || !state.canSend;
     el.send.textContent = state.busy ? "Working…" : "Send";
     el.stop.hidden = !state.busy;
     el.channel.disabled = state.channelLocked;
@@ -471,6 +507,7 @@
       if (!el.input.value.trim()) { el.input.value = e.text; resize(); }
       el.input.focus();
     },
+    context(e) { renderContext(e); },
     busy(e) { state.busy = e.busy; renderComposer(); },
     clear() {
       state.log = [];
@@ -494,12 +531,102 @@
     renderEvent(e);
   });
 
+  // ------------------------------------------------------------ attachments
+
+  /** Reads a File, downscaling if it is larger than the model can use. */
+  function readImage(file) {
+    return new Promise((resolve, reject) => {
+      const type = ACCEPTED.includes(file.type) ? file.type : "image/png";
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("could not read " + file.name));
+      reader.onload = () => {
+        const dataUrl = String(reader.result);
+        // Animated GIFs lose their animation through a canvas, so pass through.
+        if (type === "image/gif" || file.size <= MAX_BYTES) {
+          const [, data] = dataUrl.split(",");
+          if (file.size <= MAX_BYTES) {
+            resolve({ name: file.name || "pasted image", mediaType: type, data, bytes: file.size });
+            return;
+          }
+        }
+        const img = new Image();
+        img.onerror = () => reject(new Error("could not decode " + file.name));
+        img.onload = () => {
+          const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          const out = canvas.toDataURL("image/jpeg", 0.85);
+          const [, data] = out.split(",");
+          resolve({
+            name: file.name || "pasted image",
+            mediaType: "image/jpeg",
+            data,
+            bytes: Math.round((data.length * 3) / 4),
+          });
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function stage(files) {
+    const images = [...files].filter((f) => f && f.type.startsWith("image/"));
+    if (!images.length) return;
+    for (const file of images) {
+      if (state.pending.length >= MAX_IMAGES) {
+        renderNotice("warn", `Only ${MAX_IMAGES} images per message. The rest were not attached.`);
+        break;
+      }
+      try {
+        state.pending.push(await readImage(file));
+      } catch (err) {
+        renderNotice("error", String(err && err.message ? err.message : err));
+      }
+    }
+    renderAttachments();
+  }
+
+  function renderNotice(level, text) {
+    const notice = { kind: "notice", level, text };
+    clearEmpty();
+    state.log.push(notice);
+    renderEvent(notice);
+  }
+
+  function renderAttachments() {
+    el.attachments.replaceChildren();
+    el.attachments.hidden = !state.pending.length;
+    state.pending.forEach((img, index) => {
+      const wrap = node("div", "thumb");
+      const preview = document.createElement("img");
+      preview.src = `data:${img.mediaType};base64,${img.data}`;
+      preview.alt = img.name;
+      wrap.appendChild(preview);
+      const remove = node("button", null, "×");
+      remove.title = `Remove ${img.name}`;
+      remove.addEventListener("click", () => {
+        state.pending.splice(index, 1);
+        renderAttachments();
+      });
+      wrap.appendChild(remove);
+      wrap.title = `${img.name} · ${Math.round(img.bytes / 1024)} KB`;
+      el.attachments.appendChild(wrap);
+    });
+    renderComposer();
+  }
+
   // ----------------------------------------------------------- interactions
 
   function submit() {
     const text = el.input.value.trim();
-    if (!text || state.busy || !state.canSend) return;
-    vscode.postMessage({ kind: "send", text });
+    // An image on its own is a complete message.
+    if ((!text && !state.pending.length) || state.busy || !state.canSend) return;
+    vscode.postMessage({ kind: "send", text, images: state.pending });
+    state.pending = [];
+    renderAttachments();
     el.input.value = "";
     resize();
   }
@@ -524,6 +651,33 @@
     setChannel(el.channel.value);
     vscode.postMessage({ kind: "setChannel", to: el.channel.value });
   });
+  el.attach.addEventListener("click", () => el.file.click());
+  el.file.addEventListener("change", async () => {
+    await stage(el.file.files || []);
+    el.file.value = "";
+  });
+
+  el.input.addEventListener("paste", (event) => {
+    const items = [...(event.clipboardData?.files || [])];
+    if (!items.length) return;
+    event.preventDefault();
+    void stage(items);
+  });
+
+  for (const type of ["dragenter", "dragover"]) {
+    el.composer.addEventListener(type, (e) => {
+      e.preventDefault();
+      el.composer.dataset.dropping = "true";
+    });
+  }
+  for (const type of ["dragleave", "drop"]) {
+    el.composer.addEventListener(type, (e) => {
+      e.preventDefault();
+      el.composer.dataset.dropping = "false";
+    });
+  }
+  el.composer.addEventListener("drop", (e) => void stage(e.dataTransfer?.files || []));
+
   el.input.addEventListener("input", resize);
   el.input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }

@@ -70,9 +70,13 @@ export type TeamEvent =
   | { kind: "assign"; assignment: Assignment }
   | { kind: "deliver"; id: string; outcome: NonNullable<Assignment["outcome"]>; summary: string }
 
-  | { kind: "userSaid"; to: TeammateId; text: string }
+  | { kind: "userSaid"; to: TeammateId; text: string; images?: { name: string; dataUrl: string }[] }
   | { kind: "notice"; level: "info" | "warn" | "error"; text: string; who?: TeammateId }
   | { kind: "spend"; usd: number; turns: number; durationMs: number }
+  /** Context window filled and the CLI summarised the history to keep going. */
+  | { kind: "compacted"; trigger: "auto" | "manual"; before: number; after?: number }
+  /** Live context-window usage, so filling up is visible before it happens. */
+  | { kind: "context"; percent: number; tokens: number; max: number }
   | { kind: "busy"; busy: boolean }
   | { kind: "sendability"; ok: boolean; reason?: string }
   | { kind: "restoreInput"; text: string }
@@ -92,6 +96,16 @@ export type TeamEvent =
   | { kind: "authProblem"; detail: string }
   | { kind: "clear" };
 
+/** An image the user attached, already base64-encoded by the webview. */
+export interface Attachment {
+  name: string;
+  /** One of the media types the API accepts. */
+  mediaType: "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  /** Base64 payload, no data: prefix. */
+  data: string;
+  bytes: number;
+}
+
 export interface ProjectCard {
   path: string;
   name: string;
@@ -103,7 +117,7 @@ export interface ProjectCard {
 
 export type UiCommand =
   | { kind: "ready" }
-  | { kind: "send"; text: string }
+  | { kind: "send"; text: string; images?: Attachment[] }
   | { kind: "stop" }
   | { kind: "newSession" }
   /** Direct line: talk to a teammate instead of the Lead. */

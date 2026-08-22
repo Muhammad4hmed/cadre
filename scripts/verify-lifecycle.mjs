@@ -658,6 +658,84 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- U. images reach the model as content blocks ---------------------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  const png = { name: "shot.png", mediaType: "image/png", data: "aGVsbG8=", bytes: 5 };
+  session.send("what is wrong here?", [png]);
+  await tick(); await tick();
+
+  const sent = JSON.parse(fake.__instances[0].received[0]);
+  check("U1 the message becomes an array of blocks", Array.isArray(sent));
+  check("U2 the image is a base64 image block",
+    sent[0]?.type === "image" && sent[0].source.media_type === "image/png" && sent[0].source.data === "aGVsbG8=");
+  check("U3 the image comes before the text, as a person would paste it",
+    sent[0]?.type === "image" && sent[1]?.type === "text");
+  check("U4 the caption survives", sent[1]?.text === "what is wrong here?");
+  check("U5 the transcript shows the attachment",
+    of("userSaid").at(-1)?.images?.[0]?.dataUrl?.startsWith("data:image/png;base64,"));
+  session.dispose();
+}
+
+// ---- V. an image on its own is a complete message --------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("", [{ name: "a.png", mediaType: "image/png", data: "eA==", bytes: 1 }]);
+  await tick(); await tick();
+  const sent = JSON.parse(fake.__instances[0].received[0]);
+  check("V1 no caption is required", Array.isArray(sent) && sent.length === 1);
+  check("V2 and no empty text block is sent", !sent.some((b) => b.type === "text"));
+  session.dispose();
+}
+
+// ---- W. plain text is still a plain string ---------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("just words");
+  await tick(); await tick();
+  check("W1 a message with no image stays a plain string",
+    fake.__instances[0].received[0] === "just words");
+  session.dispose();
+}
+
+// ---- X. context filling up, and compaction ---------------------------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick(); await tick();
+  const inst = fake.__instances[0];
+  check("X1 auto-compaction is enabled for the session",
+    inst.options.settings?.autoCompactEnabled === true);
+
+  inst.emit({
+    type: "assistant", parent_tool_use_id: null,
+    message: { role: "assistant", content: [] },
+    context_usage: { model: "m", total_tokens: 180000, raw_max_tokens: 200000, percentage: 90, categories: [] },
+  });
+  await tick();
+  const ctx = of("context").at(-1);
+  check("X2 context usage is surfaced before the window fills",
+    ctx?.percent === 90 && ctx.tokens === 180000 && ctx.max === 200000);
+
+  inst.emit({
+    type: "system", subtype: "compact_boundary",
+    compact_metadata: { trigger: "auto", pre_tokens: 190000, post_tokens: 42000 },
+  });
+  await tick();
+  const compacted = of("compacted").at(-1);
+  check("X3 compaction is reported, not silent",
+    compacted?.trigger === "auto" && compacted.before === 190000 && compacted.after === 42000);
+  session.dispose();
+}
+
 console.log("=== session lifecycle + team wiring ===");
 let failed = false;
 for (const [label, ok] of checks) {

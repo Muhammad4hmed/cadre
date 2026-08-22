@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.2.0
+
+### Images
+
+Attach a screenshot and the team can see it. Click **＋**, paste from the clipboard, or
+drop a file anywhere on the composer. Thumbnails appear before you send, and stay in the
+transcript afterwards.
+
+Large images are downscaled to 1568px on the long edge before sending — past that the API
+downsamples anyway, so the extra pixels only cost tokens. An image on its own is a
+complete message; no caption required.
+
+### Context window
+
+The header shows how full the window is, turning amber past 80%, so you can see it coming.
+When it fills, the history is summarised automatically and the run continues instead of
+failing — the boundary is written into the transcript so you know detail was dropped and
+roughly how much. **Cadre: Compact Conversation** does it on demand.
+
 ## 0.1.3
 
 **Fixed: Cadre kept refusing the autonomy level you had chosen.**

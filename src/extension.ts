@@ -51,6 +51,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cadre.setEffort", () => choosePerTeammate("effort")),
     vscode.commands.registerCommand("cadre.resumeSession", () => resumeSession(controller)),
     vscode.commands.registerCommand("cadre.rewindFiles", () => rewindFiles(controller)),
+    vscode.commands.registerCommand("cadre.compact", () => controller.compactNow()),
     vscode.commands.registerCommand("cadre.selectProject", () => selectProject(controller)),
     vscode.commands.registerCommand("cadre.onboard", () => onboard(controller)),
     vscode.commands.registerCommand("cadre.saveProfile", () => applyProfile(controller)),
@@ -646,6 +647,7 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
     <span class="chip" id="autonomy">—</span>
     <span class="chip" id="billing">—</span>
     <span class="chip" id="connectors" hidden>—</span>
+    <span class="chip" id="context" hidden>—</span>
     <span class="spacer"></span>
     <button class="chip pick account" id="account" title="Account">account</button>
     <span class="chip" id="spend">$0.0000</span>
@@ -688,7 +690,10 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
           <option value="engineer">Engineer</option>
         </select>
       </div>
+      <div class="attachments" id="attachments" hidden></div>
       <div class="row">
+        <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+        <button class="ghost attach" id="attach" title="Attach an image (or paste, or drop one here)">＋</button>
         <textarea id="input" rows="1" placeholder="Describe your project…" aria-label="Message"></textarea>
         <button class="primary" id="send" title="Send (Enter)">Send</button>
         <button class="danger" id="stop" title="Interrupt" hidden>Stop</button>
