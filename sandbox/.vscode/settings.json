@@ -1,7 +1,4 @@
 {
-    "aiTeam.autonomy": "autonomous",
-    "aiTeam.lead.model": "sonnet",
-    "aiTeam.researcher.model": "opus",
-    "aiTeam.engineer.model": "opus",
-    "aiTeam.lead.effort": "high"
+  "cadre.lead.effort": "medium",
+  "cadre.engineer.effort": "medium"
 }

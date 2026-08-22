@@ -39,6 +39,12 @@ First release worth installing.
 
 ### Safety
 
+- A repository's `.vscode/settings.json` cannot widen its own permissions. An escalating
+  `autonomy`, or `connectors`/`plugins` that would spawn processes, are clamped or withheld
+  until explicitly allowed via **Cadre: Review Workspace Settings**. Approval is bound to the
+  exact value, so editing an approved connector revokes it.
+- `capabilities` declared: no virtual workspaces, no untrusted workspaces.
+
 - Autonomy is enforced by the extension through a restrictive-only policy tier, so it holds
   even when the user's own Claude Code settings grant broader permissions.
 - Secrets (`.env`, ssh keys, credentials) are denied at every autonomy level, including
@@ -48,5 +54,7 @@ First release worth installing.
 
 ### Billing
 
+- The spend cap applies across the whole run, including delegated teammates, rather than
+  resetting for each one.
 - Claude subscription or an Anthropic API key held in encrypted secret storage. Subscription
   mode explicitly unsets `ANTHROPIC_API_KEY` so a shell variable cannot silently bill the API.

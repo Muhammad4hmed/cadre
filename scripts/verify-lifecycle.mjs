@@ -491,6 +491,123 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- P. the production ordering: send() WITHOUT awaiting prepare() ---------
+// Every other test in this file awaits prepare() first, which is exactly why
+// this defect survived: the real controller does not.
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  session.send("first message of the session");   // deliberately not awaited
+  await tick();
+  await tick();
+  const o = fake.__instances[0]?.options;
+  check("P1 a session starts even without an awaited prepare", Boolean(o));
+  check("P2 the CLI is never spawned with an empty environment",
+    Boolean(o?.env) && Object.keys(o.env).length > 0);
+  check("P3 PATH survives — env REPLACES rather than extends",
+    typeof o?.env?.PATH === "string" && o.env.PATH.length > 0);
+  check("P4 the billing environment is the one actually used", o?.env?.PATH === "/usr/bin");
+  check("P5 the message still reaches the stream",
+    fake.__instances[0].received.includes("first message of the session"));
+  session.dispose();
+}
+
+// ---- Q. Stop must reach the teammates, not just the Lead -------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+
+  // Invoke the brief tool exactly as the Lead would.
+  const server = main.options.mcpServers.team;
+  const brief = server.tools.find((t) => t.name === "brief_engineer");
+  check("Q1 the Lead's brief tool is reachable", Boolean(brief));
+
+  const running = brief.handler({
+    objective: "do a thing", done_when: "it is done",
+    decide_yourself: ["everything"], context: [], authority: "PATCH", paths: ["x.ts"],
+  });
+  await tick();
+  check("Q2 briefing spawns a second query for the teammate", fake.__instances.length === 2);
+  const teammate = fake.__instances[1];
+  check("Q3 the teammate has its own abort controller, not the session's",
+    teammate.options.abortController !== main.options.abortController);
+
+  await session.interrupt();
+  await tick();
+  check("Q4 Stop closes the teammate's run, not only the Lead's", teammate.closed === true);
+  check("Q5 the teammate's abort signal actually fired",
+    teammate.options.abortController?.signal?.aborted === true);
+
+  teammate.end();
+  await running.catch(() => {});
+  session.dispose();
+}
+
+// ---- R. a truncated teammate must not read as a success --------------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "big job", done_when: "done", decide_yourself: ["x"], context: [],
+    authority: "PATCH", paths: ["a.ts"],
+  });
+  await tick();
+
+  // The teammate hits its turn cap and produces no report.
+  fake.__instances[1].emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+  fake.__instances[1].end();
+  const report = await running;
+  await tick();
+
+  const text = typeof report === "string" ? report : JSON.stringify(report);
+  check("R1 a truncated run reports BLOCKED, not an empty success", /BLOCKED/.test(text));
+  check("R2 it says why in terms the Lead can act on", /turn limit/i.test(text));
+  check("R3 the user is told the teammate stopped",
+    of("notice").some((n) => n.level === "error" && /Engineer stopped/.test(n.text)));
+  check("R4 the assignment is not marked delivered",
+    of("deliver").at(-1)?.outcome === "blocked");
+  session.dispose();
+}
+
+// ---- S. the spend cap is per session, not per query ------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, maxSpendUsd: 10 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  check("S1 the first run gets the full ceiling", main.options.maxBudgetUsd === 10);
+
+  main.emit(fake.initMessage());
+  main.emit(fake.resultMessage({ total_cost_usd: 4 }));
+  await tick();
+
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "x", done_when: "y", decide_yourself: ["z"], context: [],
+    authority: "EXPLORE", paths: [],
+  });
+  await tick();
+  check("S2 a teammate gets only what is left, not a fresh ceiling",
+    fake.__instances[1].options.maxBudgetUsd === 6);
+
+  fake.__instances[1].end();
+  await running.catch(() => {});
+  session.dispose();
+}
+
 console.log("=== session lifecycle + team wiring ===");
 let failed = false;
 for (const [label, ok] of checks) {

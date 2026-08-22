@@ -53,6 +53,13 @@ const vscodeStub = {
   },
   workspace: {
     getConfiguration: (prefix, scope) => ({
+      // Real VS Code exposes inspect(); the trust layer needs it to tell a
+      // repo-supplied value from one the user chose.
+      inspect: (key) => ({
+        key: `${prefix}.${key}`,
+        globalValue: settings[`${prefix}.${key}`],
+        workspaceFolderValue: scope ? folderSettings[scope.fsPath]?.[`${prefix}.${key}`] : undefined,
+      }),
       get: (key) => {
         const perFolder = scope && folderSettings[scope.fsPath];
         if (perFolder && `${prefix}.${key}` in perFolder) return perFolder[`${prefix}.${key}`];

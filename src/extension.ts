@@ -54,6 +54,7 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cadre.selectProject", () => selectProject(controller)),
     vscode.commands.registerCommand("cadre.onboard", () => onboard(controller)),
     vscode.commands.registerCommand("cadre.saveProfile", () => applyProfile(controller)),
+    vscode.commands.registerCommand("cadre.reviewWorkspaceSettings", () => reviewWorkspaceSettings(controller)),
     vscode.commands.registerCommand("cadre.account", () => showAccount(controller)),
     vscode.commands.registerCommand("cadre.login", () => runAuth("login", controller)),
     vscode.commands.registerCommand("cadre.logout", () => confirmLogout(controller)),
@@ -195,6 +196,44 @@ async function chooseAutonomy(): Promise<void> {
   await vscode.workspace
     .getConfiguration("cadre")
     .update("autonomy", picked.value, vscode.ConfigurationTarget.Workspace);
+}
+
+/**
+ * Lets the user inspect and allow settings a repository shipped. Deliberately
+ * shows the literal value — a connector is a command line, and the only useful
+ * review is reading it.
+ */
+async function reviewWorkspaceSettings(controller: TeamController): Promise<void> {
+  const cfg = controller.configForActiveFolder();
+  const pending = controller.trust.pending(cfg);
+  if (!pending.length) {
+    void vscode.window.showInformationMessage(
+      "Nothing to review — this folder's settings ask for no extra permissions.",
+    );
+    return;
+  }
+
+  for (const { setting, value } of pending) {
+    const rendered = JSON.stringify(value, null, 2);
+    const what =
+      setting === "autonomy"
+        ? "This would widen what the team may do without asking you."
+        : setting === "connectors"
+          ? "These start processes before the team runs. Read the commands."
+          : "Local plugins can ship hooks that run shell commands.";
+
+    const choice = await vscode.window.showWarningMessage(
+      `This folder's settings set "cadre.${setting}"`,
+      { modal: true, detail: `${what}\n\n${rendered.slice(0, 1200)}` },
+      "Allow for this workspace",
+      "Skip",
+    );
+    if (choice === "Allow for this workspace") {
+      await controller.trust.approve(setting, value);
+    }
+  }
+  controller.forgetShownWarnings();
+  await controller.refreshSendability();
 }
 
 async function selectProject(controller: TeamController): Promise<void> {

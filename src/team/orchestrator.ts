@@ -101,6 +101,8 @@ export class TeamSession implements vscode.Disposable {
   private runId = 0;
   private readonly abort = new AbortController();
   private readonly pendingPermissions = new Set<(r: PermissionResult) => void>();
+  /** Live teammate runs, so Stop can actually stop them. */
+  private readonly nested = new Set<{ query: Query; abort: AbortController }>();
   private readonly status = new Map<TeammateId, TeammateStatus>();
   /** Which teammate the user is currently addressing. */
   private channel: TeammateId = "lead";
@@ -125,10 +127,16 @@ export class TeamSession implements vscode.Disposable {
     const id = crypto.randomUUID();
     this.turns.push({ id, text, at: Date.now() });
     this.emit({ kind: "userSaid", to: this.channel, text });
-    if (!this.stream) this.start();
     this.setBusy(true);
     this.setStatus(this.channel, "thinking");
-    this.input.push(text, id);
+
+    // The environment must be resolved before options are built, or the CLI is
+    // spawned without the credential billing just worked out.
+    void this.prepare().then(() => {
+      if (this.disposed) return;
+      if (!this.stream) this.start();
+      this.input.push(text, id);
+    });
   }
 
   /** Switching who the user talks to needs a fresh main thread. */
@@ -149,9 +157,12 @@ export class TeamSession implements vscode.Disposable {
   }
 
   async interrupt(): Promise<void> {
-    if (!this.stream || !this.busy) return;
+    if (!this.stream && !this.nested.size) return;
+    // Teammates first: the Lead is blocked on their tool call, so leaving them
+    // running would keep editing files under a UI that says idle.
+    await this.stopNested();
     try {
-      await this.stream.interrupt();
+      await this.stream?.interrupt();
       this.emit({ kind: "notice", level: "info", text: "Interrupted." });
     } catch (err) {
       this.log.warn(`interrupt failed: ${describe(err)}`);
@@ -168,6 +179,7 @@ export class TeamSession implements vscode.Disposable {
     this.setBusy(false);
     this.disposed = true;
     this.settlePermissions("The session ended before this was approved.");
+    void this.stopNested();
     this.abort.abort();
     this.input.close();
     try { this.stream?.close(); } catch (err) { this.log.warn(`close failed: ${describe(err)}`); }
@@ -177,6 +189,7 @@ export class TeamSession implements vscode.Disposable {
 
   /** Drops the live query but keeps the session usable. */
   private teardown(): void {
+    void this.stopNested();
     this.settlePermissions("The conversation moved to another teammate.");
     try { this.stream?.close(); } catch { /* already gone */ }
     this.stream = undefined;
@@ -291,9 +304,18 @@ export class TeamSession implements vscode.Disposable {
     if (args.kind === "brief") this.emit({ kind: "assign", assignment });
     this.setStatus(args.who, "thinking", args.kind === "consult" ? "answering a consult" : args.headline);
 
+    // Its own controller, chained to the session's, so a single teammate can be
+    // cancelled without tearing down the whole session.
+    const abort = new AbortController();
+    const onSessionAbort = () => abort.abort();
+    this.abort.signal.addEventListener("abort", onSessionAbort, { once: true });
+
+    let handle: { query: Query; abort: AbortController } | undefined;
     try {
-      const nested = query({ prompt: args.prompt, options: this.optionsFor(spec) });
-      const report = await this.consume(nested, args.who, false);
+      const nestedQuery = query({ prompt: args.prompt, options: this.optionsFor(spec, abort) });
+      handle = { query: nestedQuery, abort };
+      this.nested.add(handle);
+      const report = await this.consume(nestedQuery, args.who, false);
       const outcome = /^\s*VERDICT\s*:?\s*(BLOCKED|REJECTED)/im.test(report) ? "blocked" : "delivered";
       if (args.kind === "brief") {
         this.emit({ kind: "deliver", id: args.id, outcome, summary: headlineOf(report) });
@@ -307,7 +329,21 @@ export class TeamSession implements vscode.Disposable {
       }
       this.setStatus(args.who, "idle");
       return `VERDICT: BLOCKED\nThe run failed before producing a report: ${describe(err)}`;
+    } finally {
+      if (handle) this.nested.delete(handle);
+      this.abort.signal.removeEventListener("abort", onSessionAbort);
     }
+  }
+
+  /** Ends every teammate currently running. */
+  private async stopNested(): Promise<void> {
+    const running = [...this.nested];
+    this.nested.clear();
+    for (const { query: q, abort } of running) {
+      abort.abort();
+      try { q.close(); } catch { /* already gone */ }
+    }
+    if (running.length) this.log.info(`stopped ${running.length} teammate run(s)`);
   }
 
   // ----------------------------------------------------------- translation
@@ -316,6 +352,8 @@ export class TeamSession implements vscode.Disposable {
   private async consume(stream: Query, who: TeammateId, isMain: boolean): Promise<string> {
     let turn = "";
     let finalText = "";
+    /** Set when the run ended for any reason other than success. */
+    let failure = "";
 
     for await (const message of stream) {
       if (this.disposed) break;
@@ -412,6 +450,19 @@ export class TeamSession implements vscode.Disposable {
         case "result": {
           if (turn) { this.emit({ kind: "sayEnd", who, turn }); turn = ""; }
           if (message.subtype === "success") finalText = message.result ?? "";
+          else failure = message.subtype;
+
+          // Spend accrues across every run in the session, main and nested.
+          this.spentUsd += message.total_cost_usd ?? 0;
+
+          if (!isMain && message.subtype !== "success") {
+            this.emit({
+              kind: "notice",
+              level: "error",
+              who,
+              text: `${DISPLAY_NAME[who]} stopped: ${describeStop(message.subtype)}`,
+            });
+          }
           if (isMain) {
             const resultRun = this.runId;
             this.emit({
@@ -434,6 +485,10 @@ export class TeamSession implements vscode.Disposable {
       }
     }
 
+    // A truncated run must not read like a completed one.
+    if (failure && !finalText) {
+      return `VERDICT: BLOCKED\nHEADLINE: The run stopped before producing a report — ${describeStop(failure)}.\nNOT COVERED: everything in the brief. Nothing here was verified.\nNEXT: decide whether a narrower brief is worth another run.`;
+    }
     return finalText;
   }
 
@@ -453,7 +508,7 @@ export class TeamSession implements vscode.Disposable {
     };
   }
 
-  private optionsFor(spec: TeammateSpec): Options {
+  private optionsFor(spec: TeammateSpec, abort?: AbortController): Options {
     const policy = policyFor(this.config.autonomy);
     const server = createTeamServer({
       cwd: this.config.cwd,
@@ -500,12 +555,14 @@ export class TeamSession implements vscode.Disposable {
       additionalDirectories: this.config.additionalDirectories ?? [],
       thinking: this.config.thinking === "off" ? { type: "disabled" } : { type: "adaptive" },
       ...(this.config.fallbackModel ? { fallbackModel: this.config.fallbackModel } : {}),
-      ...((this.config.maxSpendUsd ?? 0) > 0 ? { maxBudgetUsd: this.config.maxSpendUsd } : {}),
+      // The SDK's budget is per-query, so each teammate would otherwise get a
+      // fresh ceiling. Hand every run only what is left of the session's.
+      ...(this.remainingBudget() !== undefined ? { maxBudgetUsd: this.remainingBudget() } : {}),
       // Snapshots so rewindFiles() can put the workspace back.
       enableFileCheckpointing: this.config.checkpoints !== false,
       persistSession: this.config.persistSessions !== false,
       // Disposal and interrupt must actually reach the subprocess.
-      abortController: this.abort,
+      abortController: abort ?? this.abort,
       includePartialMessages: true,
       env: this.envSnapshot,
       canUseTool: (name, input, context) => this.requestPermission(spec.id, name, input, context),
@@ -513,7 +570,15 @@ export class TeamSession implements vscode.Disposable {
     };
   }
 
-  private envSnapshot: Record<string, string | undefined> = {};
+  /**
+   * Seeded from the host environment so that a missed `prepare()` degrades to
+   * "inherits our env" rather than "no env at all" — `env` REPLACES the
+   * subprocess environment, so `{}` means no PATH, no HOME, no credential.
+   */
+  private envSnapshot: Record<string, string | undefined> = { ...process.env };
+  private preparing: Promise<void> | undefined;
+  /** Cumulative across the main thread and every teammate. */
+  private spentUsd = 0;
   private preamble: string | undefined;
 
   /**
@@ -521,6 +586,13 @@ export class TeamSession implements vscode.Disposable {
    * a subagent starts with an empty context, so orientation it would otherwise
    * spend tool calls rediscovering is the cheapest thing we can hand it.
    */
+  /** What is left of the user's ceiling, or undefined when uncapped. */
+  private remainingBudget(): number | undefined {
+    const cap = this.config.maxSpendUsd ?? 0;
+    if (cap <= 0) return undefined;
+    return Math.max(0.01, cap - this.spentUsd);
+  }
+
   private projectPreamble(): string {
     if (this.preamble === undefined) {
       this.preamble = contextPreamble(
@@ -531,8 +603,12 @@ export class TeamSession implements vscode.Disposable {
   }
 
   /** Resolved once per session so a nested run can't race the secret store. */
-  async prepare(): Promise<void> {
-    this.envSnapshot = await this.billing.environment();
+  prepare(): Promise<void> {
+    this.preparing ??= this.billing
+      .environment()
+      .then((env) => { this.envSnapshot = env; })
+      .catch((err) => { this.log.error(`billing environment failed: ${describe(err)}`); });
+    return this.preparing;
   }
 
   private async publishRoster(
@@ -829,6 +905,16 @@ function shortPath(p: string): string {
 
 function cryptoId(): string {
   return crypto.randomUUID();
+}
+
+/** Turns an SDK result subtype into something a person can act on. */
+function describeStop(subtype: string): string {
+  switch (subtype) {
+    case "error_max_turns": return "it hit its turn limit";
+    case "error_max_budget_usd": return "the spend cap was reached";
+    case "error_during_execution": return "it failed during execution";
+    default: return subtype.replace(/^error_/, "").replace(/_/g, " ");
+  }
 }
 
 function describe(err: unknown): string {

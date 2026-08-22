@@ -1,13 +1,14 @@
 import * as vscode from "vscode";
 import { resolveClaudeExecutable } from "../cli";
 import { Billing } from "../billing";
-import type { Autonomy } from "../policy";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { TEAMMATES, type TeamEvent, type TeammateId, type UiCommand } from "./events";
 import { TeamSession, type TeamConfig } from "./orchestrator";
 import { discoverProjects } from "./project";
+import { SettingsTrust } from "./trust";
 import { describeAuth, readAuthStatus } from "../auth";
 
 type Readiness = { ok: true; config: TeamConfig } | { ok: false; reason: string };
@@ -56,6 +57,9 @@ export class TeamController implements vscode.Disposable {
   readonly billing: Billing;
 
   private readonly memento: vscode.Memento;
+  readonly trust: SettingsTrust;
+  /** Warnings already shown, so a settings change does not repeat them. */
+  private shownWarnings = new Set<string>();
 
   constructor(
     context: vscode.ExtensionContext,
@@ -63,6 +67,7 @@ export class TeamController implements vscode.Disposable {
   ) {
     this.billing = new Billing(context.secrets);
     this.memento = context.workspaceState;
+    this.trust = new SettingsTrust(context.workspaceState);
     this.activeFolderPath = this.memento.get<string>("cadre.activeFolder");
     this.watchCredentials();
   }
@@ -472,24 +477,34 @@ export class TeamController implements vscode.Disposable {
     const per = <T>(key: string): Partial<Record<TeammateId, T>> =>
       Object.fromEntries(TEAMMATES.map((id) => [id, cfg.get<T>(`${id}.${key}`)]).filter(([, v]) => v));
 
+    // A repository can ship .vscode/settings.json. Anything in it that would
+    // widen permissions or start a process is clamped until explicitly allowed.
+    const vetted = this.trust.vet(cfg);
+    for (const warning of vetted.warnings) {
+      if (this.shownWarnings.has(warning)) continue;
+      this.shownWarnings.add(warning);
+      this.broadcast({ kind: "notice", level: "warn", text: warning });
+      this.log.warn(warning);
+    }
+
     return {
       ok: true,
       config: {
         cwd,
         executablePath,
-        autonomy: cfg.get<Autonomy>("autonomy") ?? "standard",
+        autonomy: vetted.autonomy,
         inheritGlobalConfig: cfg.get<boolean>("inheritGlobalConfig") ?? false,
         directLine: cfg.get<boolean>("directLine") ?? false,
         models: per<string>("model"),
         efforts: per<string>("effort"),
         skills: cfg.get<string[]>("playbooks")?.length ? cfg.get<string[]>("playbooks") : undefined,
-        connectors: cfg.get<Record<string, unknown>>("connectors") ?? {},
+        connectors: vetted.connectors,
         thinking: cfg.get<"adaptive" | "off">("thinking") ?? "adaptive",
         fallbackModel: cfg.get<string>("fallbackModel") ?? "",
         maxSpendUsd: cfg.get<number>("maxSpendUsd") ?? 0,
         checkpoints: cfg.get<boolean>("checkpoints") ?? true,
         additionalDirectories: cfg.get<string[]>("additionalDirectories") ?? [],
-        plugins: cfg.get<string[]>("plugins") ?? [],
+        plugins: vetted.plugins,
         exclusiveConnectors: cfg.get<boolean>("exclusiveConnectors") ?? false,
         persistSessions: cfg.get<boolean>("persistSessions") ?? true,
         documentation: cfg.get<"off" | "substantial" | "always">("documentation") ?? "substantial",
@@ -497,6 +512,15 @@ export class TeamController implements vscode.Disposable {
         resumeSessionId: this.pendingResume,
       },
     };
+  }
+
+  /** The folder-scoped configuration the trust review acts on. */
+  configForActiveFolder(): vscode.WorkspaceConfiguration {
+    return vscode.workspace.getConfiguration("cadre", this.activeFolder()?.uri);
+  }
+
+  forgetShownWarnings(): void {
+    this.shownWarnings.clear();
   }
 
   private directLineEnabled(): boolean {
