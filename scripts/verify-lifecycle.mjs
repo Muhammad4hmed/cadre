@@ -23,6 +23,8 @@ const vscodeStub = {
       answers.offered = choices;
       return answers.pick(choices);
     },
+    showQuickPick: async (items) => answers.pick(await items),
+    showInputBox: async () => answers.typed,
   },
   commands: { executeCommand: async () => undefined },
   Disposable: class { constructor(fn) { this.dispose = fn || (() => {}); } },
@@ -605,6 +607,54 @@ fake.__instances.length = 0;
 
   fake.__instances[1].end();
   await running.catch(() => {});
+  session.dispose();
+}
+
+// ---- T. AskUserQuestion must actually reach the user -----------------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  const ask = {
+    questions: [{
+      question: "Where will this run?", header: "Target", multiSelect: false,
+      options: [
+        { label: "On-device", description: "phones and laptops" },
+        { label: "Server", description: "our own hardware" },
+      ],
+    }],
+  };
+
+  // The user picks the first option.
+  answers.pick = (items) => items[0];
+  const answered = await gate("AskUserQuestion", ask, ctx);
+  check("T1 asking is allowed, not treated as a permission request",
+    answered.behavior === "allow");
+  check("T2 the answer comes back keyed by the question text",
+    answered.updatedInput?.answers?.["Where will this run?"] === "On-device");
+  check("T3 the questions survive alongside the answers",
+    Array.isArray(answered.updatedInput?.questions));
+  check("T4 the exchange is shown in the transcript",
+    of("userSaid").some((e) => /Where will this run/.test(e.text) && /On-device/.test(e.text)));
+
+  // Dismissing is a real answer: stop and reconsider.
+  answers.pick = () => undefined;
+  const dismissed = await gate("AskUserQuestion", ask, ctx);
+  check("T5 dismissing the question denies rather than inventing an answer",
+    dismissed.behavior === "deny" && /dismissed/i.test(dismissed.message));
+
+  // Multi-select joins the choices.
+  answers.pick = (items) => [items[0], items[1]];
+  const multi = await gate("AskUserQuestion",
+    { questions: [{ ...ask.questions[0], multiSelect: true }] }, ctx);
+  check("T6 multi-select answers are joined",
+    multi.updatedInput?.answers?.["Where will this run?"] === "On-device, Server");
+
+  answers.pick = (c) => c[0];
   session.dispose();
 }
 

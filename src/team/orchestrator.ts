@@ -649,6 +649,11 @@ export class TeamSession implements vscode.Disposable {
     const deny = (message: string): PermissionResult => ({ behavior: "deny", message });
     if (this.disposed) return deny("The session has ended.");
 
+    // AskUserQuestion is not a permission decision — it is the question itself.
+    // The CLI has no renderer here, so the host collects the answers and hands
+    // them back on the tool input.
+    if (shortToolName(name) === "AskUserQuestion") return this.askUser(who, input);
+
     // The Lead's scratchpad confinement. Its prompt says it has no editor outside
     // .cadre/, but a prompt is not an enforcement mechanism — without this the
     // Lead can quietly do the Engineer's job and the team becomes theatre.
@@ -707,6 +712,72 @@ export class TeamSession implements vscode.Disposable {
       if (settle) this.pendingPermissions.delete(settle);
       if (!this.disposed) this.setStatus(who, "working");
     }
+  }
+
+  /**
+   * Renders the teammate's question and returns the answers on the tool input.
+   *
+   * The output schema carries `answers` as a question-text → answer map, so
+   * that is the shape the CLI expects back. Without this the tool completes
+   * with nothing and the teammate proceeds as if it had never asked.
+   */
+  private async askUser(
+    who: TeammateId,
+    input: Record<string, unknown>,
+  ): Promise<PermissionResult> {
+    const questions = Array.isArray(input.questions) ? (input.questions as RawQuestion[]) : [];
+    if (!questions.length) return { behavior: "allow", updatedInput: input };
+
+    this.setStatus(who, "waiting", "waiting on your answer");
+    const answers: Record<string, string> = {};
+    const OTHER = "$(edit) Something else…";
+
+    try {
+      for (const q of questions) {
+        const options = Array.isArray(q?.options) ? q.options : [];
+        const items: vscode.QuickPickItem[] = options.map((o) => ({
+          label: String(o?.label ?? ""),
+          detail: o?.description ? String(o.description) : undefined,
+        }));
+        items.push({ label: OTHER, detail: "Type your own answer" });
+
+        const multi = q?.multiSelect === true;
+        const picked = await vscode.window.showQuickPick(items, {
+          title: `${DISPLAY_NAME[who]} asks — ${String(q?.header ?? "")}`,
+          placeHolder: String(q?.question ?? ""),
+          canPickMany: multi,
+          ignoreFocusOut: true,
+        });
+
+        // Dismissing is a real answer: it means "stop and reconsider".
+        if (!picked || (Array.isArray(picked) && !picked.length)) {
+          return { behavior: "deny", message: "The user dismissed the question without answering." };
+        }
+
+        const chosen = Array.isArray(picked) ? picked : [picked];
+        const labels: string[] = [];
+        for (const item of chosen) {
+          if (item.label !== OTHER) { labels.push(item.label); continue; }
+          const typed = await vscode.window.showInputBox({
+            title: String(q?.question ?? "Your answer"),
+            prompt: "In your own words.",
+            ignoreFocusOut: true,
+          });
+          if (typed === undefined) {
+            return { behavior: "deny", message: "The user dismissed the question without answering." };
+          }
+          labels.push(typed);
+        }
+        answers[String(q?.question ?? "")] = labels.join(", ");
+      }
+    } finally {
+      if (!this.disposed) this.setStatus(who, "thinking");
+    }
+
+    for (const [question, answer] of Object.entries(answers)) {
+      this.emit({ kind: "userSaid", to: who, text: `${question}\n→ ${answer}` });
+    }
+    return { behavior: "allow", updatedInput: { ...input, answers } };
   }
 
   /**
@@ -772,6 +843,14 @@ const AUTH_ERRORS: Record<string, string> = {
   account_on_hold: "This Claude account is on hold.",
   billing_error: "Billing could not be authorised for this account.",
 };
+
+/** The shape AskUserQuestion sends; validated defensively since it is model output. */
+interface RawQuestion {
+  question?: unknown;
+  header?: unknown;
+  multiSelect?: unknown;
+  options?: { label?: unknown; description?: unknown }[];
+}
 
 const TEAM_PREFIX = "mcp__team__";
 

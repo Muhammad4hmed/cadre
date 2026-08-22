@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2
+
+**Fixed: the Lead could ask you a question and you would never see it.**
+`AskUserQuestion` rendered as a raw tool chip and completed with nothing, so the teammate
+carried on as though it had never asked — and the answer it needed was the thing steering
+the plan.
+
+The CLI has no renderer inside an extension host, so the host has to collect the answers
+itself. Cadre now shows each question as a picker with the model's own options plus a
+free-text choice, hands the answers back on the tool input, and records the exchange in
+the transcript. Dismissing the picker is treated as "stop and reconsider" rather than
+answered-with-nothing. Verified against the real CLI, not just unit-tested.
+
 ## 0.1.1
 
 **Fixed: choosing "autonomous" did nothing.** `Cadre: Set Autonomy` writes to workspace
