@@ -82,6 +82,15 @@ const TEAM = [
   { kind: "deliver", id: "R-01", outcome: "delivered",
     summary: "Confirmed in 1.2: the beam ends at encoder_len, which excludes the pad frame carrying the final token." },
   { kind: "spend", usd: 0.4127, turns: 6, durationMs: 74300 },
+  { kind: "ask", id: "q1", who: "lead", questions: [{
+    question: "Native Urdu quality comes from either a paid API or a self-hosted model you fine-tune. Which fits your constraints? This changes the whole plan, so I want your answer before committing.",
+    header: "Ownership", multiSelect: false,
+    options: [
+      { label: "Paid API is fine", description: "ElevenLabs or Azure ur-PK. Native quality, working in an afternoon, per-use cost, no model to maintain." },
+      { label: "Must be self-hosted", description: "Fine-tune F5-TTS or VITS on an Urdu corpus. No per-use fees and full control, but days of data and GPU work." },
+      { label: "Start cheap, own it later", description: "Prototype on an API now to prove quality, then invest in a fine-tune if it is worth it." },
+    ],
+  }] },
 ];
 
 const SESSIONS = {

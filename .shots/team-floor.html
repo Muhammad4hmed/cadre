@@ -367,6 +367,70 @@ details.reasoning .body { margin-top: 4px; font-size: 0.92em; color: var(--dim);
 .assignment[data-outcome="blocked"] { border-color: var(--vscode-inputValidation-warningBorder); }
 .assignment[data-outcome="failed"]  { border-color: var(--vscode-inputValidation-errorBorder); }
 
+/* --------------------------------------------------------------- questions */
+
+.ask {
+  border: 1px solid var(--lane-accent);
+  border-radius: 8px;
+  padding: 12px 13px;
+  background: color-mix(in srgb, var(--lane-accent) 7%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask .who {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+}
+
+/* The whole point: the question wraps instead of being clipped to one line. */
+.ask .q {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ask .choices { display: flex; flex-direction: column; gap: 5px; }
+
+.ask .choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--vscode-editor-background, transparent);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.ask .choice:hover { border-color: var(--lane-accent); }
+.ask .choice[aria-pressed="true"] { border-color: var(--lane-accent); background: color-mix(in srgb, var(--lane-accent) 14%, transparent); }
+.ask .choice .label { font-size: 12.5px; font-weight: 600; }
+.ask .choice .why { font-size: 11px; color: var(--dim); line-height: 1.45; }
+
+.ask .own { display: flex; gap: 6px; }
+.ask .own input {
+  flex: 1 1 auto;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--edge));
+  border-radius: 6px;
+}
+.ask .actions { display: flex; gap: 6px; justify-content: flex-end; }
+.ask[data-done="true"] { opacity: 0.6; border-style: dashed; }
+.ask[data-done="true"] .choices, .ask[data-done="true"] .own, .ask[data-done="true"] .actions { display: none; }
+.ask .answered { font-size: 11.5px; color: var(--dim); }
+
 /* ---------------------------------------------------------------- notices */
 
 .notice {
@@ -782,6 +846,8 @@ button.chip.account[data-state="out"] {
     assignments: new Map(),
     /** Images staged for the next message. */
     pending: [],
+    /** Question cards awaiting an answer. */
+    asks: new Map(),
   };
 
   // The API accepts up to ~5 MB an image; a phone screenshot often exceeds that
@@ -982,6 +1048,106 @@ button.chip.account[data-state="out"] {
         return;
       }
 
+      case "ask": {
+        const card = node("div", "ask");
+        card.dataset.who = e.who;
+        card.appendChild(node("div", "who", NAME[e.who] + " asks"));
+
+        /** question text -> chosen labels */
+        const chosen = new Map();
+        const buttons = [];
+
+        for (const q of e.questions) {
+          const block = node("div", "choices");
+          card.appendChild(node("div", "q", q.question));
+
+          for (const option of q.options) {
+            const button = node("button", "choice");
+            button.setAttribute("aria-pressed", "false");
+            button.appendChild(node("span", "label", option.label));
+            if (option.description) button.appendChild(node("span", "why", option.description));
+            button.addEventListener("click", () => {
+              const current = chosen.get(q.question) ?? [];
+              if (q.multiSelect) {
+                const at = current.indexOf(option.label);
+                if (at >= 0) current.splice(at, 1);
+                else current.push(option.label);
+                button.setAttribute("aria-pressed", String(at < 0));
+                chosen.set(q.question, current);
+                return;
+              }
+              for (const other of buttons) {
+                if (other.q === q.question) other.el.setAttribute("aria-pressed", "false");
+              }
+              button.setAttribute("aria-pressed", "true");
+              chosen.set(q.question, [option.label]);
+              maybeSubmit();
+            });
+            buttons.push({ q: q.question, el: button });
+            block.appendChild(button);
+          }
+
+          const own = node("div", "own");
+          const field = document.createElement("input");
+          field.type = "text";
+          field.placeholder = "Something else…";
+          field.addEventListener("input", () => {
+            if (field.value.trim()) {
+              chosen.set(q.question, [field.value.trim()]);
+              for (const b of buttons) if (b.q === q.question) b.el.setAttribute("aria-pressed", "false");
+            } else {
+              chosen.delete(q.question);
+            }
+          });
+          field.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter") { ev.preventDefault(); maybeSubmit(true); }
+          });
+          own.appendChild(field);
+          block.appendChild(own);
+          card.appendChild(block);
+        }
+
+        const actions = node("div", "actions");
+        const skip = node("button", "ghost", "Skip");
+        skip.addEventListener("click", () => {
+          vscode.postMessage({ kind: "answerCancelled", id: e.id });
+          settle("Skipped — the teammate was told you declined.");
+        });
+        const send = node("button", "primary", "Answer");
+        send.addEventListener("click", () => maybeSubmit(true));
+        actions.appendChild(skip);
+        actions.appendChild(send);
+        card.appendChild(actions);
+
+        function settle(summary) {
+          card.dataset.done = "true";
+          card.appendChild(node("div", "answered", summary));
+        }
+
+        /** Auto-sends only when every single-select question has an answer. */
+        function maybeSubmit(force) {
+          const complete = e.questions.every((q) => (chosen.get(q.question) ?? []).length > 0);
+          const anyMulti = e.questions.some((q) => q.multiSelect);
+          if (!complete) { if (force) field?.focus?.(); return; }
+          if (!force && anyMulti) return;   // multi-select needs an explicit Answer
+          const answers = {};
+          for (const [question, labels] of chosen) answers[question] = labels.join(", ");
+          vscode.postMessage({ kind: "answer", id: e.id, answers });
+          settle(Object.values(answers).join("  ·  "));
+        }
+
+        state.asks.set(e.id, { settle });
+        place(e.who, card);
+        return;
+      }
+
+      case "askClosed": {
+        const entry = state.asks.get(e.id);
+        if (entry && !e.answered) entry.settle("Question closed without an answer.");
+        state.asks.delete(e.id);
+        return;
+      }
+
       case "notice":
         place(e.who || "lead", node("div", "notice " + e.level, e.text));
         return;
@@ -1011,6 +1177,7 @@ button.chip.account[data-state="out"] {
     state.live.clear();
     state.acts.clear();
     state.assignments.clear();
+    state.asks.clear();
     if (!state.log.length) { showEmpty(); return; }
     for (const e of state.log) renderEvent(e);
   }
@@ -1154,7 +1321,7 @@ button.chip.account[data-state="out"] {
 
       card.addEventListener("click", () => {
         if (state.channelLocked && who !== "lead") {
-          vscode.postMessage({ kind: "configure", setting: "cadre.directLine" });
+          vscode.postMessage({ kind: "requestDirectLine", to: who });
           return;
         }
         setChannel(who);
@@ -1213,7 +1380,7 @@ button.chip.account[data-state="out"] {
     el.stop.hidden = !state.busy;
     el.channel.disabled = state.channelLocked;
     el.channel.title = state.channelLocked
-      ? "Direct line is off — enable it in settings to talk to a teammate directly"
+      ? "Direct line is off — click a teammate above to turn it on"
       : "Choose who to talk to";
   }
 
@@ -1477,7 +1644,7 @@ button.chip.account[data-state="out"] {
 </script>
 <script>
   const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
-  const script = [{"kind":"screen","screen":"team"},{"kind":"roster","workspace":"…/pipeline","autonomy":"Standard — edits flow, risky commands ask","billing":"Claude subscription","connectors":[{"name":"kaggle","ok":true,"status":"connected"}],"members":[{"id":"lead","name":"Lead","role":"Interrogates the brief, decides scope, delegates","model":"opus","effort":"high","status":"thinking","activity":"reading the report"},{"id":"researcher","name":"Researcher","role":"Reads papers, docs and the web","model":"opus","effort":"high","status":"working","activity":"arxiv.org — CTC vs attention"},{"id":"engineer","name":"Engineer","role":"Writes, edits and runs the code","model":"opus","effort":"xhigh","status":"working","activity":"pytest tests/test_decode.py"}]},{"kind":"sendability","ok":true},{"kind":"userSaid","to":"lead","text":"Our ASR pipeline drops the last word on long audio. Fix it."},{"kind":"say","who":"lead","turn":"t1","delta":"Reproduced from your description, not yet from a run — I have no shell.\n\n**Goal:** stop the final token being truncated on utterances over ~30s.\n**Not doing:** the streaming path. Different code, and you did not ask.\n**Riskiest assumption:** this is the decoder's length cap, not the VAD trimming audio. If I am wrong we have spent one Engineer run.\n\nTwo briefs going out together."},{"kind":"assign","assignment":{"id":"R-01","from":"lead","to":"researcher","brief":"Does CTC beam search truncate the final token when the encoder output is padded? Answer for our installed version.","startedAt":0}},{"kind":"assign","assignment":{"id":"E-01","from":"lead","to":"engineer","brief":"Reproduce the dropped final word with a failing test over a 45s sample.","startedAt":0}},{"kind":"say","who":"researcher","turn":"t2","delta":"Reading the decoder source rather than the docs — the docs describe 0.9 and the lockfile pins 1.2."},{"kind":"act","who":"researcher","act":"a1","tool":"WebFetch","summary":"github.com/…/ctc_decoder.py"},{"kind":"actEnd","who":"researcher","act":"a1","ok":true,"summary":"fetched"},{"kind":"act","who":"researcher","act":"a2","tool":"Grep","summary":"max_length  in  site-packages/asr"},{"kind":"actEnd","who":"researcher","act":"a2","ok":true,"summary":"3 matches"},{"kind":"say","who":"engineer","turn":"t3","delta":"Writing the failing test first — a fix for a failure I never saw is unverified."},{"kind":"act","who":"engineer","act":"b1","tool":"Read","summary":"src/decode.py"},{"kind":"actEnd","who":"engineer","act":"b1","ok":true,"summary":"read 212 lines"},{"kind":"act","who":"engineer","act":"b2","tool":"Bash","summary":"pytest tests/test_decode.py -k long_audio"},{"kind":"actEnd","who":"engineer","act":"b2","ok":false,"summary":"1 failed — assert 'four' in transcript"},{"kind":"act","who":"engineer","act":"b3","tool":"Edit","summary":"src/decode.py"},{"kind":"deliver","id":"R-01","outcome":"delivered","summary":"Confirmed in 1.2: the beam ends at encoder_len, which excludes the pad frame carrying the final token."},{"kind":"spend","usd":0.4127,"turns":6,"durationMs":74300}];
+  const script = [{"kind":"screen","screen":"team"},{"kind":"roster","workspace":"…/pipeline","autonomy":"Standard — edits flow, risky commands ask","billing":"Claude subscription","connectors":[{"name":"kaggle","ok":true,"status":"connected"}],"members":[{"id":"lead","name":"Lead","role":"Interrogates the brief, decides scope, delegates","model":"opus","effort":"high","status":"thinking","activity":"reading the report"},{"id":"researcher","name":"Researcher","role":"Reads papers, docs and the web","model":"opus","effort":"high","status":"working","activity":"arxiv.org — CTC vs attention"},{"id":"engineer","name":"Engineer","role":"Writes, edits and runs the code","model":"opus","effort":"xhigh","status":"working","activity":"pytest tests/test_decode.py"}]},{"kind":"sendability","ok":true},{"kind":"userSaid","to":"lead","text":"Our ASR pipeline drops the last word on long audio. Fix it."},{"kind":"say","who":"lead","turn":"t1","delta":"Reproduced from your description, not yet from a run — I have no shell.\n\n**Goal:** stop the final token being truncated on utterances over ~30s.\n**Not doing:** the streaming path. Different code, and you did not ask.\n**Riskiest assumption:** this is the decoder's length cap, not the VAD trimming audio. If I am wrong we have spent one Engineer run.\n\nTwo briefs going out together."},{"kind":"assign","assignment":{"id":"R-01","from":"lead","to":"researcher","brief":"Does CTC beam search truncate the final token when the encoder output is padded? Answer for our installed version.","startedAt":0}},{"kind":"assign","assignment":{"id":"E-01","from":"lead","to":"engineer","brief":"Reproduce the dropped final word with a failing test over a 45s sample.","startedAt":0}},{"kind":"say","who":"researcher","turn":"t2","delta":"Reading the decoder source rather than the docs — the docs describe 0.9 and the lockfile pins 1.2."},{"kind":"act","who":"researcher","act":"a1","tool":"WebFetch","summary":"github.com/…/ctc_decoder.py"},{"kind":"actEnd","who":"researcher","act":"a1","ok":true,"summary":"fetched"},{"kind":"act","who":"researcher","act":"a2","tool":"Grep","summary":"max_length  in  site-packages/asr"},{"kind":"actEnd","who":"researcher","act":"a2","ok":true,"summary":"3 matches"},{"kind":"say","who":"engineer","turn":"t3","delta":"Writing the failing test first — a fix for a failure I never saw is unverified."},{"kind":"act","who":"engineer","act":"b1","tool":"Read","summary":"src/decode.py"},{"kind":"actEnd","who":"engineer","act":"b1","ok":true,"summary":"read 212 lines"},{"kind":"act","who":"engineer","act":"b2","tool":"Bash","summary":"pytest tests/test_decode.py -k long_audio"},{"kind":"actEnd","who":"engineer","act":"b2","ok":false,"summary":"1 failed — assert 'four' in transcript"},{"kind":"act","who":"engineer","act":"b3","tool":"Edit","summary":"src/decode.py"},{"kind":"deliver","id":"R-01","outcome":"delivered","summary":"Confirmed in 1.2: the beam ends at encoder_len, which excludes the pad frame carrying the final token."},{"kind":"spend","usd":0.4127,"turns":6,"durationMs":74300},{"kind":"ask","id":"q1","who":"lead","questions":[{"question":"Native Urdu quality comes from either a paid API or a self-hosted model you fine-tune. Which fits your constraints? This changes the whole plan, so I want your answer before committing.","header":"Ownership","multiSelect":false,"options":[{"label":"Paid API is fine","description":"ElevenLabs or Azure ur-PK. Native quality, working in an afternoon, per-use cost, no model to maintain."},{"label":"Must be self-hosted","description":"Fine-tune F5-TTS or VITS on an Urdu corpus. No per-use fees and full control, but days of data and GPU work."},{"label":"Start cheap, own it later","description":"Prototype on an API now to prove quality, then invest in a fine-tune if it is worth it."}]}]}];
   // Deltas are delivered in one pass; the streaming path is the same code.
   for (const e of script) send(e);
   document.title = "ready";

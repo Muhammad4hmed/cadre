@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.0
+
+**Questions are now asked in the conversation, not in a dropdown.**
+
+A teammate's question used to open a native quick pick, which puts the question in a
+placeholder — one line, clipped. These are the most important sentences in the
+conversation, and they were the ones getting truncated.
+
+A question now appears as a card in that teammate's lane: the full text wraps, each option
+shows its reasoning, there is a field for an answer of your own, and **Skip** tells the
+teammate you declined rather than leaving it to guess. Picking a single-choice answer sends
+immediately; multi-select waits for **Answer**. An interrupt settles an open question
+instead of leaving the run parked.
+
 ## 0.2.2
 
 Two features existed but were undiscoverable, which makes them close to not existing.

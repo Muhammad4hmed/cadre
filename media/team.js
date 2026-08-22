@@ -60,6 +60,8 @@
     assignments: new Map(),
     /** Images staged for the next message. */
     pending: [],
+    /** Question cards awaiting an answer. */
+    asks: new Map(),
   };
 
   // The API accepts up to ~5 MB an image; a phone screenshot often exceeds that
@@ -260,6 +262,106 @@
         return;
       }
 
+      case "ask": {
+        const card = node("div", "ask");
+        card.dataset.who = e.who;
+        card.appendChild(node("div", "who", NAME[e.who] + " asks"));
+
+        /** question text -> chosen labels */
+        const chosen = new Map();
+        const buttons = [];
+
+        for (const q of e.questions) {
+          const block = node("div", "choices");
+          card.appendChild(node("div", "q", q.question));
+
+          for (const option of q.options) {
+            const button = node("button", "choice");
+            button.setAttribute("aria-pressed", "false");
+            button.appendChild(node("span", "label", option.label));
+            if (option.description) button.appendChild(node("span", "why", option.description));
+            button.addEventListener("click", () => {
+              const current = chosen.get(q.question) ?? [];
+              if (q.multiSelect) {
+                const at = current.indexOf(option.label);
+                if (at >= 0) current.splice(at, 1);
+                else current.push(option.label);
+                button.setAttribute("aria-pressed", String(at < 0));
+                chosen.set(q.question, current);
+                return;
+              }
+              for (const other of buttons) {
+                if (other.q === q.question) other.el.setAttribute("aria-pressed", "false");
+              }
+              button.setAttribute("aria-pressed", "true");
+              chosen.set(q.question, [option.label]);
+              maybeSubmit();
+            });
+            buttons.push({ q: q.question, el: button });
+            block.appendChild(button);
+          }
+
+          const own = node("div", "own");
+          const field = document.createElement("input");
+          field.type = "text";
+          field.placeholder = "Something else…";
+          field.addEventListener("input", () => {
+            if (field.value.trim()) {
+              chosen.set(q.question, [field.value.trim()]);
+              for (const b of buttons) if (b.q === q.question) b.el.setAttribute("aria-pressed", "false");
+            } else {
+              chosen.delete(q.question);
+            }
+          });
+          field.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter") { ev.preventDefault(); maybeSubmit(true); }
+          });
+          own.appendChild(field);
+          block.appendChild(own);
+          card.appendChild(block);
+        }
+
+        const actions = node("div", "actions");
+        const skip = node("button", "ghost", "Skip");
+        skip.addEventListener("click", () => {
+          vscode.postMessage({ kind: "answerCancelled", id: e.id });
+          settle("Skipped — the teammate was told you declined.");
+        });
+        const send = node("button", "primary", "Answer");
+        send.addEventListener("click", () => maybeSubmit(true));
+        actions.appendChild(skip);
+        actions.appendChild(send);
+        card.appendChild(actions);
+
+        function settle(summary) {
+          card.dataset.done = "true";
+          card.appendChild(node("div", "answered", summary));
+        }
+
+        /** Auto-sends only when every single-select question has an answer. */
+        function maybeSubmit(force) {
+          const complete = e.questions.every((q) => (chosen.get(q.question) ?? []).length > 0);
+          const anyMulti = e.questions.some((q) => q.multiSelect);
+          if (!complete) { if (force) field?.focus?.(); return; }
+          if (!force && anyMulti) return;   // multi-select needs an explicit Answer
+          const answers = {};
+          for (const [question, labels] of chosen) answers[question] = labels.join(", ");
+          vscode.postMessage({ kind: "answer", id: e.id, answers });
+          settle(Object.values(answers).join("  ·  "));
+        }
+
+        state.asks.set(e.id, { settle });
+        place(e.who, card);
+        return;
+      }
+
+      case "askClosed": {
+        const entry = state.asks.get(e.id);
+        if (entry && !e.answered) entry.settle("Question closed without an answer.");
+        state.asks.delete(e.id);
+        return;
+      }
+
       case "notice":
         place(e.who || "lead", node("div", "notice " + e.level, e.text));
         return;
@@ -289,6 +391,7 @@
     state.live.clear();
     state.acts.clear();
     state.assignments.clear();
+    state.asks.clear();
     if (!state.log.length) { showEmpty(); return; }
     for (const e of state.log) renderEvent(e);
   }

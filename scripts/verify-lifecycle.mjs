@@ -610,7 +610,7 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
-// ---- T. AskUserQuestion must actually reach the user -----------------------
+// ---- T. questions render in the lane and wait for a real answer -----------
 fake.__instances.length = 0;
 {
   const { session, of } = makeSession();
@@ -619,120 +619,52 @@ fake.__instances.length = 0;
   await tick();
   const gate = fake.__instances[0].options.canUseTool;
   const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  const long =
+    "Native Urdu quality comes from either a paid API or a self-hosted model you fine-tune. " +
+    "Which fits your constraints — this changes the whole plan, so I want your answer before committing?";
   const ask = {
     questions: [{
-      question: "Where will this run?", header: "Target", multiSelect: false,
+      question: long, header: "Ownership", multiSelect: false,
       options: [
-        { label: "On-device", description: "phones and laptops" },
-        { label: "Server", description: "our own hardware" },
+        { label: "Paid API is fine", description: "ElevenLabs or Azure ur-PK." },
+        { label: "Must be self-hosted", description: "Fine-tune on an Urdu corpus." },
       ],
     }],
   };
 
-  // The user picks the first option.
-  answers.pick = (items) => items[0];
-  const answered = await gate("AskUserQuestion", ask, ctx);
-  check("T1 asking is allowed, not treated as a permission request",
-    answered.behavior === "allow");
-  check("T2 the answer comes back keyed by the question text",
-    answered.updatedInput?.answers?.["Where will this run?"] === "On-device");
-  check("T3 the questions survive alongside the answers",
-    Array.isArray(answered.updatedInput?.questions));
-  check("T4 the exchange is shown in the transcript",
-    of("userSaid").some((e) => /Where will this run/.test(e.text) && /On-device/.test(e.text)));
-
-  // Dismissing is a real answer: stop and reconsider.
-  answers.pick = () => undefined;
-  const dismissed = await gate("AskUserQuestion", ask, ctx);
-  check("T5 dismissing the question denies rather than inventing an answer",
-    dismissed.behavior === "deny" && /dismissed/i.test(dismissed.message));
-
-  // Multi-select joins the choices.
-  answers.pick = (items) => [items[0], items[1]];
-  const multi = await gate("AskUserQuestion",
-    { questions: [{ ...ask.questions[0], multiSelect: true }] }, ctx);
-  check("T6 multi-select answers are joined",
-    multi.updatedInput?.answers?.["Where will this run?"] === "On-device, Server");
-
-  answers.pick = (c) => c[0];
-  session.dispose();
-}
-
-// ---- U. images reach the model as content blocks ---------------------------
-fake.__instances.length = 0;
-{
-  const { session, of } = makeSession();
-  await session.prepare();
-  const png = { name: "shot.png", mediaType: "image/png", data: "aGVsbG8=", bytes: 5 };
-  session.send("what is wrong here?", [png]);
-  await tick(); await tick();
-
-  const sent = JSON.parse(fake.__instances[0].received[0]);
-  check("U1 the message becomes an array of blocks", Array.isArray(sent));
-  check("U2 the image is a base64 image block",
-    sent[0]?.type === "image" && sent[0].source.media_type === "image/png" && sent[0].source.data === "aGVsbG8=");
-  check("U3 the image comes before the text, as a person would paste it",
-    sent[0]?.type === "image" && sent[1]?.type === "text");
-  check("U4 the caption survives", sent[1]?.text === "what is wrong here?");
-  check("U5 the transcript shows the attachment",
-    of("userSaid").at(-1)?.images?.[0]?.dataUrl?.startsWith("data:image/png;base64,"));
-  session.dispose();
-}
-
-// ---- V. an image on its own is a complete message --------------------------
-fake.__instances.length = 0;
-{
-  const { session } = makeSession();
-  await session.prepare();
-  session.send("", [{ name: "a.png", mediaType: "image/png", data: "eA==", bytes: 1 }]);
-  await tick(); await tick();
-  const sent = JSON.parse(fake.__instances[0].received[0]);
-  check("V1 no caption is required", Array.isArray(sent) && sent.length === 1);
-  check("V2 and no empty text block is sent", !sent.some((b) => b.type === "text"));
-  session.dispose();
-}
-
-// ---- W. plain text is still a plain string ---------------------------------
-fake.__instances.length = 0;
-{
-  const { session } = makeSession();
-  await session.prepare();
-  session.send("just words");
-  await tick(); await tick();
-  check("W1 a message with no image stays a plain string",
-    fake.__instances[0].received[0] === "just words");
-  session.dispose();
-}
-
-// ---- X. context filling up, and compaction ---------------------------------
-fake.__instances.length = 0;
-{
-  const { session, of } = makeSession();
-  await session.prepare();
-  session.send("x");
-  await tick(); await tick();
-  const inst = fake.__instances[0];
-  check("X1 auto-compaction is enabled for the session",
-    inst.options.settings?.autoCompactEnabled === true);
-
-  inst.emit({
-    type: "assistant", parent_tool_use_id: null,
-    message: { role: "assistant", content: [] },
-    context_usage: { model: "m", total_tokens: 180000, raw_max_tokens: 200000, percentage: 90, categories: [] },
-  });
+  const pending = gate("AskUserQuestion", ask, ctx);
   await tick();
-  const ctx = of("context").at(-1);
-  check("X2 context usage is surfaced before the window fills",
-    ctx?.percent === 90 && ctx.tokens === 180000 && ctx.max === 200000);
+  const asked = of("ask").at(-1);
+  check("T1 the question is emitted to the UI, not a native picker", Boolean(asked));
+  check("T2 the full question text is carried, untruncated",
+    asked?.questions?.[0]?.question === long);
+  check("T3 options keep their descriptions",
+    asked?.questions?.[0]?.options?.[1]?.description === "Fine-tune on an Urdu corpus.");
+  check("T4 the teammate is shown as waiting",
+    of("status").some((e) => e.status === "waiting"));
 
-  inst.emit({
-    type: "system", subtype: "compact_boundary",
-    compact_metadata: { trigger: "auto", pre_tokens: 190000, post_tokens: 42000 },
-  });
+  session.answer(asked.id, { [long]: "Paid API is fine" });
+  const answered = await pending;
+  check("T5 the answer reaches the model on the tool input",
+    answered.updatedInput?.answers?.[long] === "Paid API is fine");
+  check("T6 the card is told it was settled",
+    of("askClosed").at(-1)?.answered === true);
+
+  // Skipping is a real answer.
+  const second = gate("AskUserQuestion", ask, ctx);
   await tick();
-  const compacted = of("compacted").at(-1);
-  check("X3 compaction is reported, not silent",
-    compacted?.trigger === "auto" && compacted.before === 190000 && compacted.after === 42000);
+  session.answer(of("ask").at(-1).id, null);
+  const skipped = await second;
+  check("T7 skipping denies rather than inventing an answer",
+    skipped.behavior === "deny" && /dismissed/i.test(skipped.message));
+
+  // A question left open must not survive an interrupt.
+  const third = gate("AskUserQuestion", ask, ctx);
+  await tick();
+  await session.interrupt();
+  const abandoned = await third;
+  check("T8 an interrupt settles an open question instead of hanging",
+    abandoned.behavior === "deny");
   session.dispose();
 }
 

@@ -328,6 +328,12 @@ export class TeamController implements vscode.Disposable {
       case "requestDirectLine":
         void this.offerDirectLine(command.to);
         return;
+      case "answer":
+        this.session?.answer(command.id, command.answers);
+        return;
+      case "answerCancelled":
+        this.session?.answer(command.id, null);
+        return;
       case "resumeSession":
         this.resumeSession(command.id, command.title);
         this.atHome = false;

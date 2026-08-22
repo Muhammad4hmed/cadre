@@ -367,6 +367,70 @@ details.reasoning .body { margin-top: 4px; font-size: 0.92em; color: var(--dim);
 .assignment[data-outcome="blocked"] { border-color: var(--vscode-inputValidation-warningBorder); }
 .assignment[data-outcome="failed"]  { border-color: var(--vscode-inputValidation-errorBorder); }
 
+/* --------------------------------------------------------------- questions */
+
+.ask {
+  border: 1px solid var(--lane-accent);
+  border-radius: 8px;
+  padding: 12px 13px;
+  background: color-mix(in srgb, var(--lane-accent) 7%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask .who {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+}
+
+/* The whole point: the question wraps instead of being clipped to one line. */
+.ask .q {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ask .choices { display: flex; flex-direction: column; gap: 5px; }
+
+.ask .choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--vscode-editor-background, transparent);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.ask .choice:hover { border-color: var(--lane-accent); }
+.ask .choice[aria-pressed="true"] { border-color: var(--lane-accent); background: color-mix(in srgb, var(--lane-accent) 14%, transparent); }
+.ask .choice .label { font-size: 12.5px; font-weight: 600; }
+.ask .choice .why { font-size: 11px; color: var(--dim); line-height: 1.45; }
+
+.ask .own { display: flex; gap: 6px; }
+.ask .own input {
+  flex: 1 1 auto;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--edge));
+  border-radius: 6px;
+}
+.ask .actions { display: flex; gap: 6px; justify-content: flex-end; }
+.ask[data-done="true"] { opacity: 0.6; border-style: dashed; }
+.ask[data-done="true"] .choices, .ask[data-done="true"] .own, .ask[data-done="true"] .actions { display: none; }
+.ask .answered { font-size: 11.5px; color: var(--dim); }
+
 /* ---------------------------------------------------------------- notices */
 
 .notice {
@@ -782,6 +846,8 @@ button.chip.account[data-state="out"] {
     assignments: new Map(),
     /** Images staged for the next message. */
     pending: [],
+    /** Question cards awaiting an answer. */
+    asks: new Map(),
   };
 
   // The API accepts up to ~5 MB an image; a phone screenshot often exceeds that
@@ -982,6 +1048,106 @@ button.chip.account[data-state="out"] {
         return;
       }
 
+      case "ask": {
+        const card = node("div", "ask");
+        card.dataset.who = e.who;
+        card.appendChild(node("div", "who", NAME[e.who] + " asks"));
+
+        /** question text -> chosen labels */
+        const chosen = new Map();
+        const buttons = [];
+
+        for (const q of e.questions) {
+          const block = node("div", "choices");
+          card.appendChild(node("div", "q", q.question));
+
+          for (const option of q.options) {
+            const button = node("button", "choice");
+            button.setAttribute("aria-pressed", "false");
+            button.appendChild(node("span", "label", option.label));
+            if (option.description) button.appendChild(node("span", "why", option.description));
+            button.addEventListener("click", () => {
+              const current = chosen.get(q.question) ?? [];
+              if (q.multiSelect) {
+                const at = current.indexOf(option.label);
+                if (at >= 0) current.splice(at, 1);
+                else current.push(option.label);
+                button.setAttribute("aria-pressed", String(at < 0));
+                chosen.set(q.question, current);
+                return;
+              }
+              for (const other of buttons) {
+                if (other.q === q.question) other.el.setAttribute("aria-pressed", "false");
+              }
+              button.setAttribute("aria-pressed", "true");
+              chosen.set(q.question, [option.label]);
+              maybeSubmit();
+            });
+            buttons.push({ q: q.question, el: button });
+            block.appendChild(button);
+          }
+
+          const own = node("div", "own");
+          const field = document.createElement("input");
+          field.type = "text";
+          field.placeholder = "Something else…";
+          field.addEventListener("input", () => {
+            if (field.value.trim()) {
+              chosen.set(q.question, [field.value.trim()]);
+              for (const b of buttons) if (b.q === q.question) b.el.setAttribute("aria-pressed", "false");
+            } else {
+              chosen.delete(q.question);
+            }
+          });
+          field.addEventListener("keydown", (ev) => {
+            if (ev.key === "Enter") { ev.preventDefault(); maybeSubmit(true); }
+          });
+          own.appendChild(field);
+          block.appendChild(own);
+          card.appendChild(block);
+        }
+
+        const actions = node("div", "actions");
+        const skip = node("button", "ghost", "Skip");
+        skip.addEventListener("click", () => {
+          vscode.postMessage({ kind: "answerCancelled", id: e.id });
+          settle("Skipped — the teammate was told you declined.");
+        });
+        const send = node("button", "primary", "Answer");
+        send.addEventListener("click", () => maybeSubmit(true));
+        actions.appendChild(skip);
+        actions.appendChild(send);
+        card.appendChild(actions);
+
+        function settle(summary) {
+          card.dataset.done = "true";
+          card.appendChild(node("div", "answered", summary));
+        }
+
+        /** Auto-sends only when every single-select question has an answer. */
+        function maybeSubmit(force) {
+          const complete = e.questions.every((q) => (chosen.get(q.question) ?? []).length > 0);
+          const anyMulti = e.questions.some((q) => q.multiSelect);
+          if (!complete) { if (force) field?.focus?.(); return; }
+          if (!force && anyMulti) return;   // multi-select needs an explicit Answer
+          const answers = {};
+          for (const [question, labels] of chosen) answers[question] = labels.join(", ");
+          vscode.postMessage({ kind: "answer", id: e.id, answers });
+          settle(Object.values(answers).join("  ·  "));
+        }
+
+        state.asks.set(e.id, { settle });
+        place(e.who, card);
+        return;
+      }
+
+      case "askClosed": {
+        const entry = state.asks.get(e.id);
+        if (entry && !e.answered) entry.settle("Question closed without an answer.");
+        state.asks.delete(e.id);
+        return;
+      }
+
       case "notice":
         place(e.who || "lead", node("div", "notice " + e.level, e.text));
         return;
@@ -1011,6 +1177,7 @@ button.chip.account[data-state="out"] {
     state.live.clear();
     state.acts.clear();
     state.assignments.clear();
+    state.asks.clear();
     if (!state.log.length) { showEmpty(); return; }
     for (const e of state.log) renderEvent(e);
   }
@@ -1154,7 +1321,7 @@ button.chip.account[data-state="out"] {
 
       card.addEventListener("click", () => {
         if (state.channelLocked && who !== "lead") {
-          vscode.postMessage({ kind: "configure", setting: "cadre.directLine" });
+          vscode.postMessage({ kind: "requestDirectLine", to: who });
           return;
         }
         setChannel(who);
@@ -1213,7 +1380,7 @@ button.chip.account[data-state="out"] {
     el.stop.hidden = !state.busy;
     el.channel.disabled = state.channelLocked;
     el.channel.title = state.channelLocked
-      ? "Direct line is off — enable it in settings to talk to a teammate directly"
+      ? "Direct line is off — click a teammate above to turn it on"
       : "Choose who to talk to";
   }
 

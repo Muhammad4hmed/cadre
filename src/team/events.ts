@@ -94,6 +94,10 @@ export type TeamEvent =
   | { kind: "projects"; roots: string[]; items: ProjectCard[]; active?: string }
   /** Stored conversations for the current project, newest first. */
   | { kind: "sessions"; items: SessionCard[]; project?: string }
+  /** A teammate is asking. Rendered in its lane, where the text can wrap. */
+  | { kind: "ask"; id: string; who: TeammateId; questions: AskQuestion[] }
+  /** The question is settled — by an answer, an interrupt, or the session ending. */
+  | { kind: "askClosed"; id: string; answered: boolean }
   /** Intercepted by the controller — never reaches the webview as-is. */
   | { kind: "authProblem"; detail: string }
   | { kind: "clear" };
@@ -106,6 +110,18 @@ export interface Attachment {
   /** Base64 payload, no data: prefix. */
   data: string;
   bytes: number;
+}
+
+export interface AskOption {
+  label: string;
+  description: string;
+}
+
+export interface AskQuestion {
+  question: string;
+  header: string;
+  multiSelect: boolean;
+  options: AskOption[];
 }
 
 export interface SessionCard {
@@ -137,6 +153,8 @@ export type UiCommand =
   | { kind: "goHome" }
   | { kind: "resumeSession"; id: string; title: string }
   | { kind: "requestDirectLine"; to: TeammateId }
+  | { kind: "answer"; id: string; answers: Record<string, string> }
+  | { kind: "answerCancelled"; id: string }
   | { kind: "signIn" }
   | { kind: "useApiKey" }
   | { kind: "refreshAuth" }

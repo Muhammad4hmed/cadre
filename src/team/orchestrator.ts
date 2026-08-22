@@ -11,7 +11,7 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import { DISPLAY_NAME, ROLE_BLURB, TEAMMATES, type Assignment, type Attachment, type TeamEvent, type TeammateId, type TeammateStatus } from "./events";
+import { DISPLAY_NAME, ROLE_BLURB, TEAMMATES, type Assignment, type AskQuestion, type Attachment, type TeamEvent, type TeammateId, type TeammateStatus } from "./events";
 import { ROSTER, composePrompt, consultVariant, toolAliases, type TeammateSpec } from "./roster";
 import { createTeamServer } from "./tools";
 import { contextPreamble, surveyProject } from "./project";
@@ -104,6 +104,8 @@ export class TeamSession implements vscode.Disposable {
   private runId = 0;
   private readonly abort = new AbortController();
   private readonly pendingPermissions = new Set<(r: PermissionResult) => void>();
+  /** Questions on screen, so an interrupt or teardown can settle them. */
+  private readonly pendingAsks = new Map<string, (a: Record<string, string> | null) => void>();
   /** Live teammate runs, so Stop can actually stop them. */
   private readonly nested = new Set<{ query: Query; abort: AbortController }>();
   private readonly status = new Map<TeammateId, TeammateStatus>();
@@ -179,6 +181,7 @@ export class TeamSession implements vscode.Disposable {
     if (!this.stream && !this.nested.size) return;
     // Teammates first: the Lead is blocked on their tool call, so leaving them
     // running would keep editing files under a UI that says idle.
+    this.settleAsks();
     await this.stopNested();
     try {
       await this.stream?.interrupt();
@@ -198,6 +201,7 @@ export class TeamSession implements vscode.Disposable {
     this.setBusy(false);
     this.disposed = true;
     this.settlePermissions("The session ended before this was approved.");
+    this.settleAsks();
     void this.stopNested();
     this.abort.abort();
     this.input.close();
@@ -208,6 +212,7 @@ export class TeamSession implements vscode.Disposable {
 
   /** Drops the live query but keeps the session usable. */
   private teardown(): void {
+    this.settleAsks();
     void this.stopNested();
     this.settlePermissions("The conversation moved to another teammate.");
     try { this.stream?.close(); } catch { /* already gone */ }
@@ -781,59 +786,44 @@ export class TeamSession implements vscode.Disposable {
     who: TeammateId,
     input: Record<string, unknown>,
   ): Promise<PermissionResult> {
-    const questions = Array.isArray(input.questions) ? (input.questions as RawQuestion[]) : [];
+    const raw = Array.isArray(input.questions) ? (input.questions as RawQuestion[]) : [];
+    const questions: AskQuestion[] = raw.map((q) => ({
+      question: String(q?.question ?? ""),
+      header: String(q?.header ?? ""),
+      multiSelect: q?.multiSelect === true,
+      options: (Array.isArray(q?.options) ? q.options : []).map((o) => ({
+        label: String(o?.label ?? ""),
+        description: String(o?.description ?? ""),
+      })),
+    })).filter((q) => q.question && q.options.length);
+
     if (!questions.length) return { behavior: "allow", updatedInput: input };
 
+    const id = crypto.randomUUID();
     this.setStatus(who, "waiting", "waiting on your answer");
-    const answers: Record<string, string> = {};
-    const OTHER = "$(edit) Something else…";
+    this.emit({ kind: "ask", id, who, questions });
 
-    try {
-      for (const q of questions) {
-        const options = Array.isArray(q?.options) ? q.options : [];
-        const items: vscode.QuickPickItem[] = options.map((o) => ({
-          label: String(o?.label ?? ""),
-          detail: o?.description ? String(o.description) : undefined,
-        }));
-        items.push({ label: OTHER, detail: "Type your own answer" });
+    const answers = await new Promise<Record<string, string> | null>((resolve) => {
+      this.pendingAsks.set(id, resolve);
+    });
+    this.pendingAsks.delete(id);
+    this.emit({ kind: "askClosed", id, answered: answers !== null });
+    if (!this.disposed) this.setStatus(who, "thinking");
 
-        const multi = q?.multiSelect === true;
-        const picked = await vscode.window.showQuickPick(items, {
-          title: `${DISPLAY_NAME[who]} asks — ${String(q?.header ?? "")}`,
-          placeHolder: String(q?.question ?? ""),
-          canPickMany: multi,
-          ignoreFocusOut: true,
-        });
-
-        // Dismissing is a real answer: it means "stop and reconsider".
-        if (!picked || (Array.isArray(picked) && !picked.length)) {
-          return { behavior: "deny", message: "The user dismissed the question without answering." };
-        }
-
-        const chosen = Array.isArray(picked) ? picked : [picked];
-        const labels: string[] = [];
-        for (const item of chosen) {
-          if (item.label !== OTHER) { labels.push(item.label); continue; }
-          const typed = await vscode.window.showInputBox({
-            title: String(q?.question ?? "Your answer"),
-            prompt: "In your own words.",
-            ignoreFocusOut: true,
-          });
-          if (typed === undefined) {
-            return { behavior: "deny", message: "The user dismissed the question without answering." };
-          }
-          labels.push(typed);
-        }
-        answers[String(q?.question ?? "")] = labels.join(", ");
-      }
-    } finally {
-      if (!this.disposed) this.setStatus(who, "thinking");
-    }
-
-    for (const [question, answer] of Object.entries(answers)) {
-      this.emit({ kind: "userSaid", to: who, text: `${question}\n→ ${answer}` });
+    if (!answers) {
+      return { behavior: "deny", message: "The user dismissed the question without answering." };
     }
     return { behavior: "allow", updatedInput: { ...input, answers } };
+  }
+
+  /** Called when the webview sends the user's answer back. */
+  answer(id: string, answers: Record<string, string> | null): void {
+    this.pendingAsks.get(id)?.(answers);
+  }
+
+  private settleAsks(): void {
+    for (const resolve of this.pendingAsks.values()) resolve(null);
+    this.pendingAsks.clear();
   }
 
   /**
