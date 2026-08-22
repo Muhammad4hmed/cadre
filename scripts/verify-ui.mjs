@@ -10,12 +10,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+// A stand-in executable so resolution is deterministic. Without it the suite
+// falls through to `which claude` and quietly depends on the host having Claude
+// Code installed — green locally, red in CI.
+const fakeCli = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cadre-cli-")), "claude");
+fs.writeFileSync(fakeCli, "#!/bin/sh\nexit 0\n");
+fs.chmodSync(fakeCli, 0o755);
+
 const settings = {
   "cadre.directLine": false,
   "cadre.autonomy": "standard",
   "cadre.inheritGlobalConfig": false,
   "cadre.billing": "subscription",
-  "cadre.claudeExecutablePath": "",
+  "cadre.claudeExecutablePath": fakeCli,
 };
 const state = { workspaceFolders: undefined };
 /** Folder-scoped overrides, keyed by fsPath. */

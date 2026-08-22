@@ -12,8 +12,14 @@ Press <kbd>F5</kbd> to launch an Extension Development Host on `sandbox/`.
 
 ## The test suites
 
-`npm run verify:fast` is the loop you should live in — 127 checks, no API calls, a few
-seconds. The Extension Development Host is far too slow to iterate in.
+`npm run verify:fast` is the loop you should live in — 157 checks, a few seconds. The
+Extension Development Host is far too slow to iterate in.
+
+These suites are **hermetic**: they stub `vscode`, alias the SDK out for a controllable
+fake, and supply a stand-in `claude` executable. They need no credentials and no Claude
+Code installation, which is what lets CI run them. If you add a test that reaches the real
+CLI, the network, or the filesystem outside a temp directory, it belongs in
+`verify:team` instead — otherwise it passes on your machine and fails in CI.
 
 | | |
 |---|---|
