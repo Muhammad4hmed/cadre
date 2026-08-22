@@ -87,6 +87,10 @@ body {
 }
 
 .brand {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
   font-family: var(--mono);
   font-weight: 600;
   letter-spacing: 0.14em;
@@ -373,6 +377,13 @@ details.reasoning .body { margin-top: 4px; font-size: 0.92em; color: var(--dim);
 }
 .notice.warn  { border-color: var(--vscode-inputValidation-warningBorder); }
 .notice.error { border-color: var(--vscode-inputValidation-errorBorder); color: var(--vscode-errorForeground); }
+.notice.compacted {
+  border-style: dashed;
+  border-color: var(--edge);
+  color: var(--dim);
+  font-size: 11px;
+  text-align: center;
+}
 
 .spend { font-size: 10px; font-family: var(--mono); color: var(--dim); text-align: right; }
 
@@ -417,6 +428,53 @@ details.reasoning .body { margin-top: 4px; font-size: 0.92em; color: var(--dim);
 .composer select:disabled { opacity: 0.5; }
 
 .composer .row { display: flex; gap: 6px; align-items: flex-end; }
+
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  background: var(--surface);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button {
+  position: absolute;
+  top: 1px; right: 1px;
+  width: 16px; height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+button.ghost.attach {
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 10px;
+  align-self: stretch;
+}
+
+/* Whole composer is a drop target, so the aim does not have to be precise. */
+.composer[data-dropping="true"] {
+  outline: 1px dashed var(--researcher);
+  outline-offset: -3px;
+}
+
+.utterance .shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.utterance .shots img {
+  max-width: 180px;
+  max-height: 140px;
+  border-radius: 6px;
+  border: 1px solid var(--edge);
+}
 
 textarea {
   flex: 1 1 auto;
@@ -549,6 +607,41 @@ button.ghost.quiet:hover { color: var(--vscode-foreground); }
 
 .projects-foot { padding: 8px 12px; border-top: 1px solid var(--edge); }
 
+.sessions { padding: 4px 10px 10px; border-top: 1px solid var(--edge-soft); margin-top: 6px; }
+.sessions h2 {
+  margin: 10px 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.session-list { display: flex; flex-direction: column; gap: 4px; max-height: 34vh; overflow-y: auto; }
+
+.session {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.session:hover { background: var(--surface); border-color: var(--edge-soft); }
+.session .title {
+  flex: 1 1 auto;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session .when { font-family: var(--mono); font-size: 10px; color: var(--dim); flex: 0 0 auto; }
+.session-empty { font-size: 11px; color: var(--dim); padding: 4px 2px; }
+
 .project-empty { margin: auto; text-align: center; color: var(--dim); font-size: 12px; line-height: 1.7; max-width: 34ch; padding: 20px; }
 
 button.chip.account[data-state="out"] {
@@ -559,11 +652,12 @@ button.chip.account[data-state="out"] {
 <style>html,body{width:420px;height:100%;margin:0;overflow:hidden}</style>
 </head><body>
   <header class="bar">
-    <span class="brand">CADRE</span>
+    <button class="brand" id="home" title="Home — projects and past sessions">CADRE</button>
     <button class="chip pick" id="workspace" title="Back to projects">—</button>
     <span class="chip" id="autonomy">—</span>
     <span class="chip" id="billing">—</span>
     <span class="chip" id="connectors" hidden>—</span>
+    <span class="chip" id="context" hidden>—</span>
     <span class="spacer"></span>
     <button class="chip pick account" id="account" title="Account">account</button>
     <span class="chip" id="spend">$0.0000</span>
@@ -589,6 +683,10 @@ button.chip.account[data-state="out"] {
       <span class="muted" id="projects-roots"></span>
     </div>
     <div class="project-list" id="project-list"></div>
+    <div class="sessions" id="sessions" hidden>
+      <h2>Recent sessions</h2>
+      <div class="session-list" id="session-list"></div>
+    </div>
     <div class="projects-foot">
       <button class="ghost" id="projects-configure">Change where to look…</button>
     </div>
@@ -606,7 +704,10 @@ button.chip.account[data-state="out"] {
           <option value="engineer">Engineer</option>
         </select>
       </div>
+      <div class="attachments" id="attachments" hidden></div>
       <div class="row">
+        <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+        <button class="ghost attach" id="attach" title="Attach an image (or paste, or drop one here)">＋</button>
         <textarea id="input" rows="1" placeholder="Describe your project…" aria-label="Message"></textarea>
         <button class="primary" id="send" title="Send (Enter)">Send</button>
         <button class="danger" id="stop" title="Interrupt" hidden>Stop</button>
@@ -639,9 +740,14 @@ button.chip.account[data-state="out"] {
     autonomy: /** @type {HTMLElement} */ (document.getElementById("autonomy")),
     billing: /** @type {HTMLElement} */ (document.getElementById("billing")),
     connectors: /** @type {HTMLElement} */ (document.getElementById("connectors")),
+    context: /** @type {HTMLElement} */ (document.getElementById("context")),
     spend: /** @type {HTMLElement} */ (document.getElementById("spend")),
     account: /** @type {HTMLButtonElement} */ (document.getElementById("account")),
     floorButton: /** @type {HTMLButtonElement} */ (document.getElementById("openFloor")),
+    composer: /** @type {HTMLElement} */ (document.querySelector(".composer")),
+    attach: /** @type {HTMLButtonElement} */ (document.getElementById("attach")),
+    file: /** @type {HTMLInputElement} */ (document.getElementById("file")),
+    attachments: /** @type {HTMLElement} */ (document.getElementById("attachments")),
     screens: {
       auth: document.getElementById("screen-auth"),
       projects: document.getElementById("screen-projects"),
@@ -654,6 +760,9 @@ button.chip.account[data-state="out"] {
     projectList: document.getElementById("project-list"),
     projectRoots: document.getElementById("projects-roots"),
     projectsConfigure: document.getElementById("projects-configure"),
+    home: /** @type {HTMLButtonElement} */ (document.getElementById("home")),
+    sessions: /** @type {HTMLElement} */ (document.getElementById("sessions")),
+    sessionList: /** @type {HTMLElement} */ (document.getElementById("session-list")),
   };
 
   const state = {
@@ -671,7 +780,17 @@ button.chip.account[data-state="out"] {
     live: new Map(),
     acts: new Map(),
     assignments: new Map(),
+    /** Images staged for the next message. */
+    pending: [],
   };
+
+  // The API accepts up to ~5 MB an image; a phone screenshot often exceeds that
+  // and costs tokens for detail the model cannot use. 1568px on the long edge is
+  // the point past which it downsamples anyway.
+  const MAX_EDGE = 1568;
+  const MAX_BYTES = 3_500_000;
+  const MAX_IMAGES = 5;
+  const ACCEPTED = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
   // ----------------------------------------------------------- scaffolding
 
@@ -771,9 +890,22 @@ button.chip.account[data-state="out"] {
 
   function renderEvent(e) {
     switch (e.kind) {
-      case "userSaid":
-        utterance(e.to, "you → " + NAME[e.to], "user").textContent = e.text;
+      case "userSaid": {
+        const body = utterance(e.to, "you → " + NAME[e.to], "user");
+        if (e.text) body.textContent = e.text;
+        if (e.images?.length) {
+          const shots = node("div", "shots");
+          for (const img of e.images) {
+            const el_ = document.createElement("img");
+            el_.src = img.dataUrl;
+            el_.alt = img.name;
+            el_.title = img.name;
+            shots.appendChild(el_);
+          }
+          body.appendChild(shots);
+        }
         return;
+      }
 
       case "say": {
         const key = e.who + ":" + e.turn;
@@ -854,6 +986,13 @@ button.chip.account[data-state="out"] {
         place(e.who || "lead", node("div", "notice " + e.level, e.text));
         return;
 
+      case "compacted": {
+        const shrunk = e.after ? ` — ${fmtTokens(e.before)} → ${fmtTokens(e.after)}` : "";
+        place("lead", node("div", "notice compacted",
+          `Context was full, so the history was summarised${shrunk}. The team keeps going; older detail is gone.`));
+        return;
+      }
+
       case "spend": {
         state.spendUsd = e.usd;
         const seconds = (e.durationMs / 1000).toFixed(1);
@@ -915,6 +1054,8 @@ button.chip.account[data-state="out"] {
     }
     el.floorButton.style.display = name === "team" ? "" : "none";
     el.workspace.style.display = name === "projects" ? "none" : "";
+    el.home.style.opacity = name === "projects" ? "0.55" : "1";
+    el.home.disabled = name === "projects";
     if (name === "team") el.input.focus();
   }
 
@@ -955,6 +1096,44 @@ button.chip.account[data-state="out"] {
   }
 
   // ---------------------------------------------------------------- chrome
+
+  /** Relative time, because "3 hours ago" is what you actually reason about. */
+  function ago(ms) {
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 90) return "just now";
+    const m = s / 60;
+    if (m < 60) return Math.round(m) + "m ago";
+    const h = m / 60;
+    if (h < 24) return Math.round(h) + "h ago";
+    const d = h / 24;
+    return d < 7 ? Math.round(d) + "d ago" : new Date(ms).toLocaleDateString();
+  }
+
+  function renderSessions(e) {
+    const items = e.items || [];
+    el.sessions.hidden = false;
+    el.sessionList.replaceChildren();
+
+    if (!items.length) {
+      const empty = node("div", "session-empty",
+        e.project
+          ? `No past conversations in ${e.project} yet.`
+          : "Open a project to see its past conversations.");
+      el.sessionList.appendChild(empty);
+      return;
+    }
+
+    for (const item of items) {
+      const row = node("button", "session");
+      row.appendChild(node("span", "title", item.title));
+      row.appendChild(node("span", "when", ago(item.when)));
+      row.title = item.title;
+      row.addEventListener("click", () =>
+        vscode.postMessage({ kind: "resumeSession", id: item.id, title: item.title }),
+      );
+      el.sessionList.appendChild(row);
+    }
+  }
 
   function renderRoster() {
     el.roster.replaceChildren();
@@ -1029,6 +1208,7 @@ button.chip.account[data-state="out"] {
 
   function renderComposer() {
     el.send.disabled = state.busy || !state.canSend;
+    el.attach.disabled = state.busy || !state.canSend;
     el.send.textContent = state.busy ? "Working…" : "Send";
     el.stop.hidden = !state.busy;
     el.channel.disabled = state.channelLocked;
@@ -1071,6 +1251,7 @@ button.chip.account[data-state="out"] {
     },
 
     projects(e) { renderProjects(e); },
+    sessions(e) { renderSessions(e); },
 
     directLine(e) {
       state.channelLocked = !e.enabled;
@@ -1092,6 +1273,7 @@ button.chip.account[data-state="out"] {
       if (!el.input.value.trim()) { el.input.value = e.text; resize(); }
       el.input.focus();
     },
+    context(e) { renderContext(e); },
     busy(e) { state.busy = e.busy; renderComposer(); },
     clear() {
       state.log = [];
@@ -1115,12 +1297,102 @@ button.chip.account[data-state="out"] {
     renderEvent(e);
   });
 
+  // ------------------------------------------------------------ attachments
+
+  /** Reads a File, downscaling if it is larger than the model can use. */
+  function readImage(file) {
+    return new Promise((resolve, reject) => {
+      const type = ACCEPTED.includes(file.type) ? file.type : "image/png";
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error("could not read " + file.name));
+      reader.onload = () => {
+        const dataUrl = String(reader.result);
+        // Animated GIFs lose their animation through a canvas, so pass through.
+        if (type === "image/gif" || file.size <= MAX_BYTES) {
+          const [, data] = dataUrl.split(",");
+          if (file.size <= MAX_BYTES) {
+            resolve({ name: file.name || "pasted image", mediaType: type, data, bytes: file.size });
+            return;
+          }
+        }
+        const img = new Image();
+        img.onerror = () => reject(new Error("could not decode " + file.name));
+        img.onload = () => {
+          const scale = Math.min(1, MAX_EDGE / Math.max(img.width, img.height));
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(img.width * scale));
+          canvas.height = Math.max(1, Math.round(img.height * scale));
+          canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+          const out = canvas.toDataURL("image/jpeg", 0.85);
+          const [, data] = out.split(",");
+          resolve({
+            name: file.name || "pasted image",
+            mediaType: "image/jpeg",
+            data,
+            bytes: Math.round((data.length * 3) / 4),
+          });
+        };
+        img.src = dataUrl;
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function stage(files) {
+    const images = [...files].filter((f) => f && f.type.startsWith("image/"));
+    if (!images.length) return;
+    for (const file of images) {
+      if (state.pending.length >= MAX_IMAGES) {
+        renderNotice("warn", `Only ${MAX_IMAGES} images per message. The rest were not attached.`);
+        break;
+      }
+      try {
+        state.pending.push(await readImage(file));
+      } catch (err) {
+        renderNotice("error", String(err && err.message ? err.message : err));
+      }
+    }
+    renderAttachments();
+  }
+
+  function renderNotice(level, text) {
+    const notice = { kind: "notice", level, text };
+    clearEmpty();
+    state.log.push(notice);
+    renderEvent(notice);
+  }
+
+  function renderAttachments() {
+    el.attachments.replaceChildren();
+    el.attachments.hidden = !state.pending.length;
+    state.pending.forEach((img, index) => {
+      const wrap = node("div", "thumb");
+      const preview = document.createElement("img");
+      preview.src = `data:${img.mediaType};base64,${img.data}`;
+      preview.alt = img.name;
+      wrap.appendChild(preview);
+      const remove = node("button", null, "×");
+      remove.title = `Remove ${img.name}`;
+      remove.addEventListener("click", () => {
+        state.pending.splice(index, 1);
+        renderAttachments();
+      });
+      wrap.appendChild(remove);
+      wrap.title = `${img.name} · ${Math.round(img.bytes / 1024)} KB`;
+      el.attachments.appendChild(wrap);
+    });
+    renderComposer();
+  }
+
   // ----------------------------------------------------------- interactions
 
   function submit() {
     const text = el.input.value.trim();
-    if (!text || state.busy || !state.canSend) return;
-    vscode.postMessage({ kind: "send", text });
+    // An image on its own is a complete message.
+    if ((!text && !state.pending.length) || state.busy || !state.canSend) return;
+    vscode.postMessage({ kind: "send", text, images: state.pending });
+    state.pending = [];
+    renderAttachments();
     el.input.value = "";
     resize();
   }
@@ -1134,6 +1406,7 @@ button.chip.account[data-state="out"] {
   el.stop.addEventListener("click", () => vscode.postMessage({ kind: "stop" }));
   el.floorButton.addEventListener("click", () => vscode.postMessage({ kind: "openTeamFloor" }));
   el.workspace.addEventListener("click", () => vscode.postMessage({ kind: "goHome" }));
+  el.home.addEventListener("click", () => vscode.postMessage({ kind: "goHome" }));
   el.authSignIn.addEventListener("click", () => vscode.postMessage({ kind: "signIn" }));
   el.authApiKey.addEventListener("click", () => vscode.postMessage({ kind: "useApiKey" }));
   el.authRecheck.addEventListener("click", () => vscode.postMessage({ kind: "refreshAuth" }));
@@ -1145,6 +1418,33 @@ button.chip.account[data-state="out"] {
     setChannel(el.channel.value);
     vscode.postMessage({ kind: "setChannel", to: el.channel.value });
   });
+  el.attach.addEventListener("click", () => el.file.click());
+  el.file.addEventListener("change", async () => {
+    await stage(el.file.files || []);
+    el.file.value = "";
+  });
+
+  el.input.addEventListener("paste", (event) => {
+    const items = [...(event.clipboardData?.files || [])];
+    if (!items.length) return;
+    event.preventDefault();
+    void stage(items);
+  });
+
+  for (const type of ["dragenter", "dragover"]) {
+    el.composer.addEventListener(type, (e) => {
+      e.preventDefault();
+      el.composer.dataset.dropping = "true";
+    });
+  }
+  for (const type of ["dragleave", "drop"]) {
+    el.composer.addEventListener(type, (e) => {
+      e.preventDefault();
+      el.composer.dataset.dropping = "false";
+    });
+  }
+  el.composer.addEventListener("drop", (e) => void stage(e.dataTransfer?.files || []));
+
   el.input.addEventListener("input", resize);
   el.input.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
@@ -1177,7 +1477,7 @@ button.chip.account[data-state="out"] {
 </script>
 <script>
   const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
-  const script = [{"kind":"auth","signedIn":true,"detail":"you@example.com · max","billing":"Claude subscription","usingApiKey":false},{"kind":"screen","screen":"projects"},{"kind":"projects","roots":["/home/you/code"],"active":"/home/you/code/pipeline","items":[{"path":"/home/you/code/pipeline","name":"pipeline","open":true,"known":true,"stack":["Python","Docker"],"lastTouched":0},{"path":"/home/you/code/web-console","name":"web-console","open":true,"known":false,"stack":["Node","TypeScript"],"lastTouched":0},{"path":"/home/you/code/infra","name":"infra","open":false,"known":true,"stack":["Docker"],"lastTouched":0},{"path":"/home/you/code/label-tool","name":"label-tool","open":false,"known":false,"stack":["Python"],"lastTouched":0}]}];
+  const script = [{"kind":"auth","signedIn":true,"detail":"you@example.com · max","billing":"Claude subscription","usingApiKey":false},{"kind":"screen","screen":"projects"},{"kind":"projects","roots":["/home/you/code"],"active":"/home/you/code/pipeline","items":[{"path":"/home/you/code/pipeline","name":"pipeline","open":true,"known":true,"stack":["Python","Docker"],"lastTouched":0},{"path":"/home/you/code/web-console","name":"web-console","open":true,"known":false,"stack":["Node","TypeScript"],"lastTouched":0},{"path":"/home/you/code/infra","name":"infra","open":false,"known":true,"stack":["Docker"],"lastTouched":0},{"path":"/home/you/code/label-tool","name":"label-tool","open":false,"known":false,"stack":["Python"],"lastTouched":0}]},{"kind":"sessions","project":"pipeline","items":[{"id":"1","title":"Urdu TTS under 10 MB — feasibility","when":1787413817887},{"id":"2","title":"fix the decoder dropping the final word","when":1787331017887},{"id":"3","title":"set up CI and the release workflow","when":1787079017887}]}];
   // Deltas are delivered in one pass; the streaming path is the same code.
   for (const e of script) send(e);
   document.title = "ready";

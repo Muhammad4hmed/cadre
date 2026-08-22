@@ -92,6 +92,8 @@ export type TeamEvent =
       usingApiKey: boolean;
     }
   | { kind: "projects"; roots: string[]; items: ProjectCard[]; active?: string }
+  /** Stored conversations for the current project, newest first. */
+  | { kind: "sessions"; items: SessionCard[]; project?: string }
   /** Intercepted by the controller — never reaches the webview as-is. */
   | { kind: "authProblem"; detail: string }
   | { kind: "clear" };
@@ -104,6 +106,13 @@ export interface Attachment {
   /** Base64 payload, no data: prefix. */
   data: string;
   bytes: number;
+}
+
+export interface SessionCard {
+  id: string;
+  title: string;
+  /** Epoch millis of the last message. */
+  when: number;
 }
 
 export interface ProjectCard {
@@ -126,6 +135,7 @@ export type UiCommand =
   | { kind: "selectProject" }
   | { kind: "openProject"; path: string; alreadyOpen: boolean }
   | { kind: "goHome" }
+  | { kind: "resumeSession"; id: string; title: string }
   | { kind: "signIn" }
   | { kind: "useApiKey" }
   | { kind: "refreshAuth" }

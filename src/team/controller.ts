@@ -7,6 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { TEAMMATES, type Attachment, type TeamEvent, type TeammateId, type UiCommand } from "./events";
 import { TeamSession, type TeamConfig } from "./orchestrator";
+import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { discoverProjects } from "./project";
 import { SettingsTrust } from "./trust";
 import { describeAuth, readAuthStatus } from "../auth";
@@ -198,7 +199,10 @@ export class TeamController implements vscode.Disposable {
         billing: billing.ok ? billing.describe : billing.reason,
         usingApiKey,
       });
-      if (screen === "projects") void surface.postMessage(this.projectList());
+      if (screen === "projects") {
+        void surface.postMessage(this.projectList());
+        void this.publishSessions(surface);
+      }
       void surface.postMessage({ kind: "screen", screen });
     }
   }
@@ -214,6 +218,33 @@ export class TeamController implements vscode.Disposable {
     const fresh = await readAuthStatus(executablePath);
     this.authCache = { at: Date.now(), value: fresh };
     return fresh;
+  }
+
+  /**
+   * Past conversations for the active project. Read lazily: listSessions walks
+   * the session store on disk, and the project list should not wait on it.
+   */
+  private async publishSessions(webview: vscode.Webview): Promise<void> {
+    const folder = this.activeFolder();
+    if (!folder) {
+      void webview.postMessage({ kind: "sessions", items: [] });
+      return;
+    }
+    try {
+      const found = await listSessions({ dir: folder.uri.fsPath, limit: 25 });
+      void webview.postMessage({
+        kind: "sessions",
+        project: folder.name,
+        items: found.map((s) => ({
+          id: s.sessionId,
+          title: s.customTitle || s.summary || s.firstPrompt || "(untitled)",
+          when: s.lastModified,
+        })),
+      });
+    } catch (err) {
+      this.log.warn(`could not list sessions: ${describeError(err)}`);
+      void webview.postMessage({ kind: "sessions", items: [] });
+    }
   }
 
   private projectList(): TeamEvent {
@@ -293,6 +324,11 @@ export class TeamController implements vscode.Disposable {
         return;
       case "openProject":
         void this.openProject(command.path, command.alreadyOpen);
+        return;
+      case "resumeSession":
+        this.resumeSession(command.id, command.title);
+        this.atHome = false;
+        void this.publishScreen();
         return;
       case "signIn":
         void vscode.commands.executeCommand("cadre.login");

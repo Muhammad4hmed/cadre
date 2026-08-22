@@ -642,7 +642,7 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
 </head>
 <body>
   <header class="bar">
-    <span class="brand">CADRE</span>
+    <button class="brand" id="home" title="Home — projects and past sessions">CADRE</button>
     <button class="chip pick" id="workspace" title="Back to projects">—</button>
     <span class="chip" id="autonomy">—</span>
     <span class="chip" id="billing">—</span>
@@ -673,6 +673,10 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
       <span class="muted" id="projects-roots"></span>
     </div>
     <div class="project-list" id="project-list"></div>
+    <div class="sessions" id="sessions" hidden>
+      <h2>Recent sessions</h2>
+      <div class="session-list" id="session-list"></div>
+    </div>
     <div class="projects-foot">
       <button class="ghost" id="projects-configure">Change where to look…</button>
     </div>

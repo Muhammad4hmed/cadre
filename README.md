@@ -106,6 +106,10 @@ handing over the whole tool.
 
 ## Projects
 
+The home screen lists your projects and, beneath them, the conversations you have already
+had in the current one — click to pick up where you left off. **CADRE** in the header
+returns there from anywhere.
+
 Multi-root aware, with a project home listing folders beside the ones already open.
 Settings resolve per folder, so a sandbox can run cheap and autonomous while a production
 repo runs supervised. Sessions resume. **Rewind Files** restores the workspace to an

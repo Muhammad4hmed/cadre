@@ -9,8 +9,9 @@
  * and the bundle each hold their own copy. Park the registry on globalThis so
  * both copies observe the same array.
  */
-const registry = (globalThis.__AI_TEAM_FAKE_SDK__ ??= { instances: [] });
+const registry = (globalThis.__AI_TEAM_FAKE_SDK__ ??= { instances: [], sessions: [] });
 export const __instances = registry.instances;
+export const __registry = registry;
 
 export function query({ prompt, options }) {
   const outbox = [];
@@ -84,4 +85,9 @@ export function tool(name, description, inputSchema, handler) {
 
 export function createSdkMcpServer(options) {
   return { type: "sdk", name: options.name, instance: { __fake: true }, tools: options.tools ?? [] };
+}
+
+/** Stored sessions the home screen lists. Tests set registry.sessions. */
+export async function listSessions(_options) {
+  return registry.sessions ?? [];
 }

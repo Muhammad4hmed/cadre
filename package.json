@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -476,7 +476,7 @@
     "package:bundled": "vsce package --allow-missing-repository --ignoreFile .vscodeignore.bundled --target linux-x64 --out cadre-linux-x64.vsix",
     "install:vsix": "code --install-extension cadre.vsix --force",
     "verify:lifecycle": "node scripts/verify-lifecycle.mjs",
-    "verify:fast": "npm run verify:ui && npm run verify:lifecycle && npm run verify:auth && npm run verify:trust",
+    "verify:fast": "node scripts/run-suites.mjs",
     "verify:team": "node scripts/verify-team.mjs",
     "verify:auth": "node scripts/verify-auth.mjs",
     "publish": "vsce publish --no-dependencies",

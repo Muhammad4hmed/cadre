@@ -38,6 +38,9 @@
     projectList: document.getElementById("project-list"),
     projectRoots: document.getElementById("projects-roots"),
     projectsConfigure: document.getElementById("projects-configure"),
+    home: /** @type {HTMLButtonElement} */ (document.getElementById("home")),
+    sessions: /** @type {HTMLElement} */ (document.getElementById("sessions")),
+    sessionList: /** @type {HTMLElement} */ (document.getElementById("session-list")),
   };
 
   const state = {
@@ -329,6 +332,8 @@
     }
     el.floorButton.style.display = name === "team" ? "" : "none";
     el.workspace.style.display = name === "projects" ? "none" : "";
+    el.home.style.opacity = name === "projects" ? "0.55" : "1";
+    el.home.disabled = name === "projects";
     if (name === "team") el.input.focus();
   }
 
@@ -369,6 +374,44 @@
   }
 
   // ---------------------------------------------------------------- chrome
+
+  /** Relative time, because "3 hours ago" is what you actually reason about. */
+  function ago(ms) {
+    const s = Math.max(0, (Date.now() - ms) / 1000);
+    if (s < 90) return "just now";
+    const m = s / 60;
+    if (m < 60) return Math.round(m) + "m ago";
+    const h = m / 60;
+    if (h < 24) return Math.round(h) + "h ago";
+    const d = h / 24;
+    return d < 7 ? Math.round(d) + "d ago" : new Date(ms).toLocaleDateString();
+  }
+
+  function renderSessions(e) {
+    const items = e.items || [];
+    el.sessions.hidden = false;
+    el.sessionList.replaceChildren();
+
+    if (!items.length) {
+      const empty = node("div", "session-empty",
+        e.project
+          ? `No past conversations in ${e.project} yet.`
+          : "Open a project to see its past conversations.");
+      el.sessionList.appendChild(empty);
+      return;
+    }
+
+    for (const item of items) {
+      const row = node("button", "session");
+      row.appendChild(node("span", "title", item.title));
+      row.appendChild(node("span", "when", ago(item.when)));
+      row.title = item.title;
+      row.addEventListener("click", () =>
+        vscode.postMessage({ kind: "resumeSession", id: item.id, title: item.title }),
+      );
+      el.sessionList.appendChild(row);
+    }
+  }
 
   function renderRoster() {
     el.roster.replaceChildren();
@@ -486,6 +529,7 @@
     },
 
     projects(e) { renderProjects(e); },
+    sessions(e) { renderSessions(e); },
 
     directLine(e) {
       state.channelLocked = !e.enabled;
@@ -640,6 +684,7 @@
   el.stop.addEventListener("click", () => vscode.postMessage({ kind: "stop" }));
   el.floorButton.addEventListener("click", () => vscode.postMessage({ kind: "openTeamFloor" }));
   el.workspace.addEventListener("click", () => vscode.postMessage({ kind: "goHome" }));
+  el.home.addEventListener("click", () => vscode.postMessage({ kind: "goHome" }));
   el.authSignIn.addEventListener("click", () => vscode.postMessage({ kind: "signIn" }));
   el.authApiKey.addEventListener("click", () => vscode.postMessage({ kind: "useApiKey" }));
   el.authRecheck.addEventListener("click", () => vscode.postMessage({ kind: "refreshAuth" }));

@@ -5,7 +5,15 @@
  */
 import * as fs from "node:fs";
 
-const body = fs.readFileSync(".shots/body.html", "utf8");
+// Extracted on every run, not read from a checked-in copy. A separate
+// extraction step goes stale silently, which is exactly what "cannot drift"
+// was supposed to prevent — and did not.
+const source = fs.readFileSync("src/extension.ts", "utf8");
+const body = source.slice(
+  source.indexOf('  <header class="bar">'),
+  source.indexOf("  <script nonce="),
+);
+if (!body.includes("screen-projects")) throw new Error("markup extraction failed — anchors moved");
 const css = fs.readFileSync("media/team.css", "utf8");
 const js = fs.readFileSync("media/team.js", "utf8");
 const theme = fs.readFileSync(".shots/theme.css", "utf8");
@@ -76,6 +84,15 @@ const TEAM = [
   { kind: "spend", usd: 0.4127, turns: 6, durationMs: 74300 },
 ];
 
+const SESSIONS = {
+  kind: "sessions", project: "pipeline",
+  items: [
+    { id: "1", title: "Urdu TTS under 10 MB — feasibility", when: Date.now() - 3 * 3600_000 },
+    { id: "2", title: "fix the decoder dropping the final word", when: Date.now() - 26 * 3600_000 },
+    { id: "3", title: "set up CI and the release workflow", when: Date.now() - 4 * 86400_000 },
+  ],
+};
+
 const PROJECTS = [
   { kind: "auth", signedIn: true, detail: "you@example.com · max", billing: "Claude subscription", usingApiKey: false },
   { kind: "screen", screen: "projects" },
@@ -85,6 +102,7 @@ const PROJECTS = [
     { path: "/home/you/code/infra", name: "infra", open: false, known: true, stack: ["Docker"], lastTouched: 0 },
     { path: "/home/you/code/label-tool", name: "label-tool", open: false, known: false, stack: ["Python"], lastTouched: 0 },
   ] },
+  SESSIONS,
 ];
 
 const AUTH = [

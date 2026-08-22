@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- The home screen now lists past conversations for the current project underneath the
+  projects, with relative times. Click one to resume it.
+- **CADRE** in the header is a Home button from anywhere, and dims once you are there.
+
 ## 0.2.0
 
 ### Images

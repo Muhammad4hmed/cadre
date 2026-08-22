@@ -90,7 +90,14 @@ const originalLoad = Module._load;
 Module._load = (r, p, m) => (r === "vscode" ? vscodeStub : originalLoad.call(Module, r, p, m));
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-ui-")), "extension.cjs");
-await esbuild.build({ ...baseOptions({ entry: "src/extension.ts", outfile }), logLevel: "warning" });
+// Alias the SDK out: listSessions would otherwise read the real session store,
+// which is green locally and empty in CI — the exact split that had CI red.
+await esbuild.build({
+  ...baseOptions({ entry: "src/extension.ts", outfile }),
+  alias: { "@anthropic-ai/claude-agent-sdk": path.resolve("scripts/fake-sdk.mjs") },
+  logLevel: "warning",
+});
+const fake = await import("./fake-sdk.mjs");
 
 const require = createRequire(import.meta.url);
 const ext = require(outfile);
@@ -326,6 +333,35 @@ check("clicking it asks the host for account options",
   /el\.account\.addEventListener\("click"/.test(teamJs));
 check("it renders a sign-in label when signed out",
   /e\.signedIn \? e\.detail : "sign in"/.test(teamJs));
+
+// ---- past sessions belong on the home screen -------------------------------
+fake.__registry.sessions = [
+  { sessionId: "s-1", customTitle: "Urdu TTS feasibility", lastModified: Date.now() - 3 * 3600_000 },
+  { sessionId: "s-2", summary: "fix the decoder truncation", lastModified: Date.now() - 26 * 3600_000 },
+  { sessionId: "s-3", firstPrompt: "set up CI", lastModified: Date.now() - 9 * 60_000 },
+];
+receive({ kind: "goHome" });
+const stored = await waitFor("sessions", (m) => (m.items?.length ?? 0) > 0);
+check("the home screen lists past sessions", stored?.items?.length === 3);
+check("a custom title is preferred", stored?.items?.[0]?.title === "Urdu TTS feasibility");
+check("a session with only a first prompt still gets a label",
+  stored?.items?.some((i) => i.title === "set up CI"));
+check("the project is named so the list is not ambiguous", Boolean(stored?.project));
+
+posted.length = 0;
+receive({ kind: "resumeSession", id: "s-2", title: "fix the decoder truncation" });
+await settle();
+check("resuming a session leaves the home screen",
+  (await waitFor("screen", (m) => m.screen === "team"))?.screen === "team");
+check("resuming says which conversation it reopened",
+  posted.some((m) => m.kind === "notice" && /decoder truncation/.test(m.text)));
+
+posted.length = 0;
+receive({ kind: "goHome" });
+check("Home returns from a resumed session",
+  (await waitFor("screen", (m) => m.screen === "projects"))?.screen === "projects");
+
+check("the header carries a Home control", /id="home"/.test(view.webview.html));
 
 fs.rmSync(workRoot, { recursive: true, force: true });
 
