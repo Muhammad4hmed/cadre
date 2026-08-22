@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.4.1
+
+**Fixed: the Lead could not brief anyone.** Every `brief_researcher` and `brief_engineer`
+call was rejected, so the team could not delegate at all — the Lead burned turns retrying
+with different shapes and correctly worked out that the schema was refusing its arrays.
+
+The cause was `.default([])` on the `context` field. Zod emits a defaulted field as
+**required** in the JSON Schema the model is handed, so a brief that reasonably omitted
+`context` failed validation. `git_view` without paths and `paper` without a directory had
+the same defect and would have failed the same way.
+
+Those fields are optional now, defaulted in the handler where a default belongs. A new
+suite asserts the schema the model actually receives — that each tool requires exactly what
+it cannot work without, that a minimal call validates, and that no input field uses
+`.default()` at all. Confirmed by reintroducing the bug and watching it fail.
+
 ## 0.4.0
 
 ### The research paper

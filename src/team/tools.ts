@@ -17,9 +17,12 @@ const BRIEF_FIELDS = {
     .string()
     .min(1)
     .describe("The observable check that settles whether this succeeded. If you cannot write one an observer could verify, you are not ready to delegate."),
+  // NOT `.default([])`: zod emits a defaulted field as *required* in the JSON
+  // Schema the model is given, so omitting it fails validation. Optional here,
+  // defaulted in the handler.
   context: z
     .array(z.string())
-    .default([])
+    .optional()
     .describe("Facts and addresses the teammate needs and cannot see: path:line, prior findings, decisions already made. They start with an empty context."),
   decide_yourself: z
     .array(z.string())
@@ -71,7 +74,7 @@ function renderBrief(id: string, cwd: string, fields: Record<string, unknown>): 
   put("DONE WHEN", fields.done_when);
   put("AUTHORITY", fields.authority);
   put("PATHS", fields.paths);
-  put("CONTEXT", fields.context);
+  put("CONTEXT", fields.context ?? []);
   put("DECIDE YOURSELF", fields.decide_yourself);
   put("BOUNDARIES", fields.boundaries);
   put("BUDGET", fields.budget);
@@ -120,7 +123,7 @@ export function createTeamServer(ctx: TeamToolContext): McpSdkServerConfigWithIn
       authority: z
         .enum(["EXPLORE", "PATCH", "BUILD"])
         .describe("EXPLORE: read and run, change nothing. PATCH: modify the named paths. BUILD: create new files."),
-      paths: z.array(z.string()).describe("Files the Engineer may touch. Empty for EXPLORE."),
+      paths: z.array(z.string()).optional().describe("Files the Engineer may touch. Omit for EXPLORE."),
     },
     async (args) => {
       const id = nextEngineering();
@@ -189,7 +192,7 @@ export function createTeamServer(ctx: TeamToolContext): McpSdkServerConfigWithIn
     "Look at the working tree. 'status' for what changed, 'stat' for a diff summary, 'diff' for the full patch, 'show' for one file's committed contents. Read-only.",
     {
       subcommand: z.enum(["status", "stat", "diff", "show"]),
-      paths: z.array(z.string()).default([]).describe("Optional paths to scope to. Required for 'show'."),
+      paths: z.array(z.string()).optional().describe("Optional paths to scope to. Required for 'show'."),
     },
     async (args) => {
       const paths = (args.paths ?? []).filter((p) => typeof p === "string" && !p.startsWith("-"));
@@ -237,8 +240,8 @@ export function createTeamServer(ctx: TeamToolContext): McpSdkServerConfigWithIn
       action: z.enum(["build", "check"]),
       dir: z
         .string()
-        .default("docs/paper")
-        .describe("Paper directory, relative to the workspace."),
+        .optional()
+        .describe("Paper directory, relative to the workspace. Defaults to docs/paper."),
     },
     async (args) => {
       const dir = path.resolve(ctx.cwd, String(args.dir ?? "docs/paper"));

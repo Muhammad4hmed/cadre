@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -491,7 +491,8 @@
     "verify:team": "node scripts/verify-team.mjs",
     "verify:auth": "node scripts/verify-auth.mjs",
     "publish": "vsce publish --no-dependencies",
-    "verify:trust": "node scripts/verify-trust.mjs"
+    "verify:trust": "node scripts/verify-trust.mjs",
+    "verify:tools": "node scripts/verify-tools.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.239",

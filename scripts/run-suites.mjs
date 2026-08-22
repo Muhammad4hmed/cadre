@@ -6,7 +6,7 @@
  */
 import { spawnSync } from "node:child_process";
 
-const suites = ["verify-ui", "verify-lifecycle", "verify-auth", "verify-trust"];
+const suites = ["verify-ui", "verify-lifecycle", "verify-auth", "verify-trust", "verify-tools"];
 let total = 0;
 let failed = false;
 
