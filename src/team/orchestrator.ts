@@ -1,0 +1,836 @@
+import * as path from "node:path";
+import * as vscode from "vscode";
+import type { BetaRawMessageStreamEvent } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
+import {
+  query,
+  type CanUseTool,
+  type Options,
+  type PermissionResult,
+  type PermissionUpdate,
+  type Query,
+  type SDKUserMessage,
+} from "@anthropic-ai/claude-agent-sdk";
+
+import { DISPLAY_NAME, ROLE_BLURB, TEAMMATES, type Assignment, type TeamEvent, type TeammateId, type TeammateStatus } from "./events";
+import { ROSTER, composePrompt, consultVariant, toolAliases, type TeammateSpec } from "./roster";
+import { createTeamServer } from "./tools";
+import { contextPreamble, surveyProject } from "./project";
+import { policyFor, settingSourcesFor, type Autonomy } from "../policy";
+import type { Billing } from "../billing";
+
+export interface TeamConfig {
+  cwd: string;
+  executablePath: string;
+  autonomy: Autonomy;
+  inheritGlobalConfig: boolean;
+  directLine: boolean;
+  /** Per-teammate overrides from settings; falls back to the roster default. */
+  models: Partial<Record<TeammateId, string>>;
+  efforts: Partial<Record<TeammateId, string>>;
+  skills: string[] | "all" | undefined;
+  connectors: Record<string, unknown>;
+  thinking: "adaptive" | "off";
+  fallbackModel: string;
+  maxSpendUsd: number;
+  checkpoints: boolean;
+  additionalDirectories: string[];
+  plugins: string[];
+  exclusiveConnectors: boolean;
+  persistSessions: boolean;
+  /** off | substantial | always — when the team maintains documentation. */
+  documentation: "off" | "substantial" | "always";
+  /** Workspace-relative root for deliverable docs. */
+  docsPath: string;
+  /** Set when reopening a stored conversation. */
+  resumeSessionId?: string;
+}
+
+/**
+ * Push-driven prompt source. Handing this to query() puts it in streaming-input
+ * mode: one long-lived CLI process across many turns, with interrupt() and live
+ * permission changes available.
+ */
+class InputQueue implements AsyncIterable<SDKUserMessage> {
+  private pending: SDKUserMessage[] = [];
+  private waiting: ((r: IteratorResult<SDKUserMessage>) => void)[] = [];
+  private closed = false;
+
+  push(text: string, uuid: `${string}-${string}-${string}-${string}-${string}`): void {
+    if (this.closed) return;
+    const message: SDKUserMessage = {
+      type: "user",
+      message: { role: "user", content: text },
+      parent_tool_use_id: null,
+      session_id: "",
+      uuid,
+    };
+    const waiter = this.waiting.shift();
+    if (waiter) waiter({ value: message, done: false });
+    else this.pending.push(message);
+  }
+
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    for (const w of this.waiting.splice(0)) w({ value: undefined, done: true });
+  }
+
+  /** Ends the current consumer without discarding buffered input. */
+  detach(): void {
+    for (const w of this.waiting.splice(0)) w({ value: undefined, done: true });
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<SDKUserMessage> {
+    while (true) {
+      const buffered = this.pending.shift();
+      if (buffered) { yield buffered; continue; }
+      if (this.closed) return;
+      const next = await new Promise<IteratorResult<SDKUserMessage>>((r) => this.waiting.push(r));
+      if (next.done) return;
+      yield next.value;
+    }
+  }
+}
+
+export class TeamSession implements vscode.Disposable {
+  private input = new InputQueue();
+  private stream: Query | undefined;
+  private pump: Promise<void> | undefined;
+  private disposed = false;
+  private busy = false;
+  private runId = 0;
+  private readonly abort = new AbortController();
+  private readonly pendingPermissions = new Set<(r: PermissionResult) => void>();
+  private readonly status = new Map<TeammateId, TeammateStatus>();
+  /** Which teammate the user is currently addressing. */
+  private channel: TeammateId = "lead";
+  private initSeen = false;
+  /** User turns, newest last. Checkpointing rewinds to one of these. */
+  private readonly turns: { id: string; text: string; at: number }[] = [];
+
+  constructor(
+    private readonly config: TeamConfig,
+    private readonly billing: Billing,
+    private readonly emit: (event: TeamEvent) => void,
+    private readonly log: vscode.LogOutputChannel,
+  ) {
+    for (const who of TEAMMATES) this.status.set(who, "idle");
+  }
+
+  // --------------------------------------------------------------- lifecycle
+
+  send(text: string): void {
+    if (this.disposed) return;
+    this.runId += 1;
+    const id = crypto.randomUUID();
+    this.turns.push({ id, text, at: Date.now() });
+    this.emit({ kind: "userSaid", to: this.channel, text });
+    if (!this.stream) this.start();
+    this.setBusy(true);
+    this.setStatus(this.channel, "thinking");
+    this.input.push(text, id);
+  }
+
+  /** Switching who the user talks to needs a fresh main thread. */
+  setChannel(to: TeammateId): void {
+    if (to === this.channel) return;
+    if (to !== "lead" && !this.config.directLine) return;
+    this.channel = to;
+    this.teardown();
+    this.emit({ kind: "channel", to });
+    this.emit({
+      kind: "notice",
+      level: "info",
+      text:
+        to === "lead"
+          ? "Back on the Lead. They have not seen anything said on a direct line."
+          : `Direct line to the ${DISPLAY_NAME[to]}. The Lead is not in the loop — their picture will be stale.`,
+    });
+  }
+
+  async interrupt(): Promise<void> {
+    if (!this.stream || !this.busy) return;
+    try {
+      await this.stream.interrupt();
+      this.emit({ kind: "notice", level: "info", text: "Interrupted." });
+    } catch (err) {
+      this.log.warn(`interrupt failed: ${describe(err)}`);
+    } finally {
+      this.setBusy(false);
+      for (const who of TEAMMATES) this.setStatus(who, "idle");
+    }
+  }
+
+  dispose(): void {
+    if (this.disposed) return;
+    // Before `disposed` latches, so the webview still hears it and the busy
+    // context key resets — otherwise New Session mid-run wedges the composer.
+    this.setBusy(false);
+    this.disposed = true;
+    this.settlePermissions("The session ended before this was approved.");
+    this.abort.abort();
+    this.input.close();
+    try { this.stream?.close(); } catch (err) { this.log.warn(`close failed: ${describe(err)}`); }
+    this.stream = undefined;
+    this.pump = undefined;
+  }
+
+  /** Drops the live query but keeps the session usable. */
+  private teardown(): void {
+    this.settlePermissions("The conversation moved to another teammate.");
+    try { this.stream?.close(); } catch { /* already gone */ }
+    this.stream = undefined;
+    this.pump = undefined;
+    this.input.detach();
+    this.input = new InputQueue();
+    this.setBusy(false);
+  }
+
+  private settlePermissions(reason: string): void {
+    for (const settle of this.pendingPermissions) settle({ behavior: "deny", message: reason });
+    this.pendingPermissions.clear();
+  }
+
+  /** Points the user could rewind the workspace back to. */
+  history(): { id: string; text: string; at: number }[] {
+    return [...this.turns];
+  }
+
+  /**
+   * Restores every file the team touched to its state at the given user turn.
+   * Requires checkpointing, which is on by default.
+   */
+  async rewind(turnId: string, dryRun = false): Promise<{ ok: boolean; detail: string }> {
+    if (!this.stream) return { ok: false, detail: "No live session to rewind." };
+    try {
+      const result = await this.stream.rewindFiles(turnId, { dryRun });
+      if (!result.canRewind) {
+        return { ok: false, detail: result.error ?? "Nothing to rewind to." };
+      }
+      const changed = (result as { filesChanged?: number }).filesChanged;
+      return {
+        ok: true,
+        detail: dryRun
+          ? `Would restore ${changed ?? "the"} file(s).`
+          : `Restored ${changed ?? "the"} file(s) to that point.`,
+      };
+    } catch (err) {
+      return { ok: false, detail: describe(err) };
+    }
+  }
+
+  // ------------------------------------------------------------- main thread
+
+  private start(): void {
+    const spec = this.specFor(this.channel);
+    this.log.info(`main thread: ${spec.id} in ${this.config.cwd}`);
+    const options = this.optionsFor(spec);
+    if (this.config.resumeSessionId) {
+      options.resume = this.config.resumeSessionId;
+      // One-shot: a later restart in this session must not resume again.
+      this.config.resumeSessionId = undefined;
+    }
+    this.stream = query({ prompt: this.input, options });
+
+    this.pump = this.consume(this.stream, spec.id, true)
+      .then(() => undefined)
+      .catch((err) => {
+        if (this.disposed) return;
+        this.log.error(`stream failed: ${describe(err)}`);
+        this.emit({ kind: "notice", level: "error", text: describe(err) });
+      })
+      .finally(() => this.endStream());
+    void this.pump;
+  }
+
+  /**
+   * The dead-stream guard. Without it the finished Query stays assigned, the
+   * next send() skips start(), and the message is pushed into a queue nobody
+   * reads — vanishing with no output and no error.
+   */
+  private endStream(): void {
+    if (this.disposed) return;
+    const wasBusy = this.busy;
+    this.stream = undefined;
+    this.pump = undefined;
+    this.input.detach();
+    this.setBusy(false);
+    for (const who of TEAMMATES) this.setStatus(who, "idle");
+    if (wasBusy) {
+      this.emit({ kind: "notice", level: "warn", text: "The session ended. Your next message will start a new one." });
+    }
+  }
+
+  // ---------------------------------------------------------- nested runs
+
+  /**
+   * Runs one teammate to completion in its own query, streaming everything into
+   * that teammate's lane. Because we spawn it ourselves, attribution is known
+   * rather than inferred.
+   */
+  private async runTeammate(args: {
+    who: TeammateId;
+    kind: "brief" | "consult";
+    id: string;
+    prompt: string;
+    from: TeammateId;
+    headline: string;
+  }): Promise<string> {
+    if (this.disposed) return "The session ended before this could run.";
+
+    const base = this.specFor(args.who);
+    const spec = args.kind === "consult" ? consultVariant(base) : base;
+
+    const assignment: Assignment = {
+      id: args.id,
+      from: args.from,
+      to: args.who,
+      brief: args.headline,
+      startedAt: Date.now(),
+    };
+    if (args.kind === "brief") this.emit({ kind: "assign", assignment });
+    this.setStatus(args.who, "thinking", args.kind === "consult" ? "answering a consult" : args.headline);
+
+    try {
+      const nested = query({ prompt: args.prompt, options: this.optionsFor(spec) });
+      const report = await this.consume(nested, args.who, false);
+      const outcome = /^\s*VERDICT\s*:?\s*(BLOCKED|REJECTED)/im.test(report) ? "blocked" : "delivered";
+      if (args.kind === "brief") {
+        this.emit({ kind: "deliver", id: args.id, outcome, summary: headlineOf(report) });
+      }
+      this.setStatus(args.who, "idle");
+      return report || "(the teammate returned nothing)";
+    } catch (err) {
+      this.log.error(`${args.who} run failed: ${describe(err)}`);
+      if (args.kind === "brief") {
+        this.emit({ kind: "deliver", id: args.id, outcome: "failed", summary: describe(err) });
+      }
+      this.setStatus(args.who, "idle");
+      return `VERDICT: BLOCKED\nThe run failed before producing a report: ${describe(err)}`;
+    }
+  }
+
+  // ----------------------------------------------------------- translation
+
+  /** Consumes one query, emitting lane-attributed events. Returns the final text. */
+  private async consume(stream: Query, who: TeammateId, isMain: boolean): Promise<string> {
+    let turn = "";
+    let finalText = "";
+
+    for await (const message of stream) {
+      if (this.disposed) break;
+
+      switch (message.type) {
+        case "system": {
+          if (message.subtype !== "init") break;
+          if (isMain && !this.initSeen) {
+            this.initSeen = true;
+            // Our own in-process server is plumbing, not a user connector.
+            const connectors = (message.mcp_servers ?? [])
+              .filter((s) => s.name !== "team")
+              .map((s) => ({ name: s.name, ok: s.status === "connected", status: s.status }));
+            const failed = connectors.filter((c) => !c.ok);
+            if (failed.length) {
+              this.emit({
+                kind: "notice",
+                level: "warn",
+                text: `Connector${failed.length > 1 ? "s" : ""} unavailable: ${failed.map((c) => `${c.name} (${c.status})`).join(", ")}. The team will work without ${failed.length > 1 ? "them" : "it"}.`,
+              });
+            }
+            void this.publishRoster(message.model, message.tools.length, connectors);
+          }
+          break;
+        }
+
+        case "stream_event": {
+          // Nested teammates run in their own query, so anything with a parent
+          // belongs to a tool inside that run, not to another teammate.
+          if (message.parent_tool_use_id !== null) break;
+          const event = message.event as BetaRawMessageStreamEvent;
+          if (event.type === "message_start") {
+            turn = event.message.id || cryptoId();
+          } else if (event.type === "content_block_delta" && turn) {
+            const delta = event.delta;
+            if (delta.type === "text_delta" && delta.text) {
+              this.setStatus(who, "thinking");
+              this.emit({ kind: "say", who, turn, delta: delta.text });
+            } else if (delta.type === "thinking_delta" && delta.thinking) {
+              this.emit({ kind: "think", who, turn, delta: delta.thinking });
+            }
+          } else if (event.type === "message_stop" && turn) {
+            this.emit({ kind: "sayEnd", who, turn });
+            turn = "";
+          }
+          break;
+        }
+
+        case "assistant": {
+          if (message.parent_tool_use_id !== null) break;
+          for (const block of message.message.content) {
+            if (block.type !== "tool_use") continue;
+            const input = (block.input ?? {}) as Record<string, unknown>;
+            // A brief tool call renders as an assignment card, not a tool chip.
+            if (isTeamDelegation(block.name)) continue;
+            this.setStatus(who, "working", describeTool(block.name, input));
+            this.emit({
+              kind: "act",
+              who,
+              act: block.id,
+              tool: shortToolName(block.name),
+              summary: describeTool(block.name, input),
+            });
+          }
+          if (message.error) {
+            const auth = AUTH_ERRORS[message.error];
+            if (auth) {
+              // Not a "model error" — the credential is the problem, and the UI
+              // has a whole screen for saying so properly.
+              this.emit({ kind: "authProblem", detail: auth });
+            } else {
+              this.emit({ kind: "notice", level: "error", who, text: `Model error: ${message.error}` });
+            }
+          }
+          break;
+        }
+
+        case "user": {
+          const content = message.message.content;
+          if (typeof content === "string") break;
+          for (const block of content) {
+            if (block.type !== "tool_result") continue;
+            this.emit({
+              kind: "actEnd",
+              who,
+              act: block.tool_use_id,
+              ok: block.is_error !== true,
+              summary: summarizeResult(block.content),
+            });
+          }
+          break;
+        }
+
+        case "result": {
+          if (turn) { this.emit({ kind: "sayEnd", who, turn }); turn = ""; }
+          if (message.subtype === "success") finalText = message.result ?? "";
+          if (isMain) {
+            const resultRun = this.runId;
+            this.emit({
+              kind: "spend",
+              usd: message.total_cost_usd ?? 0,
+              turns: message.num_turns ?? 0,
+              durationMs: message.duration_ms ?? 0,
+            });
+            if (message.subtype !== "success") {
+              this.emit({ kind: "notice", level: "error", text: `Run ended: ${message.subtype}` });
+            }
+            if (resultRun === this.runId) this.setBusy(false);
+            this.setStatus(who, "idle");
+          }
+          break;
+        }
+
+        default:
+          break;
+      }
+    }
+
+    return finalText;
+  }
+
+  // -------------------------------------------------------------- options
+
+  private specFor(who: TeammateId): TeammateSpec {
+    const base = ROSTER[who];
+    return {
+      ...base,
+      model: this.config.models[who] || base.model,
+      effort: (this.config.efforts[who] as TeammateSpec["effort"]) || base.effort,
+      prompt:
+        composePrompt(base.prompt, {
+          documentation: this.config.documentation ?? "substantial",
+          docsPath: this.config.docsPath || "docs",
+        }) + this.projectPreamble(),
+    };
+  }
+
+  private optionsFor(spec: TeammateSpec): Options {
+    const policy = policyFor(this.config.autonomy);
+    const server = createTeamServer({
+      cwd: this.config.cwd,
+      signal: this.abort.signal,
+      runTeammate: (args) => this.runTeammate(args),
+    });
+
+    return {
+      cwd: this.config.cwd,
+      pathToClaudeCodeExecutable: this.config.executablePath,
+      model: spec.model,
+      effort: spec.effort,
+      maxTurns: spec.maxTurns,
+      permissionMode: policy.permissionMode,
+      allowDangerouslySkipPermissions: policy.allowDangerouslySkipPermissions,
+      // Authoritative over the user's own settings: restrictive-only, so it can
+      // force a prompt through an inherited blanket allow but never widen one.
+      managedSettings: policy.managedSettings,
+      settingSources: settingSourcesFor(this.config.inheritGlobalConfig),
+      // A raw string REPLACES Claude Code's preset rather than appending to it.
+      // That is deliberate: the preset is written for a single agent answering a
+      // user in a terminal and pushes terse, few-line replies, which fights the
+      // structured report every teammate owes back. The craft guidance worth
+      // keeping from it (match the surrounding idiom, smallest diff, read before
+      // you write) is stated directly in these prompts instead.
+      systemPrompt: spec.prompt,
+      // `tools` restricts what EXISTS; `allowedTools` only means "runs without a
+      // prompt". Conflating them silently auto-approves instead of restricting.
+      tools: spec.tools.filter((t) => !t.startsWith("mcp__")),
+      // The team's own tools are safe by construction — git_view is read-only and
+      // the brief tools gate their teammate's work separately — so they skip the
+      // prompt. Everything else is decided by the autonomy policy.
+      //
+      // The SDK warns (CLAUDE_SDK_CAN_USE_TOOL_SHADOWED) that bare allowedTools
+      // entries bypass canUseTool. That is the intent here, and only here: a
+      // brief is inert until the teammate it spawns hits its own gate.
+      allowedTools: spec.tools.filter((t) => t.startsWith("mcp__")),
+      disallowedTools: spec.disallowedTools,
+      toolAliases: toolAliases(),
+      mcpServers: { team: server, ...(this.config.connectors as Record<string, never>) },
+      strictMcpConfig: this.config.exclusiveConnectors,
+      skills: this.config.skills,
+      plugins: (this.config.plugins ?? []).map((path) => ({ type: "local" as const, path })),
+      additionalDirectories: this.config.additionalDirectories ?? [],
+      thinking: this.config.thinking === "off" ? { type: "disabled" } : { type: "adaptive" },
+      ...(this.config.fallbackModel ? { fallbackModel: this.config.fallbackModel } : {}),
+      ...((this.config.maxSpendUsd ?? 0) > 0 ? { maxBudgetUsd: this.config.maxSpendUsd } : {}),
+      // Snapshots so rewindFiles() can put the workspace back.
+      enableFileCheckpointing: this.config.checkpoints !== false,
+      persistSession: this.config.persistSessions !== false,
+      // Disposal and interrupt must actually reach the subprocess.
+      abortController: this.abort,
+      includePartialMessages: true,
+      env: this.envSnapshot,
+      canUseTool: (name, input, context) => this.requestPermission(spec.id, name, input, context),
+      stderr: (data) => this.log.debug(`[${spec.id}] ${data.trimEnd()}`),
+    };
+  }
+
+  private envSnapshot: Record<string, string | undefined> = {};
+  private preamble: string | undefined;
+
+  /**
+   * Computed once per session. Every teammate gets it, including nested runs —
+   * a subagent starts with an empty context, so orientation it would otherwise
+   * spend tool calls rediscovering is the cheapest thing we can hand it.
+   */
+  private projectPreamble(): string {
+    if (this.preamble === undefined) {
+      this.preamble = contextPreamble(
+        surveyProject(this.config.cwd, this.config.docsPath || "docs"),
+      );
+    }
+    return this.preamble;
+  }
+
+  /** Resolved once per session so a nested run can't race the secret store. */
+  async prepare(): Promise<void> {
+    this.envSnapshot = await this.billing.environment();
+  }
+
+  private async publishRoster(
+    model: string,
+    toolCount: number,
+    connectors: { name: string; ok: boolean; status: string }[],
+  ): Promise<void> {
+    const status = await this.billing.status();
+    this.emit({
+      kind: "roster",
+      autonomy: policyFor(this.config.autonomy).describe,
+      billing: status.ok ? status.describe : status.reason,
+      workspace: shortPath(this.config.cwd),
+      connectors,
+      members: TEAMMATES.map((id) => {
+        const spec = this.specFor(id);
+        return {
+          id,
+          name: DISPLAY_NAME[id],
+          role: ROLE_BLURB[id],
+          model: id === "lead" ? model : spec.model,
+          effort: String(spec.effort),
+          status: this.status.get(id) ?? "idle",
+        };
+      }),
+    });
+    this.log.info(`roster published (${toolCount} tools available to the Lead)`);
+  }
+
+  // ---------------------------------------------------------- permissions
+
+  private async requestPermission(
+    who: TeammateId,
+    name: string,
+    input: Record<string, unknown>,
+    context: Parameters<CanUseTool>[2],
+  ): Promise<PermissionResult> {
+    const deny = (message: string): PermissionResult => ({ behavior: "deny", message });
+    if (this.disposed) return deny("The session has ended.");
+
+    // The Lead's scratchpad confinement. Its prompt says it has no editor outside
+    // .cadre/, but a prompt is not an enforcement mechanism — without this the
+    // Lead can quietly do the Engineer's job and the team becomes theatre.
+    const confined = this.checkScratchpadOnly(who, name, input);
+    if (confined) return deny(confined);
+
+    this.setStatus(who, "waiting", `waiting on you: ${shortToolName(name)}`);
+    const prompt = `${DISPLAY_NAME[who]} wants to run ${shortToolName(name)}`;
+    const detail = context.description || describeTool(name, input);
+
+    // Prefer the SDK's own scoped suggestions. When it offers none, derive one
+    // ourselves rather than falling back to a single "Allow once" — otherwise
+    // the only way to stop being asked is to keep answering.
+    const scoped = context.suggestions?.length
+      ? { label: "Always allow this", updates: context.suggestions }
+      : deriveScope(name, input, this.config.cwd);
+
+    const ONCE = "Allow once";
+    const ALWAYS = scoped?.label;
+    const NEVER_ASK = `Don't ask again for ${shortToolName(name)}`;
+    const choices = [ONCE, ...(ALWAYS ? [ALWAYS] : []), NEVER_ASK];
+
+    let settle: ((r: PermissionResult) => void) | undefined;
+    const abandoned = new Promise<PermissionResult>((resolve) => {
+      settle = resolve;
+      this.pendingPermissions.add(resolve);
+      if (context.signal.aborted) { resolve(deny("The run was cancelled.")); return; }
+      context.signal.addEventListener("abort", () => resolve(deny("The run was cancelled.")), { once: true });
+    });
+
+    try {
+      const answered = Promise.resolve(
+        vscode.window.showWarningMessage(prompt, { modal: true, detail }, ...choices),
+      ).then((choice): PermissionResult => {
+        if (choice === ONCE) return { behavior: "allow", updatedInput: input };
+        if (ALWAYS && choice === ALWAYS) {
+          return { behavior: "allow", updatedInput: input, updatedPermissions: scoped.updates };
+        }
+        if (choice === NEVER_ASK) {
+          // Explicit and clearly labelled: the whole tool, for this session only.
+          return {
+            behavior: "allow",
+            updatedInput: input,
+            updatedPermissions: [{
+              type: "addRules",
+              rules: [{ toolName: shortToolName(name) }],
+              behavior: "allow",
+              destination: "session",
+            }],
+          };
+        }
+        return deny(`The user declined ${shortToolName(name)}.`);
+      });
+      return await Promise.race([answered, abandoned]);
+    } finally {
+      if (settle) this.pendingPermissions.delete(settle);
+      if (!this.disposed) this.setStatus(who, "working");
+    }
+  }
+
+  /**
+   * Returns a denial reason when a teammate whose remit excludes production code
+   * tries to write outside the two places it owns.
+   *
+   * `.cadre/` is gitignored scratch. The docs root is a deliverable — it gets
+   * committed and read by someone who was not here — so the Lead and Researcher
+   * write there directly rather than round-tripping documentation through the
+   * Engineer. Everything else still goes through a brief.
+   */
+  private checkScratchpadOnly(
+    who: TeammateId,
+    name: string,
+    input: Record<string, unknown>,
+  ): string | undefined {
+    const editing = ["Write", "Edit", "NotebookEdit"].includes(shortToolName(name));
+    if (!editing) return undefined;
+    if (who === "engineer") return undefined;
+
+    const target = typeof input.file_path === "string" ? input.file_path : "";
+    if (!target) return undefined;
+
+    const resolved = path.resolve(this.config.cwd, target);
+    const roots = [SCRATCHPAD];
+    if (this.config.documentation !== "off" && this.config.docsPath) {
+      roots.push(this.config.docsPath);
+    }
+    const allowed = roots.some((root) => {
+      const base = path.resolve(this.config.cwd, root);
+      return resolved === base || resolved.startsWith(base + path.sep);
+    });
+    if (allowed) return undefined;
+
+    const writable = roots.map((r) => `${r}/`).join(" and ");
+    return who === "lead"
+      ? `You have no editor outside ${writable}. Brief the Engineer to change ${target}.`
+      : `You write findings and reports, not production code. Only ${writable} is writable.`;
+  }
+
+  // -------------------------------------------------------------- plumbing
+
+  private setBusy(busy: boolean): void {
+    if (this.busy === busy) return;
+    this.busy = busy;
+    this.emit({ kind: "busy", busy });
+    void vscode.commands.executeCommand("setContext", "cadre.busy", busy);
+  }
+
+  private setStatus(who: TeammateId, status: TeammateStatus, activity?: string): void {
+    if (this.status.get(who) === status && !activity) return;
+    this.status.set(who, status);
+    this.emit({ kind: "status", who, status, activity });
+  }
+}
+
+// ------------------------------------------------------------------ helpers
+
+/** Assistant errors that mean "fix your credentials", not "the model failed". */
+const AUTH_ERRORS: Record<string, string> = {
+  authentication_failed: "Not signed in to Claude, or the saved credential is no longer valid.",
+  oauth_org_not_allowed: "Your organisation does not permit this login for Claude Code.",
+  account_on_hold: "This Claude account is on hold.",
+  billing_error: "Billing could not be authorised for this account.",
+};
+
+const TEAM_PREFIX = "mcp__team__";
+
+/** The only place the Lead and Researcher may write. */
+export const SCRATCHPAD = ".cadre";
+
+function isTeamDelegation(name: string): boolean {
+  return name === `${TEAM_PREFIX}brief_researcher` || name === `${TEAM_PREFIX}brief_engineer`;
+}
+
+/**
+ * Builds a narrowly-scoped allow rule for a tool call, so "always allow" can
+ * mean "this program" or "this directory" instead of "anything at all".
+ */
+function deriveScope(
+  name: string,
+  input: Record<string, unknown>,
+  cwd: string,
+): { label: string; updates: PermissionUpdate[] } | undefined {
+  const tool = shortToolName(name);
+  const rule = (toolName: string, ruleContent: string, label: string) => ({
+    label,
+    updates: [{
+      type: "addRules" as const,
+      rules: [{ toolName, ruleContent }],
+      behavior: "allow" as const,
+      destination: "session" as const,
+    }],
+  });
+
+  if (tool === "Bash") {
+    const program = programOf(typeof input.command === "string" ? input.command : "");
+    return program ? rule("Bash", `${program}:*`, `Always allow ${program}`) : undefined;
+  }
+
+  if (tool === "WebFetch") {
+    const url = typeof input.url === "string" ? input.url : "";
+    try {
+      const host = new URL(url).hostname;
+      return rule("WebFetch", `domain:${host}`, `Always allow ${host}`);
+    } catch {
+      return undefined;
+    }
+  }
+
+  if (["Read", "Write", "Edit", "NotebookEdit"].includes(tool)) {
+    const target = typeof input.file_path === "string" ? input.file_path : "";
+    if (!target) return undefined;
+    const relative = path.relative(cwd, path.resolve(cwd, target));
+    if (relative.startsWith("..")) return undefined;
+    const dir = path.dirname(relative);
+    const scope = dir === "." ? "*" : `${dir}/**`;
+    return rule(tool, scope, `Always allow ${tool} in ${dir === "." ? "the workspace root" : dir}/`);
+  }
+
+  return undefined;
+}
+
+/** The program a shell command actually runs, for scoping an allow rule. */
+function programOf(command: string): string | undefined {
+  let rest = command.trim();
+  // Step past a leading `cd somewhere &&`, which is a preamble, not the command.
+  const chained = /^cd\s+\S+\s*&&\s*(.+)$/s.exec(rest);
+  if (chained) rest = chained[1].trim();
+
+  const tokens = rest.split(/\s+/);
+  // Skip VAR=value prefixes.
+  let index = 0;
+  while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index])) index += 1;
+  const first = tokens[index];
+  if (!first) return undefined;
+
+  const program = path.basename(first);
+  // A bare interpreter tells us nothing useful; two words is a better scope.
+  if (["sudo", "env", "npx", "uvx", "git", "npm", "pnpm", "yarn", "pip", "pip3", "cargo", "docker"].includes(program)) {
+    const second = tokens[index + 1];
+    if (second && !second.startsWith("-")) return `${program} ${second}`;
+  }
+  return /^[\w.@+-]+$/.test(program) ? program : undefined;
+}
+
+function shortToolName(name: string): string {
+  return name.startsWith(TEAM_PREFIX) ? name.slice(TEAM_PREFIX.length) : name;
+}
+
+export function describeTool(name: string, input: Record<string, unknown>): string {
+  const str = (key: string): string | undefined =>
+    typeof input[key] === "string" ? (input[key] as string) : undefined;
+
+  switch (shortToolName(name)) {
+    case "Bash": return str("command") ?? "";
+    case "Read": case "Write": case "Edit": case "NotebookEdit": return str("file_path") ?? "";
+    case "Glob": case "Grep": return [str("pattern"), str("path")].filter(Boolean).join("  in  ");
+    case "WebSearch": return str("query") ?? "";
+    case "WebFetch": return str("url") ?? "";
+    case "git_view": return [str("subcommand"), ...(Array.isArray(input.paths) ? input.paths : [])].join(" ");
+    case "ask_researcher": case "ask_engineer": return str("question") ?? "";
+    default: {
+      const json = JSON.stringify(input);
+      return json.length > 240 ? `${json.slice(0, 240)}…` : json;
+    }
+  }
+}
+
+function summarizeResult(content: unknown): string {
+  const text = extractText(content).replace(/\s+/g, " ").trim();
+  return text.length > 200 ? `${text.slice(0, 200)}…` : text;
+}
+
+function extractText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((b) => (b && typeof b === "object" && (b as { type?: string }).type === "text" ? String((b as { text?: string }).text ?? "") : ""))
+    .join("");
+}
+
+/** Pulls HEADLINE out of a report block for the assignment card. */
+function headlineOf(report: string): string {
+  const match = /^\s*HEADLINE\s*:?\s*(.+)$/im.exec(report);
+  const line = match?.[1]?.trim() || report.split("\n").find((l) => l.trim())?.trim() || "";
+  return line.length > 220 ? `${line.slice(0, 220)}…` : line;
+}
+
+function shortPath(p: string): string {
+  const home = process.env.HOME;
+  const shown = home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
+  const parts = shown.split("/");
+  return parts.length > 3 ? `…/${parts.slice(-2).join("/")}` : shown;
+}
+
+function cryptoId(): string {
+  return crypto.randomUUID();
+}
+
+function describe(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}

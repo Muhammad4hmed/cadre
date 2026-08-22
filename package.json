@@ -1,0 +1,510 @@
+{
+  "name": "cadre",
+  "displayName": "Cadre",
+  "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
+  "version": "0.1.0",
+  "publisher": "muhammad-ahmed",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.90.0",
+    "node": ">=18"
+  },
+  "categories": [
+    "AI",
+    "Chat",
+    "Programming Languages",
+    "Other"
+  ],
+  "main": "./dist/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "cadre",
+          "title": "Cadre",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "cadre": [
+        {
+          "id": "cadre.chat",
+          "name": "Team",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "cadre.newSession",
+        "title": "New Session",
+        "category": "Cadre",
+        "icon": "$(add)"
+      },
+      {
+        "command": "cadre.stop",
+        "title": "Stop",
+        "category": "Cadre",
+        "icon": "$(debug-stop)"
+      },
+      {
+        "command": "cadre.openTeamFloor",
+        "title": "Open Team Floor",
+        "category": "Cadre",
+        "icon": "$(layout)"
+      },
+      {
+        "command": "cadre.focus",
+        "title": "Focus Chat",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.setApiKey",
+        "title": "Set API Key",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.clearApiKey",
+        "title": "Clear API Key",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.chooseBilling",
+        "title": "Choose Billing Mode",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.setAutonomy",
+        "title": "Set Autonomy Level",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.showLogs",
+        "title": "Show Logs",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.settings",
+        "title": "Settings",
+        "category": "Cadre",
+        "icon": "$(settings-gear)"
+      },
+      {
+        "command": "cadre.resumeSession",
+        "title": "Resume Session",
+        "category": "Cadre",
+        "icon": "$(history)"
+      },
+      {
+        "command": "cadre.rewindFiles",
+        "title": "Rewind Files",
+        "category": "Cadre",
+        "icon": "$(discard)"
+      },
+      {
+        "command": "cadre.setThinking",
+        "title": "Set Thinking",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.setModel",
+        "title": "Set Model",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.setEffort",
+        "title": "Set Effort",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.account",
+        "title": "Account",
+        "category": "Cadre",
+        "icon": "$(account)"
+      },
+      {
+        "command": "cadre.login",
+        "title": "Log In to Claude",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.logout",
+        "title": "Log Out of Claude",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.selectProject",
+        "title": "Select Project",
+        "category": "Cadre",
+        "icon": "$(folder-opened)"
+      },
+      {
+        "command": "cadre.onboard",
+        "title": "Onboard This Project",
+        "category": "Cadre",
+        "icon": "$(compass)"
+      },
+      {
+        "command": "cadre.saveProfile",
+        "title": "Save Settings as Project Profile",
+        "category": "Cadre"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "cadre.stop",
+          "when": "view == cadre.chat && cadre.busy",
+          "group": "navigation@1"
+        },
+        {
+          "command": "cadre.openTeamFloor",
+          "when": "view == cadre.chat",
+          "group": "navigation@2"
+        },
+        {
+          "command": "cadre.newSession",
+          "when": "view == cadre.chat",
+          "group": "navigation@3"
+        },
+        {
+          "command": "cadre.settings",
+          "when": "view == cadre.chat",
+          "group": "navigation@4"
+        },
+        {
+          "command": "cadre.resumeSession",
+          "when": "view == cadre.chat",
+          "group": "overflow@1"
+        },
+        {
+          "command": "cadre.rewindFiles",
+          "when": "view == cadre.chat",
+          "group": "overflow@2"
+        },
+        {
+          "command": "cadre.showLogs",
+          "when": "view == cadre.chat",
+          "group": "overflow@4"
+        },
+        {
+          "command": "cadre.account",
+          "when": "view == cadre.chat",
+          "group": "overflow@0"
+        },
+        {
+          "command": "cadre.selectProject",
+          "when": "view == cadre.chat && workspaceFolderCount > 1",
+          "group": "navigation@0"
+        },
+        {
+          "command": "cadre.onboard",
+          "when": "view == cadre.chat",
+          "group": "overflow@1"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Cadre",
+      "properties": {
+        "cadre.billing": {
+          "type": "string",
+          "default": "subscription",
+          "enum": [
+            "subscription",
+            "apiKey"
+          ],
+          "scope": "application",
+          "enumDescriptions": [
+            "Use the login your Claude Code CLI already has. Any ANTHROPIC_API_KEY in your shell is ignored.",
+            "Bill the Anthropic API per token. Set the key with “Cadre: Set API Key”."
+          ],
+          "markdownDescription": "How the team's work is paid for. The API key is never stored in settings — it lives in VS Code's encrypted secret storage."
+        },
+        "cadre.autonomy": {
+          "type": "string",
+          "default": "standard",
+          "enum": [
+            "standard",
+            "supervised",
+            "plan",
+            "autonomous"
+          ],
+          "scope": "resource",
+          "enumDescriptions": [
+            "Edits flow; shell commands ask.",
+            "Every edit and command needs your approval.",
+            "The team designs and reports but changes nothing.",
+            "No prompts at all. Secret files are still blocked."
+          ],
+          "markdownDescription": "How much rope the team gets. Enforced by the extension via a restrictive-only policy tier, so it holds even if your own Claude Code settings grant broader permissions."
+        },
+        "cadre.inheritGlobalConfig": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Load your global `~/.claude/settings.json` as well as the project's. Off by default: blanket allow-rules that are reasonable for hand-driven Claude Code are not reasonable for an agent looping on its own. `CLAUDE.md` is loaded either way."
+        },
+        "cadre.directLine": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Let you talk straight to the Researcher or Engineer, bypassing the Lead. Off by default — the Lead's picture goes stale while it is on, and it will say so."
+        },
+        "cadre.lead.model": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Model for the **Lead**. Alias (`opus`, `sonnet`, `haiku`) or a full model ID. Empty uses the default (`opus`)."
+        },
+        "cadre.lead.effort": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "scope": "resource",
+          "enumDescriptions": [
+            "Default (high)",
+            "Fastest, least thorough",
+            "Balanced",
+            "Thorough",
+            "Very thorough",
+            "Maximum"
+          ],
+          "markdownDescription": "Reasoning depth for the **Lead**."
+        },
+        "cadre.researcher.model": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Model for the **Researcher**. Alias (`opus`, `sonnet`, `haiku`) or a full model ID. Empty uses the default (`opus`)."
+        },
+        "cadre.researcher.effort": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "scope": "resource",
+          "enumDescriptions": [
+            "Default (high)",
+            "Fastest, least thorough",
+            "Balanced",
+            "Thorough",
+            "Very thorough",
+            "Maximum"
+          ],
+          "markdownDescription": "Reasoning depth for the **Researcher**."
+        },
+        "cadre.engineer.model": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Model for the **Engineer**. Alias (`opus`, `sonnet`, `haiku`) or a full model ID. Empty uses the default (`opus`)."
+        },
+        "cadre.engineer.effort": {
+          "type": "string",
+          "default": "",
+          "enum": [
+            "",
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "scope": "resource",
+          "enumDescriptions": [
+            "Default (xhigh)",
+            "Fastest, least thorough",
+            "Balanced",
+            "Thorough",
+            "Very thorough",
+            "Maximum"
+          ],
+          "markdownDescription": "Reasoning depth for the **Engineer**."
+        },
+        "cadre.playbooks": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Skills to load for the team (Claude Code Skills). Empty leaves the CLI's own defaults alone. Skills live in `.claude/skills/`."
+        },
+        "cadre.connectors": {
+          "type": "object",
+          "default": {},
+          "scope": "resource",
+          "markdownDescription": "MCP servers the team can reach, in the same shape as Claude Code's `mcpServers`. Give a teammate a connector and it appears in their tool list.\n\n```json\n{ \"kaggle\": { \"type\": \"stdio\", \"command\": \"…\" } }\n```"
+        },
+        "cadre.claudeExecutablePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "markdownDescription": "Absolute path to the `claude` executable. Empty auto-detects: bundled binary, then `PATH`, then the usual install locations."
+        },
+        "cadre.thinking": {
+          "type": "string",
+          "default": "adaptive",
+          "enum": [
+            "adaptive",
+            "off"
+          ],
+          "scope": "resource",
+          "enumDescriptions": [
+            "Each teammate decides when and how much to reason. Recommended.",
+            "No extended thinking. Faster and cheaper; noticeably worse on hard problems."
+          ],
+          "markdownDescription": "Extended thinking for the whole team. Reasoning streams into each lane under a collapsed **Reasoning** disclosure."
+        },
+        "cadre.fallbackModel": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Model to fall back to when the primary is overloaded or a request is declined. The primary is retried at the start of each turn, so an outage does not permanently demote the session. Empty disables fallback."
+        },
+        "cadre.maxSpendUsd": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "scope": "resource",
+          "markdownDescription": "Hard spend ceiling for a single run, in USD. The run stops when it is exceeded. `0` means no cap."
+        },
+        "cadre.checkpoints": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Snapshot files before the team edits them, so **Cadre: Rewind Files** can restore the workspace to how it was at an earlier message."
+        },
+        "cadre.additionalDirectories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Absolute paths the team may read and edit in addition to the workspace folder."
+        },
+        "cadre.plugins": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "resource",
+          "markdownDescription": "Local plugin directories. A plugin can ship commands, agents, skills and hooks."
+        },
+        "cadre.exclusiveConnectors": {
+          "type": "boolean",
+          "default": false,
+          "scope": "resource",
+          "markdownDescription": "Use only the connectors in `cadre.connectors`, ignoring project `.mcp.json`, user settings and plugin-declared servers. Makes the team's tool surface fully predictable."
+        },
+        "cadre.persistSessions": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "markdownDescription": "Save conversations so they can be reopened with **Cadre: Resume Session**. Turn off for ephemeral work."
+        },
+        "cadre.documentation": {
+          "type": "string",
+          "default": "substantial",
+          "enum": [
+            "substantial",
+            "always",
+            "off"
+          ],
+          "scope": "resource",
+          "enumDescriptions": [
+            "Document work that is substantial — the same threshold that creates a spec. A one-line fix gets nothing.",
+            "Document every change. Thorough, and noisy on small work.",
+            "No documentation duty. The team still reports to you in chat."
+          ],
+          "markdownDescription": "Whether the team maintains documentation alongside the project. The Lead keeps `PROJECT.md`, the Researcher writes technical reports under `research/`, the Engineer keeps the changelog and code-level docs."
+        },
+        "cadre.docsPath": {
+          "type": "string",
+          "default": "docs",
+          "scope": "resource",
+          "markdownDescription": "Workspace-relative folder for deliverable documentation. Unlike `.cadre/` (gitignored scratch), this is committed. The Lead and Researcher can write here directly; everything else still goes through the Engineer."
+        },
+        "cadre.projectRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "Folders to scan for projects on the home screen. Empty scans beside the folders already open — e.g. with `~/Desktop/ai-team` open, it lists the projects in `~/Desktop`."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "vscode:prepublish": "node build.mjs --production",
+    "verify:ui": "node scripts/verify-ui.mjs",
+    "verify:all": "npm run verify:fast && npm run verify:team",
+    "package": "vsce package --no-dependencies --out cadre.vsix",
+    "package:bundled": "vsce package --allow-missing-repository --ignoreFile .vscodeignore.bundled --target linux-x64 --out cadre-linux-x64.vsix",
+    "install:vsix": "code --install-extension cadre.vsix --force",
+    "verify:lifecycle": "node scripts/verify-lifecycle.mjs",
+    "verify:fast": "npm run verify:ui && npm run verify:lifecycle && npm run verify:auth",
+    "verify:team": "node scripts/verify-team.mjs",
+    "verify:auth": "node scripts/verify-auth.mjs",
+    "publish": "vsce publish --no-dependencies"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.239",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.1",
+    "@types/vscode": "1.90.0",
+    "@vscode/vsce": "^3.9.2",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.9.3",
+    "@anthropic-ai/sdk": "^0.120.0"
+  },
+  "icon": "media/icon.png",
+  "keywords": [
+    "claude",
+    "anthropic",
+    "ai",
+    "agent",
+    "multi-agent",
+    "pair programming",
+    "code generation",
+    "assistant"
+  ],
+  "galleryBanner": {
+    "color": "#181820",
+    "theme": "dark"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Muhammad4hmed/cadre.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Muhammad4hmed/cadre/issues"
+  },
+  "homepage": "https://github.com/Muhammad4hmed/cadre#readme",
+  "author": "Muhammad Ahmed"
+}

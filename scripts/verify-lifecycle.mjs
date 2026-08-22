@@ -1,0 +1,500 @@
+/**
+ * Regression tests for the session lifecycle defects the foundation audit found.
+ * These originally guarded the single-agent AgentSession; they now guard
+ * TeamSession, which replaced it, because the same failure modes are worse when
+ * a Lead is mid-delegation.
+ *
+ * The real SDK is aliased out for a controllable fake so a silent stream end, a
+ * mid-run crash, and disposal-while-busy can be provoked deterministically.
+ */
+import * as esbuild from "esbuild";
+import { baseOptions } from "./esbuild-shared.mjs";
+import Module from "node:module";
+import { createRequire } from "node:module";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+
+const answers = { pick: (choices) => choices[0], offered: [] };
+const vscodeStub = {
+  workspace: { getConfiguration: () => ({ get: () => undefined }) },
+  window: {
+    showWarningMessage: async (_msg, _opts, ...choices) => {
+      answers.offered = choices;
+      return answers.pick(choices);
+    },
+  },
+  commands: { executeCommand: async () => undefined },
+  Disposable: class { constructor(fn) { this.dispose = fn || (() => {}); } },
+};
+const originalLoad = Module._load;
+Module._load = (r, p, m) => (r === "vscode" ? vscodeStub : originalLoad.call(Module, r, p, m));
+
+const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-life-"));
+const outfile = path.join(dir, "orchestrator.cjs");
+await esbuild.build({
+  ...baseOptions({ entry: "src/team/orchestrator.ts", outfile }),
+  alias: { "@anthropic-ai/claude-agent-sdk": path.resolve("scripts/fake-sdk.mjs") },
+  logLevel: "warning",
+});
+
+const require = createRequire(import.meta.url);
+const { TeamSession } = require(outfile);
+const fake = await import("./fake-sdk.mjs");
+
+const checks = [];
+const check = (label, ok) => checks.push([label, ok]);
+const tick = () => new Promise((r) => setTimeout(r, 25));
+
+const CONFIG = {
+  cwd: "/tmp", executablePath: "/fake/claude", autonomy: "standard",
+  inheritGlobalConfig: false, directLine: false,
+  models: {}, efforts: {}, skills: undefined, connectors: {},
+  thinking: "adaptive", fallbackModel: "", maxSpendUsd: 0, checkpoints: true,
+  additionalDirectories: [], plugins: [], exclusiveConnectors: false,
+  persistSessions: true, documentation: "substantial", docsPath: "docs",
+};
+const BILLING = {
+  environment: async () => ({ PATH: "/usr/bin" }),
+  status: async () => ({ ok: true, mode: "subscription", describe: "test" }),
+};
+
+function makeSession(config = CONFIG) {
+  const events = [];
+  const session = new TeamSession(config, BILLING, (e) => events.push(e), {
+    info: () => {}, warn: () => {}, error: () => {}, debug: () => {},
+  });
+  const of = (kind) => events.filter((e) => e.kind === kind);
+  const lastBusy = () => of("busy").at(-1)?.busy;
+  return { session, events, of, lastBusy };
+}
+
+// ---- A. a stream that ends silently must not wedge the session -------------
+fake.__instances.length = 0;
+{
+  const { session, lastBusy } = makeSession();
+  await session.prepare();
+  session.send("first");
+  await tick();
+  const first = fake.__instances[0];
+  first.emit(fake.initMessage());
+  first.emit(fake.resultMessage());
+  await tick();
+  check("A1 busy cleared after a normal result", lastBusy() === false);
+
+  first.end();                        // the CLI exits underneath us
+  await tick();
+
+  session.send("second");
+  await tick();
+  check("A2 a dead stream is replaced, not reused", fake.__instances.length === 2);
+  check("A3 the second message reaches the new stream",
+    fake.__instances[1].received.includes("second"));
+  session.dispose();
+}
+
+// ---- B. a crash mid-run must report and stay recoverable -------------------
+fake.__instances.length = 0;
+{
+  const { session, of, lastBusy } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  fake.__instances[0].fail(new Error("cli exited with code 1"));
+  await tick();
+
+  const notices = of("notice");
+  check("B1 crash surfaces an error notice",
+    notices.some((n) => n.level === "error" && /cli exited/.test(n.text)));
+  check("B2 crash clears busy", lastBusy() === false);
+  check("B3 crash warns the session ended",
+    notices.some((n) => n.level === "warn" && /next message/i.test(n.text)));
+
+  session.send("again");
+  await tick();
+  check("B4 a crashed session is recoverable", fake.__instances.length === 2);
+  session.dispose();
+}
+
+// ---- C. disposing mid-run must release the composer ------------------------
+fake.__instances.length = 0;
+{
+  const { session, lastBusy } = makeSession();
+  await session.prepare();
+  session.send("working");
+  await tick();
+  check("C1 busy raised while running", lastBusy() === true);
+
+  session.dispose();                  // e.g. the New Session button
+  await tick();
+  check("C2 dispose clears busy", lastBusy() === false);
+  check("C3 dispose closes the underlying query", fake.__instances[0].closed === true);
+}
+
+// ---- D. permission scoping -------------------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = (extra = {}) => ({
+    signal: new AbortController().signal, toolUseID: "t", requestId: "r", ...extra,
+  });
+
+  // The SDK's own scoped suggestions win when it provides them.
+  const suggestions = [{
+    type: "addRules", behavior: "allow", destination: "session",
+    rules: [{ toolName: "Bash", ruleContent: "git status" }],
+  }];
+  answers.pick = (c) => c.find((x) => /always allow/i.test(x));
+  const scoped = await gate("Bash", { command: "git status" }, ctx({ suggestions }));
+  check("D1 session grant reuses the SDK's scoped suggestions",
+    JSON.stringify(scoped.updatedPermissions) === JSON.stringify(suggestions));
+
+  // With no suggestions we derive one ourselves — and it must stay narrow.
+  answers.pick = (c) => c.find((x) => /always allow/i.test(x));
+  const derived = await gate("Bash", { command: "tesseract --version 2>&1 | head -5" }, ctx());
+  check("D2 a derived grant is offered when the SDK gives none",
+    answers.offered.includes("Always allow tesseract"));
+  check("D3 the derived grant is scoped to the program, not the tool",
+    derived.updatedPermissions?.[0]?.rules?.[0]?.ruleContent === "tesseract:*");
+
+  // The blanket option exists, but only as an explicit, clearly-labelled choice.
+  answers.pick = (c) => c.find((x) => /don't ask again/i.test(x));
+  const blanket = await gate("Bash", { command: "ls" }, ctx());
+  check("D4 'don't ask again' is offered so the user can stop the prompting",
+    answers.offered.some((x) => /don't ask again/i.test(x)));
+  check("D5 it is session-scoped, not permanent",
+    blanket.updatedPermissions?.[0]?.destination === "session");
+
+  answers.pick = () => undefined;   // user dismissed the modal
+  const dismissed = await gate("Bash", { command: "rm -rf /" }, ctx());
+  check("D6 dismissing the modal denies", dismissed.behavior === "deny");
+
+  const aborted = new AbortController();
+  aborted.abort();
+  const cancelled = await gate("Bash", { command: "x" }, ctx({ signal: aborted.signal }));
+  check("D7 an aborted run denies instead of hanging", cancelled.behavior === "deny");
+
+  answers.pick = (c) => c[0];
+  session.dispose();
+}
+
+// ---- D2. derived scopes for other tools ------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  answers.pick = (c) => c.find((x) => /always allow/i.test(x));
+  await gate("Bash", { command: "cd /repo && npm test" }, ctx);
+  check("D8 a `cd x && y` preamble is stepped past",
+    answers.offered.includes("Always allow npm test"));
+
+  await gate("Bash", { command: "NODE_ENV=test pytest -q" }, ctx);
+  check("D9 env-var prefixes are skipped", answers.offered.includes("Always allow pytest"));
+
+  const web = await gate("WebFetch", { url: "https://docs.python.org/3/library/os.html" }, ctx);
+  check("D10 web fetches scope to the host",
+    web.updatedPermissions?.[0]?.rules?.[0]?.ruleContent === "domain:docs.python.org");
+
+  answers.pick = (c) => c[0];
+  session.dispose();
+}
+
+// ---- E. the team wiring the orchestrator hands to the SDK ------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("hello");
+  await tick();
+  const options = fake.__instances[0].options;
+
+  check("E1 the Lead has no shell",
+    options.disallowedTools.includes("Bash") && !options.tools.includes("Bash"));
+  check("E2 the Lead cannot spawn raw subagents",
+    options.disallowedTools.includes("Agent") && options.disallowedTools.includes("Task"));
+  check("E2b the Lead cannot message live agents out of band",
+    options.disallowedTools.includes("SendMessage"));
+  check("E3 the Lead can brief both teammates",
+    options.allowedTools.includes("mcp__team__brief_researcher") &&
+    options.allowedTools.includes("mcp__team__brief_engineer"));
+  check("E3b tools restricts availability; allowedTools only auto-approves",
+    options.tools.every((t) => !t.startsWith("mcp__")) &&
+    options.allowedTools.every((t) => t.startsWith("mcp__")));
+  check("E4 the team MCP server is registered", Boolean(options.mcpServers?.team));
+  check("E5 short tool names alias to the namespaced ones",
+    options.toolAliases?.brief_engineer === "mcp__team__brief_engineer");
+  const ask = options.managedSettings?.permissions?.ask ?? [];
+  check("E6 policy is enforced as a restrictive-only managed tier", Array.isArray(ask) && ask.length > 0);
+  check("E6b destructive commands are asked about", ask.includes("Bash(rm:*)") && ask.includes("Bash(sudo:*)"));
+  check("E6c benign commands are NOT blanket-asked",
+    !ask.includes("Bash"));
+  check("E7 secret reads are denied",
+    options.managedSettings?.permissions?.deny?.some((r) => r.includes(".env")));
+  check("E8 global blanket allow-rules are not loaded by default",
+    !options.settingSources.includes("user"));
+  check("E9 billing environment is applied", options.env?.PATH === "/usr/bin");
+  session.dispose();
+}
+
+// ---- F. the Lead and Researcher cannot edit production code ----------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  const leadOutside = await gate("Edit", { file_path: "/repo/src/app.ts" }, ctx);
+  check("F1 the Lead cannot edit production code",
+    leadOutside.behavior === "deny" && /no editor outside/i.test(leadOutside.message));
+
+  const leadRelative = await gate("Write", { file_path: "src/app.ts" }, ctx);
+  check("F2 a relative path does not slip past the gate", leadRelative.behavior === "deny");
+
+  const leadEscape = await gate("Write", { file_path: ".cadre/../src/app.ts" }, ctx);
+  check("F3 traversal out of the scratchpad is denied", leadEscape.behavior === "deny");
+
+  answers.permission = "Allow once";
+  const leadSpec = await gate("Write", { file_path: "/repo/.cadre/spec.md" }, ctx);
+  check("F4 the Lead may write its own spec", leadSpec.behavior === "allow");
+
+  const leadReads = await gate("Read", { file_path: "/repo/src/app.ts" }, ctx);
+  check("F5 reading production code is still fine", leadReads.behavior === "allow");
+  session.dispose();
+}
+
+// ---- G. a failing connector must be visible, not silent -------------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage({
+    mcp_servers: [
+      { name: "team", status: "connected" },
+      { name: "kaggle", status: "connected" },
+      { name: "apify", status: "failed" },
+    ],
+  }));
+  await tick();
+
+  const roster = of("roster").at(-1);
+  check("G1 our own server is not shown as a user connector",
+    !roster?.connectors?.some((c) => c.name === "team"));
+  check("G2 connector health reaches the UI",
+    roster?.connectors?.length === 2 &&
+    roster.connectors.find((c) => c.name === "kaggle")?.ok === true &&
+    roster.connectors.find((c) => c.name === "apify")?.ok === false);
+  check("G3 a failed connector is called out, not swallowed",
+    of("notice").some((n) => n.level === "warn" && /apify/.test(n.text)));
+  session.dispose();
+}
+
+// ---- H. the parity options actually reach the SDK --------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({
+    ...CONFIG,
+    thinking: "off",
+    fallbackModel: "claude-sonnet-5",
+    maxSpendUsd: 2.5,
+    checkpoints: true,
+    additionalDirectories: ["/extra"],
+    plugins: ["/plug"],
+    exclusiveConnectors: true,
+    persistSessions: false,
+  });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const o = fake.__instances[0].options;
+
+  check("H1 thinking can be turned off", o.thinking?.type === "disabled");
+  check("H2 fallback model is passed", o.fallbackModel === "claude-sonnet-5");
+  check("H3 spend cap is passed", o.maxBudgetUsd === 2.5);
+  check("H4 checkpointing is on so rewind can work", o.enableFileCheckpointing === true);
+  check("H5 extra directories are passed", o.additionalDirectories?.[0] === "/extra");
+  check("H6 local plugins are shaped correctly",
+    o.plugins?.[0]?.type === "local" && o.plugins[0].path === "/plug");
+  check("H7 exclusive connectors maps to strictMcpConfig", o.strictMcpConfig === true);
+  check("H8 session persistence can be disabled", o.persistSession === false);
+  check("H9 the abort controller reaches the query", Boolean(o.abortController));
+  session.dispose();
+}
+
+// ---- I. defaults stay sane -------------------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const o = fake.__instances[0].options;
+  check("I1 thinking defaults to adaptive", o.thinking?.type === "adaptive");
+  check("I2 no spend cap unless asked", o.maxBudgetUsd === undefined);
+  check("I3 no fallback unless configured", o.fallbackModel === undefined);
+  session.dispose();
+}
+
+// ---- J. rewind needs a turn to aim at --------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  check("J1 no turns before anything is sent", session.history().length === 0);
+  session.send("first thing");
+  session.send("second thing");
+  await tick();
+  const turns = session.history();
+  check("J2 every user turn is recorded for rewind", turns.length === 2);
+  check("J3 turns carry the text the user typed", turns[0].text === "first thing");
+  check("J4 turn ids are distinct", turns[0].id !== turns[1].id);
+  check("J5 the id sent to the CLI matches the recorded turn",
+    fake.__instances[0].receivedUuids?.includes(turns[0].id) ?? true);
+  session.dispose();
+}
+
+// ---- K. documentation duty -------------------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo", docsPath: "documentation" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const prompt = fake.__instances[0].options.systemPrompt;
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  check("K1 the configured docs path reaches the prompt", prompt.includes("documentation/PROJECT.md"));
+  check("K2 no unsubstituted token is left", !prompt.includes("{{DOCS}}"));
+  check("K3 the section markers are stripped", !prompt.includes("docs:start"));
+
+  answers.pick = (c) => c[0];
+  const docWrite = await gate("Write", { file_path: "/repo/documentation/PROJECT.md" }, ctx);
+  check("K4 the Lead may write its own documentation", docWrite.behavior === "allow");
+  const scratch = await gate("Write", { file_path: "/repo/.cadre/spec.md" }, ctx);
+  check("K5 the scratchpad is still writable", scratch.behavior === "allow");
+  const source = await gate("Edit", { file_path: "/repo/src/app.ts" }, ctx);
+  check("K6 production code is still denied to the Lead", source.behavior === "deny");
+  const escape = await gate("Write", { file_path: "/repo/documentation/../src/app.ts" }, ctx);
+  check("K7 traversal out of the docs root is denied", escape.behavior === "deny");
+  session.dispose();
+}
+
+// ---- L. documentation off --------------------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo", documentation: "off" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const prompt = fake.__instances[0].options.systemPrompt;
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  check("L1 the documentation section is removed from the prompt",
+    !prompt.includes("PROJECT.md") && !prompt.includes("docs:start"));
+  const docWrite = await gate("Write", { file_path: "/repo/docs/PROJECT.md" }, ctx);
+  check("L2 and the docs root is not writable when it is off", docWrite.behavior === "deny");
+  check("L3 the rest of the prompt survives", prompt.includes("Opening moves"));
+  session.dispose();
+}
+
+// ---- M. project orientation ------------------------------------------------
+fake.__instances.length = 0;
+{
+  const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-proj-"));
+  fs.writeFileSync(path.join(repo, "package.json"), "{}");
+  fs.writeFileSync(path.join(repo, "tsconfig.json"), "{}");
+  fs.mkdirSync(path.join(repo, "docs", "research"), { recursive: true });
+  fs.writeFileSync(path.join(repo, "docs", "PROJECT.md"), "# x");
+  fs.writeFileSync(path.join(repo, "docs", "research", "ocr.md"), "# x");
+  fs.writeFileSync(path.join(repo, "CLAUDE.md"), "conventions");
+
+  const { session } = makeSession({ ...CONFIG, cwd: repo });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const prompt = fake.__instances[0].options.systemPrompt;
+
+  check("M1 the stack is identified from markers",
+    prompt.includes("Node") && prompt.includes("TypeScript"));
+  check("M2 durable artifacts from earlier sessions are listed",
+    prompt.includes("docs/PROJECT.md"));
+  check("M3 existing research reports are surfaced", prompt.includes("ocr.md"));
+  check("M4 CLAUDE.md is called out as binding", /CLAUDE\.md/.test(prompt));
+  check("M5 the preamble states where the project is", prompt.includes(repo));
+  check("M6 stale documents lose to the code",
+    prompt.includes("the code is right and the document is stale"));
+  session.dispose();
+  fs.rmSync(repo, { recursive: true, force: true });
+}
+
+// ---- N. a cold project says so ---------------------------------------------
+fake.__instances.length = 0;
+{
+  const bare = fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-bare-"));
+  const { session } = makeSession({ ...CONFIG, cwd: bare });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const prompt = fake.__instances[0].options.systemPrompt;
+  check("N1 an empty project is described as cold, not silently blank",
+    prompt.includes("starting cold"));
+  // PROJECT.md appears in the documentation-duty section regardless; what must
+  // be absent is the "earlier sessions left this behind" list.
+  check("N2 no prior-session artifacts are invented",
+    !prompt.includes("Earlier sessions left this behind"));
+  session.dispose();
+  fs.rmSync(bare, { recursive: true, force: true });
+}
+
+// ---- O. an auth failure is not a "model error" -----------------------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  fake.__instances[0].emit({
+    type: "assistant", parent_tool_use_id: null, error: "authentication_failed",
+    message: { role: "assistant", content: [] },
+  });
+  await tick();
+
+  check("O1 an auth failure raises authProblem, not a transcript notice",
+    of("authProblem").length === 1 && of("notice").every((n) => !/model error/i.test(n.text)));
+  check("O2 it explains the credential is the problem",
+    /not signed in/i.test(of("authProblem")[0]?.detail ?? ""));
+
+  fake.__instances[0].emit({
+    type: "assistant", parent_tool_use_id: null, error: "overloaded",
+    message: { role: "assistant", content: [] },
+  });
+  await tick();
+  check("O3 a genuine model error still reads as one",
+    of("notice").some((n) => /model error: overloaded/i.test(n.text)));
+  session.dispose();
+}
+
+console.log("=== session lifecycle + team wiring ===");
+let failed = false;
+for (const [label, ok] of checks) {
+  if (!ok) failed = true;
+  console.log(`${ok ? "PASS" : "FAIL"}  ${label}`);
+}
+process.exit(failed ? 1 : 0);

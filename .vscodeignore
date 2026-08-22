@@ -1,0 +1,24 @@
+# Dev-only sources. dist/extension.js is the bundled artifact that ships.
+.vscode/**
+src/**
+scripts/**
+sandbox/**
+build.mjs
+tsconfig.json
+package-lock.json
+.gitignore
+.vscodeignore.bundled
+LICENSE.md
+**/*.map
+**/*.ts
+
+# The SDK's JS is bundled into dist/extension.js by esbuild. The only thing
+# node_modules still holds is the ~342 MB native CLI binary, which the slim
+# package deliberately leaves out — src/cli.ts falls back to the user's own
+# Claude Code install.
+#
+# A negation here would NOT work: with --no-dependencies, vsce globs the tree
+# with a hard-coded ignore of node_modules/** that no .vscodeignore entry can
+# override. The bundled build therefore uses .vscodeignore.bundled and drops
+# --no-dependencies. See `npm run package:bundled`.
+node_modules/**

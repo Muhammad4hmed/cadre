@@ -1,0 +1,87 @@
+/**
+ * Controllable stand-in for @anthropic-ai/claude-agent-sdk, swapped in via an
+ * esbuild alias. Lets the lifecycle tests drive failure modes that are hard to
+ * provoke against the real CLI: a stream that ends silently, a subprocess that
+ * crashes mid-run, disposal while busy.
+ */
+/**
+ * esbuild inlines this module into the bundle under test, so the test process
+ * and the bundle each hold their own copy. Park the registry on globalThis so
+ * both copies observe the same array.
+ */
+const registry = (globalThis.__AI_TEAM_FAKE_SDK__ ??= { instances: [] });
+export const __instances = registry.instances;
+
+export function query({ prompt, options }) {
+  const outbox = [];
+  const received = [];
+  const receivedUuids = [];
+  let wake = null;
+  let ended = false;
+  let failure = null;
+
+  const nudge = () => { const w = wake; wake = null; w?.(); };
+
+  const control = {
+    options,
+    received,
+    receivedUuids,
+    interrupts: 0,
+    closed: false,
+    emit(message) { outbox.push(message); nudge(); },
+    /** Stream completes normally, as when the CLI exits cleanly. */
+    end() { ended = true; nudge(); },
+    /** Stream throws, as on a transport error or crash. */
+    fail(error) { failure = error; ended = true; nudge(); },
+  };
+  registry.instances.push(control);
+
+  void (async () => {
+    for await (const message of prompt) {
+      const content = message?.message?.content;
+      received.push(typeof content === "string" ? content : JSON.stringify(content));
+      if (message?.uuid) receivedUuids.push(message.uuid);
+      nudge();
+    }
+  })();
+
+  const stream = (async function* () {
+    while (true) {
+      if (outbox.length) { yield outbox.shift(); continue; }
+      if (failure) throw failure;
+      if (ended) return;
+      await new Promise((resolve) => { wake = resolve; });
+    }
+  })();
+
+  stream.interrupt = async () => { control.interrupts += 1; };
+  stream.close = () => { control.closed = true; ended = true; nudge(); };
+  stream.setPermissionMode = async () => {};
+  stream.setModel = async () => {};
+  return stream;
+}
+
+export function initMessage(overrides = {}) {
+  return {
+    type: "system", subtype: "init", model: "test-model", cwd: "/tmp",
+    claude_code_version: "0.0.0", apiKeySource: "none", tools: ["Read"],
+    permissionMode: "default", mcp_servers: [], slash_commands: [], skills: [],
+    plugins: [], output_style: "default", ...overrides,
+  };
+}
+
+export function resultMessage(overrides = {}) {
+  return {
+    type: "result", subtype: "success", is_error: false, num_turns: 1,
+    duration_ms: 10, total_cost_usd: 0.01, result: "ok", ...overrides,
+  };
+}
+
+/** Enough of the in-process MCP surface for the orchestrator to construct itself. */
+export function tool(name, description, inputSchema, handler) {
+  return { name, description, inputSchema, handler };
+}
+
+export function createSdkMcpServer(options) {
+  return { type: "sdk", name: options.name, instance: { __fake: true }, tools: options.tools ?? [] };
+}

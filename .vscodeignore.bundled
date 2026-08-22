@@ -1,0 +1,14 @@
+.vscode/**
+src/**
+scripts/**
+sandbox/**
+build.mjs
+tsconfig.json
+package-lock.json
+.gitignore
+.vscodeignore
+.vscodeignore.bundled
+**/*.map
+**/*.ts
+node_modules/**
+!node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/**
