@@ -2,6 +2,7 @@
 .vscode/**
 src/**
 scripts/**
+.shots/**
 sandbox/**
 build.mjs
 tsconfig.json

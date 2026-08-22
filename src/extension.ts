@@ -627,7 +627,7 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
 </head>
 <body>
   <header class="bar">
-    <span class="brand">AI&nbsp;TEAM</span>
+    <span class="brand">CADRE</span>
     <button class="chip pick" id="workspace" title="Back to projects">—</button>
     <span class="chip" id="autonomy">—</span>
     <span class="chip" id="billing">—</span>

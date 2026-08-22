@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="media/icon.png" width="96" alt="Cadre">
+<img src="media/icon.png" width="88" alt="Cadre">
 
 # Cadre
 
@@ -8,6 +8,8 @@
 
 You talk to the Lead. It interrogates the brief, decides scope, and puts a Researcher
 and an Engineer to work — and you watch all three of them do it.
+
+<img src="media/screenshots/team-floor.png" width="900" alt="Three lanes: the Lead delegating to a Researcher and an Engineer, each streaming live">
 
 </div>
 
@@ -26,6 +28,8 @@ jobs and different tools, and a Lead whose entire product is judgement:
 
 The Lead having no keyboard is the design, not an oversight. A lead that can quietly do
 the work itself will, and then the team is theatre.
+
+<img src="media/screenshots/flow.png" width="900" alt="How work moves: you brief the Lead, the Lead briefs teammates, teammates return reports">
 
 ## Requirements
 
@@ -63,6 +67,14 @@ One responsive view. A merged stream in the sidebar; three live lanes past 760px
 full-width **Team Floor** when you want the whole board. Status lights that pulse only
 while a teammate is genuinely working, delegation cards showing what was handed to whom,
 tool calls that resolve to ✓ or ✕, collapsed reasoning, running cost.
+
+<table>
+<tr>
+<td width="34%" valign="top"><img src="media/screenshots/sidebar.png" alt="The sidebar: one merged stream"><br><sub><b>Sidebar</b> — everything in one chronological stream.</sub></td>
+<td width="33%" valign="top"><img src="media/screenshots/projects.png" alt="The project list"><br><sub><b>Projects</b> — folders open, and projects beside them.</sub></td>
+<td width="33%" valign="top"><img src="media/screenshots/signed-out.png" alt="The signed-out gate"><br><sub><b>Signed out</b> — checked before you type, not after.</sub></td>
+</tr>
+</table>
 
 ## Safety
 
@@ -127,7 +139,7 @@ Everything is reachable from **Cadre: Settings**, or individually:
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 127 checks, no API calls
+npm run verify:fast    # 157 checks, no API calls
 npm run verify:team    # a live three-agent run; costs tokens
 ```
 

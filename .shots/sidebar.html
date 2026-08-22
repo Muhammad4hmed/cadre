@@ -1,0 +1,1185 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>/* VS Code Dark Modern token values. The webview normally inherits these from
+   the host; here they are supplied so the real stylesheet renders as it does
+   in the editor. Nothing about media/team.css is changed. */
+:root {
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: "DejaVu Sans Mono", ui-monospace, monospace;
+  --vscode-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-sideBar-background: #181818;
+  --vscode-editor-background: #1f1f1f;
+  --vscode-panel-border: #2b2b2b;
+  --vscode-editorWidget-background: #202020;
+  --vscode-textCodeBlock-background: #0d0d0d;
+  --vscode-input-background: #313131;
+  --vscode-input-foreground: #cccccc;
+  --vscode-input-border: #3c3c3c;
+  --vscode-focusBorder: #0078d4;
+  --vscode-button-background: #0078d4;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #026ec1;
+  --vscode-button-secondaryBackground: #313131;
+  --vscode-button-secondaryForeground: #cccccc;
+  --vscode-button-secondaryHoverBackground: #3c3c3c;
+  --vscode-dropdown-background: #313131;
+  --vscode-dropdown-foreground: #cccccc;
+  --vscode-dropdown-border: #3c3c3c;
+  --vscode-errorForeground: #f85149;
+  --vscode-testing-iconPassed: #3fb950;
+  --vscode-testing-iconFailed: #f85149;
+  --vscode-inputValidation-warningBorder: #d67e00;
+  --vscode-inputValidation-warningBackground: #352a05;
+  --vscode-inputValidation-warningForeground: #d9a441;
+  --vscode-inputValidation-errorBorder: #be1100;
+}
+html, body { background: var(--vscode-sideBar-background); }
+</style><style>/* ============================================================================
+   AI Team — one stylesheet for both surfaces.
+   Narrow (sidebar) stacks the teammates; wide (editor tab) puts them in lanes.
+   Colours derive from the VS Code theme so it sits in light and dark alike;
+   the accents are the only opinionated part.
+   ========================================================================= */
+
+:root {
+  --lead: #a78bfa;
+  --researcher: #22d3ee;
+  --engineer: #fbbf24;
+
+  --edge: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+  --edge-soft: color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
+  --surface: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+  --dim: var(--vscode-descriptionForeground);
+  --mono: var(--vscode-editor-font-family, ui-monospace, monospace);
+
+  --lane-accent: var(--dim);
+}
+
+* { box-sizing: border-box; min-width: 0; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+/* ------------------------------------------------------------------ header */
+
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* Wraps rather than overlapping: at sidebar width the chips do not fit on
+     one line, and truncating them all to nothing is worse than a second row. */
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.brand {
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--vscode-foreground);
+  background: linear-gradient(90deg, var(--lead), var(--researcher));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bar .spacer { flex: 1 1 auto; }
+
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+  flex: 0 1 auto;
+}
+
+/* The spacer only earns its place when everything already fits on one line. */
+@media (max-width: 560px) {
+  .bar .spacer { display: none; }
+  .chip { max-width: 16ch; }
+}
+.chip.warn { border-color: var(--vscode-inputValidation-warningBorder); }
+
+button.chip.pick {
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+button.chip.pick:hover { color: var(--vscode-foreground); border-color: var(--dim); }
+
+button.ghost {
+  background: none;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+button.ghost:hover { color: var(--vscode-foreground); border-color: var(--dim); }
+
+/* ------------------------------------------------------------------ roster */
+
+.roster {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--edge-soft);
+  border-bottom: 1px solid var(--edge);
+}
+
+.member {
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  border-top: 2px solid transparent;
+  transition: border-color 120ms, background 120ms;
+}
+.member:hover { background: var(--surface); }
+.member[data-active="true"] { border-top-color: var(--lane-accent); }
+.member[data-who="lead"]       { --lane-accent: var(--lead); }
+.member[data-who="researcher"] { --lane-accent: var(--researcher); }
+.member[data-who="engineer"]   { --lane-accent: var(--engineer); }
+
+.member .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.member .activity {
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1em;
+}
+
+/* Status light. Pulses only while the teammate is actually doing something. */
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--dim);
+  opacity: 0.45;
+}
+[data-status="idle"]     .dot { opacity: 0.35; }
+[data-status="thinking"] .dot,
+[data-status="working"]  .dot,
+[data-status="reporting"] .dot {
+  background: var(--lane-accent);
+  opacity: 1;
+  animation: pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--lane-accent);
+}
+[data-status="waiting"]  .dot { background: var(--vscode-inputValidation-warningBorder); opacity: 1; }
+[data-status="done"]     .dot { background: var(--vscode-testing-iconPassed); opacity: 1; }
+[data-status="offline"]  .dot { opacity: 0.18; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
+
+/* ------------------------------------------------------------------- lanes */
+
+.floor {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr;      /* narrow: one merged stream */
+  overflow: hidden;
+}
+
+.lane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--edge-soft);
+}
+.lane:first-child { border-left: none; }
+.lane[data-who="lead"]       { --lane-accent: var(--lead); }
+.lane[data-who="researcher"] { --lane-accent: var(--researcher); }
+.lane[data-who="engineer"]   { --lane-accent: var(--engineer); }
+
+.lane > header {
+  display: none;                    /* only shown in lane mode */
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--edge-soft);
+}
+
+.stream {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Wide surfaces get one column per teammate. */
+@media (min-width: 760px) {
+  body[data-layout="floor"] .floor { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  body[data-layout="floor"] .lane > header { display: flex; }
+  body[data-layout="floor"] .roster { display: none; }
+}
+
+/* --------------------------------------------------------------- utterances */
+
+.utterance { display: flex; flex-direction: column; gap: 3px; }
+
+.utterance > .tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+  opacity: 0.85;
+}
+
+.utterance > .body {
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.utterance.user > .body {
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.utterance.user > .tag { color: var(--dim); }
+
+.body code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.body pre {
+  margin: 8px 0;
+  padding: 10px;
+  overflow-x: auto;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+.body pre code { background: none; padding: 0; }
+
+details.reasoning { border-left: 2px solid var(--edge); padding-left: 9px; }
+details.reasoning summary {
+  cursor: pointer;
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+details.reasoning .body { margin-top: 4px; font-size: 0.92em; color: var(--dim); }
+
+/* ------------------------------------------------------------------- acts */
+
+.act {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--edge-soft);
+  border-left: 2px solid var(--lane-accent);
+  border-radius: 0 5px 5px 0;
+  background: var(--surface);
+  font-size: 11px;
+}
+.act .tool { font-family: var(--mono); font-size: 10px; flex: 0 0 auto; }
+.act .detail {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.act[data-state="running"] .tool::before { content: "◌ "; }
+.act[data-state="ok"]      .tool::before { content: "✓ "; color: var(--vscode-testing-iconPassed); }
+.act[data-state="failed"]  .tool::before { content: "✕ "; color: var(--vscode-testing-iconFailed); }
+.act[data-state="failed"] { border-color: var(--vscode-inputValidation-errorBorder); }
+
+/* ------------------------------------------------------------ assignments */
+
+.assignment {
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--lane-accent) 9%, transparent),
+    transparent 65%
+  );
+}
+.assignment .route {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+  margin-bottom: 3px;
+}
+.assignment .brief { font-size: 12px; line-height: 1.45; }
+.assignment .outcome { margin-top: 5px; font-size: 11px; color: var(--dim); }
+.assignment[data-outcome="blocked"] { border-color: var(--vscode-inputValidation-warningBorder); }
+.assignment[data-outcome="failed"]  { border-color: var(--vscode-inputValidation-errorBorder); }
+
+/* ---------------------------------------------------------------- notices */
+
+.notice {
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--edge);
+  font-size: 11.5px;
+}
+.notice.warn  { border-color: var(--vscode-inputValidation-warningBorder); }
+.notice.error { border-color: var(--vscode-inputValidation-errorBorder); color: var(--vscode-errorForeground); }
+
+.spend { font-size: 10px; font-family: var(--mono); color: var(--dim); text-align: right; }
+
+.empty {
+  margin: auto;
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 20px;
+  max-width: 34ch;
+}
+.empty .glyph { font-size: 22px; opacity: 0.5; display: block; margin-bottom: 8px; }
+
+/* --------------------------------------------------------------- composer */
+
+.composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--edge);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.composer .to {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+}
+.composer select {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--vscode-dropdown-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border, var(--edge));
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.composer select:disabled { opacity: 0.5; }
+
+.composer .row { display: flex; gap: 6px; align-items: flex-end; }
+
+textarea {
+  flex: 1 1 auto;
+  resize: none;
+  max-height: 190px;
+  padding: 7px 9px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--edge));
+  border-radius: 6px;
+}
+textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+
+button.primary, button.danger {
+  padding: 7px 13px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+button.primary {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.danger {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+/* ============================================================================
+   Screens. Only one is visible at a time; the header persists across all.
+   ========================================================================= */
+
+.screen { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+.screen[data-active="true"] { display: flex; }
+
+/* --- signed out ---------------------------------------------------------- */
+
+.gate { align-items: center; justify-content: center; padding: 24px; }
+
+.gate-card {
+  max-width: 42ch;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+
+.gate-card .glyph {
+  font-size: 30px;
+  background: linear-gradient(120deg, var(--lead), var(--researcher));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gate-card h1 { margin: 0; font-size: 16px; font-weight: 600; }
+.gate-card p { margin: 0; color: var(--dim); font-size: 12.5px; line-height: 1.6; }
+
+.gate-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 26ch; }
+.gate-actions button { width: 100%; }
+button.ghost.quiet { border: none; color: var(--dim); font-size: 11px; }
+button.ghost.quiet:hover { color: var(--vscode-foreground); }
+
+/* --- project list -------------------------------------------------------- */
+
+.projects-head { padding: 16px 14px 8px; }
+.projects-head h1 { margin: 0 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+.muted { font-size: 11px; color: var(--dim); font-family: var(--mono); }
+
+.project-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge-soft);
+  border-left: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: border-color 120ms, background 120ms;
+}
+.project:hover { background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); }
+.project[data-open="true"] { border-left-color: var(--researcher); }
+.project[data-active="true"] { border-left-color: var(--lead); }
+
+.project .top { display: flex; align-items: baseline; gap: 8px; }
+.project .name { font-weight: 600; font-size: 13px; }
+.project .badges { margin-left: auto; display: flex; gap: 5px; flex: 0 0 auto; }
+
+.badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+}
+.badge.open   { border-color: var(--researcher); color: var(--researcher); }
+.badge.known  { border-color: var(--lead); color: var(--lead); }
+
+.project .path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-foot { padding: 8px 12px; border-top: 1px solid var(--edge); }
+
+.project-empty { margin: auto; text-align: center; color: var(--dim); font-size: 12px; line-height: 1.7; max-width: 34ch; padding: 20px; }
+
+button.chip.account[data-state="out"] {
+  color: var(--vscode-inputValidation-warningForeground, var(--engineer));
+  border-color: var(--vscode-inputValidation-warningBorder, var(--engineer));
+}
+</style>
+<style>html,body{width:420px;height:100%;margin:0;overflow:hidden}</style>
+</head><body>
+  <header class="bar">
+    <span class="brand">CADRE</span>
+    <button class="chip pick" id="workspace" title="Back to projects">—</button>
+    <span class="chip" id="autonomy">—</span>
+    <span class="chip" id="billing">—</span>
+    <span class="chip" id="connectors" hidden>—</span>
+    <span class="spacer"></span>
+    <button class="chip pick account" id="account" title="Account">account</button>
+    <span class="chip" id="spend">$0.0000</span>
+    <button class="ghost" id="openFloor" title="Open the full-width board">Floor</button>
+  </header>
+
+  <section class="screen gate" id="screen-auth" hidden>
+    <div class="gate-card">
+      <span class="glyph">◈</span>
+      <h1>Sign in to Claude</h1>
+      <p id="auth-detail">The team runs on your Claude Code login. Nothing can run until it is signed in.</p>
+      <div class="gate-actions">
+        <button class="primary" id="auth-signin">Sign in to Claude</button>
+        <button class="ghost" id="auth-apikey">Use an API key instead</button>
+      </div>
+      <button class="ghost quiet" id="auth-recheck">Check again</button>
+    </div>
+  </section>
+
+  <section class="screen" id="screen-projects" hidden>
+    <div class="projects-head">
+      <h1>Projects</h1>
+      <span class="muted" id="projects-roots"></span>
+    </div>
+    <div class="project-list" id="project-list"></div>
+    <div class="projects-foot">
+      <button class="ghost" id="projects-configure">Change where to look…</button>
+    </div>
+  </section>
+
+  <div class="screen" id="screen-team" hidden>
+    <div class="roster" id="roster"></div>
+    <main class="floor" id="floor"></main>
+    <footer class="composer">
+      <div class="to">
+        <span>Talking to</span>
+        <select id="channel" aria-label="Who to talk to">
+          <option value="lead">Lead</option>
+          <option value="researcher">Researcher</option>
+          <option value="engineer">Engineer</option>
+        </select>
+      </div>
+      <div class="row">
+        <textarea id="input" rows="1" placeholder="Describe your project…" aria-label="Message"></textarea>
+        <button class="primary" id="send" title="Send (Enter)">Send</button>
+        <button class="danger" id="stop" title="Interrupt" hidden>Stop</button>
+      </div>
+    </footer>
+  </div>
+
+
+<script>
+  // The webview's only host dependency.
+  window.acquireVsCodeApi = () => ({ postMessage(){}, getState(){}, setState(){} });
+</script>
+<script>// @ts-check
+(function () {
+  const vscode = acquireVsCodeApi();
+
+  const LANE_BREAKPOINT = 760;
+  const WHO = ["lead", "researcher", "engineer"];
+  const NAME = { lead: "Lead", researcher: "Researcher", engineer: "Engineer" };
+
+  const el = {
+    body: document.body,
+    roster: /** @type {HTMLElement} */ (document.getElementById("roster")),
+    floor: /** @type {HTMLElement} */ (document.getElementById("floor")),
+    input: /** @type {HTMLTextAreaElement} */ (document.getElementById("input")),
+    send: /** @type {HTMLButtonElement} */ (document.getElementById("send")),
+    stop: /** @type {HTMLButtonElement} */ (document.getElementById("stop")),
+    channel: /** @type {HTMLSelectElement} */ (document.getElementById("channel")),
+    workspace: /** @type {HTMLElement} */ (document.getElementById("workspace")),
+    autonomy: /** @type {HTMLElement} */ (document.getElementById("autonomy")),
+    billing: /** @type {HTMLElement} */ (document.getElementById("billing")),
+    connectors: /** @type {HTMLElement} */ (document.getElementById("connectors")),
+    spend: /** @type {HTMLElement} */ (document.getElementById("spend")),
+    account: /** @type {HTMLButtonElement} */ (document.getElementById("account")),
+    floorButton: /** @type {HTMLButtonElement} */ (document.getElementById("openFloor")),
+    screens: {
+      auth: document.getElementById("screen-auth"),
+      projects: document.getElementById("screen-projects"),
+      team: document.getElementById("screen-team"),
+    },
+    authDetail: document.getElementById("auth-detail"),
+    authSignIn: document.getElementById("auth-signin"),
+    authApiKey: document.getElementById("auth-apikey"),
+    authRecheck: document.getElementById("auth-recheck"),
+    projectList: document.getElementById("project-list"),
+    projectRoots: document.getElementById("projects-roots"),
+    projectsConfigure: document.getElementById("projects-configure"),
+  };
+
+  const state = {
+    /** Every event received, so a layout flip can re-render losslessly. */
+    log: [],
+    layout: "stream",
+    members: new Map(),
+    channel: "lead",
+    channelLocked: true,
+    busy: false,
+    canSend: false,
+    spendUsd: 0,
+    screen: "loading",
+    /** Live nodes keyed `${who}:${turn}` so streamed deltas find their target. */
+    live: new Map(),
+    acts: new Map(),
+    assignments: new Map(),
+  };
+
+  // ----------------------------------------------------------- scaffolding
+
+  function node(tag, className, text) {
+    const n = document.createElement(tag);
+    if (className) n.className = className;
+    if (text !== undefined) n.textContent = text;
+    return n;
+  }
+
+  const dot = () => node("span", "dot");
+
+  function laneContainers() {
+    if (state.layout === "floor") {
+      return Object.fromEntries(WHO.map((who) => [who, document.getElementById("stream-" + who)]));
+    }
+    const merged = document.getElementById("stream-all");
+    return Object.fromEntries(WHO.map((who) => [who, merged]));
+  }
+
+  function buildFloor() {
+    el.floor.replaceChildren();
+    if (state.layout === "floor") {
+      for (const who of WHO) {
+        const lane = node("section", "lane");
+        lane.dataset.who = who;
+        const head = node("header");
+        head.appendChild(dot());
+        head.appendChild(node("span", null, NAME[who]));
+        lane.appendChild(head);
+        const stream = node("div", "stream");
+        stream.id = "stream-" + who;
+        lane.appendChild(stream);
+        el.floor.appendChild(lane);
+      }
+      return;
+    }
+    const lane = node("section", "lane");
+    const stream = node("div", "stream");
+    stream.id = "stream-all";
+    lane.appendChild(stream);
+    el.floor.appendChild(lane);
+  }
+
+  const atBottom = (c) => c.scrollHeight - c.scrollTop - c.clientHeight < 48;
+
+  function place(who, element) {
+    const container = laneContainers()[who];
+    if (!container) return;
+    const pinned = atBottom(container);
+    container.appendChild(element);
+    if (pinned) container.scrollTop = container.scrollHeight;
+  }
+
+  // ------------------------------------------------------------- rendering
+
+  /**
+   * Injection-safe markdown. Everything is escaped first, then the text is
+   * split on fences so the inline passes only ever touch prose — running them
+   * over generated <pre><code> markup would rewrite the code itself.
+   */
+  function markdown(text) {
+    const escaped = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inline = (s) =>
+      s
+        .replace(/`([^`\n]+)`/g, "<code>$1</code>")
+        .replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
+
+    const fence = /```(\w*)\n([\s\S]*?)```/g;
+    let out = "";
+    let cursor = 0;
+    let match;
+    while ((match = fence.exec(escaped)) !== null) {
+      out += inline(escaped.slice(cursor, match.index));
+      out += "<pre><code>" + match[2].replace(/\n$/, "") + "</code></pre>";
+      cursor = fence.lastIndex;
+    }
+    return out + inline(escaped.slice(cursor));
+  }
+
+  function utterance(who, tag, className) {
+    const wrap = node("div", "utterance " + (className || ""));
+    wrap.dataset.who = who;
+    wrap.appendChild(node("div", "tag", tag));
+    const body = node("div", "body");
+    wrap.appendChild(body);
+    place(who, wrap);
+    return body;
+  }
+
+  function pinnedScroll(who, mutate) {
+    const container = laneContainers()[who];
+    const pinned = container ? atBottom(container) : false;
+    mutate();
+    if (pinned && container) container.scrollTop = container.scrollHeight;
+  }
+
+  function renderEvent(e) {
+    switch (e.kind) {
+      case "userSaid":
+        utterance(e.to, "you → " + NAME[e.to], "user").textContent = e.text;
+        return;
+
+      case "say": {
+        const key = e.who + ":" + e.turn;
+        let entry = state.live.get(key);
+        if (!entry) {
+          entry = { body: utterance(e.who, NAME[e.who]), raw: "" };
+          state.live.set(key, entry);
+        }
+        pinnedScroll(e.who, () => {
+          entry.raw += e.delta;
+          entry.body.innerHTML = markdown(entry.raw);
+        });
+        return;
+      }
+
+      case "sayEnd":
+        state.live.delete(e.who + ":" + e.turn);
+        state.live.delete("think:" + e.who + ":" + e.turn);
+        return;
+
+      case "think": {
+        const key = "think:" + e.who + ":" + e.turn;
+        let entry = state.live.get(key);
+        if (!entry) {
+          const details = node("details", "reasoning");
+          details.appendChild(node("summary", null, NAME[e.who] + " reasoning"));
+          const body = node("div", "body");
+          details.appendChild(body);
+          place(e.who, details);
+          entry = { body };
+          state.live.set(key, entry);
+        }
+        pinnedScroll(e.who, () => { entry.body.textContent += e.delta; });
+        return;
+      }
+
+      case "act": {
+        const chip = node("div", "act");
+        chip.dataset.state = "running";
+        chip.appendChild(node("span", "tool", e.tool));
+        chip.appendChild(node("span", "detail", e.summary));
+        chip.title = e.summary;
+        place(e.who, chip);
+        state.acts.set(e.act, chip);
+        return;
+      }
+
+      case "actEnd": {
+        const chip = state.acts.get(e.act);
+        if (!chip) return;
+        chip.dataset.state = e.ok ? "ok" : "failed";
+        if (e.summary) chip.title = e.summary;
+        state.acts.delete(e.act);
+        return;
+      }
+
+      case "assign": {
+        const a = e.assignment;
+        const card = node("div", "assignment");
+        card.appendChild(node("div", "route", NAME[a.from] + " → " + NAME[a.to]));
+        card.appendChild(node("div", "brief", a.brief));
+        // Rendered in the delegator's lane: that is where the decision happened.
+        place(a.from, card);
+        state.assignments.set(a.id, card);
+        return;
+      }
+
+      case "deliver": {
+        const card = state.assignments.get(e.id);
+        if (!card) return;
+        card.dataset.outcome = e.outcome;
+        card.appendChild(node("div", "outcome", e.outcome + ": " + e.summary));
+        state.assignments.delete(e.id);
+        return;
+      }
+
+      case "notice":
+        place(e.who || "lead", node("div", "notice " + e.level, e.text));
+        return;
+
+      case "spend": {
+        state.spendUsd = e.usd;
+        const seconds = (e.durationMs / 1000).toFixed(1);
+        place("lead", node("div", "spend", e.turns + " turns · " + seconds + "s · $" + e.usd.toFixed(4)));
+        el.spend.textContent = "$" + state.spendUsd.toFixed(4);
+        return;
+      }
+
+      default:
+        return;
+    }
+  }
+
+  function rerender() {
+    buildFloor();
+    state.live.clear();
+    state.acts.clear();
+    state.assignments.clear();
+    if (!state.log.length) { showEmpty(); return; }
+    for (const e of state.log) renderEvent(e);
+  }
+
+  function showEmpty() {
+    const container = laneContainers().lead;
+    if (!container) return;
+    const empty = node("div", "empty");
+    empty.appendChild(node("span", "glyph", "◈"));
+    empty.appendChild(node("div", null, "Describe your project to the Lead."));
+    empty.appendChild(
+      node("div", null, "They'll question the brief, then put the Researcher and Engineer to work."),
+    );
+    container.appendChild(empty);
+  }
+
+  function clearEmpty() {
+    for (const container of Object.values(laneContainers())) {
+      container?.querySelector(".empty")?.remove();
+    }
+  }
+
+  // --------------------------------------------------------------- screens
+
+  function showScreen(name) {
+    state.screen = name;
+    for (const [key, node] of Object.entries(el.screens)) {
+      // "loading" matches nothing, so every screen stays hidden until the host
+      // says which one applies.
+      const on = key === name;
+      node.hidden = !on;
+      node.dataset.active = String(on);
+    }
+    // Chips that describe a running team mean nothing on a gate — but the
+    // account control stays on every screen. `claude auth status` reports
+    // loggedIn:true for an expired token, so a user can be effectively signed
+    // out while the gate never fires; there must always be a way to sign in.
+    for (const id of ["autonomy", "billing", "connectors", "spend"]) {
+      const node = el[id] ?? document.getElementById(id);
+      if (node) node.style.display = name === "team" ? "" : "none";
+    }
+    el.floorButton.style.display = name === "team" ? "" : "none";
+    el.workspace.style.display = name === "projects" ? "none" : "";
+    if (name === "team") el.input.focus();
+  }
+
+  function renderProjects(e) {
+    el.projectRoots.textContent = e.roots.length
+      ? `looking in ${e.roots.join("  ·  ")}`
+      : "no folders open";
+    el.projectList.replaceChildren();
+
+    if (!e.items.length) {
+      const empty = node("div", "project-empty");
+      empty.appendChild(node("div", null, "No projects found."));
+      empty.appendChild(node("div", null, "A folder counts if it has a stack marker, is a git repo, or the team has worked there before."));
+      el.projectList.appendChild(empty);
+      return;
+    }
+
+    for (const item of e.items) {
+      const card = node("button", "project");
+      card.dataset.open = String(item.open);
+      card.dataset.active = String(item.path === e.active);
+
+      const top = node("div", "top");
+      top.appendChild(node("span", "name", item.name));
+      if (item.stack.length) top.appendChild(node("span", "muted", item.stack.join(" · ")));
+      const badges = node("div", "badges");
+      if (item.open) badges.appendChild(node("span", "badge open", "open"));
+      if (item.known) badges.appendChild(node("span", "badge known", "known"));
+      top.appendChild(badges);
+
+      card.appendChild(top);
+      card.appendChild(node("div", "path", shortenPath(item.path)));
+      card.addEventListener("click", () =>
+        vscode.postMessage({ kind: "openProject", path: item.path, alreadyOpen: item.open }),
+      );
+      el.projectList.appendChild(card);
+    }
+  }
+
+  // ---------------------------------------------------------------- chrome
+
+  function renderRoster() {
+    el.roster.replaceChildren();
+    for (const who of WHO) {
+      const member = state.members.get(who);
+      if (!member) continue;
+      const card = node("div", "member");
+      card.dataset.who = who;
+      card.dataset.status = member.status;
+      card.dataset.active = String(state.channel === who);
+      card.title = member.role + "\n" + member.model + " · " + member.effort;
+
+      const line = node("div", "who");
+      line.appendChild(dot());
+      line.appendChild(node("span", null, member.name));
+      card.appendChild(line);
+      card.appendChild(node("div", "activity", member.activity || member.status));
+
+      card.addEventListener("click", () => {
+        if (state.channelLocked && who !== "lead") {
+          vscode.postMessage({ kind: "configure", setting: "cadre.directLine" });
+          return;
+        }
+        setChannel(who);
+        vscode.postMessage({ kind: "setChannel", to: who });
+      });
+      el.roster.appendChild(card);
+    }
+
+    for (const who of WHO) {
+      const lane = el.floor.querySelector('.lane[data-who="' + who + '"]');
+      const member = state.members.get(who);
+      if (lane && member) lane.dataset.status = member.status;
+    }
+  }
+
+  /** A silent connector failure is worse than a loud one. */
+  function renderConnectors(connectors) {
+    if (!connectors.length) { el.connectors.hidden = true; return; }
+    const down = connectors.filter((c) => !c.ok);
+    el.connectors.hidden = false;
+    el.connectors.textContent = down.length
+      ? `${down.length}/${connectors.length} connectors down`
+      : `${connectors.length} connector${connectors.length > 1 ? "s" : ""}`;
+    el.connectors.classList.toggle("warn", down.length > 0);
+    el.connectors.title = connectors.map((c) => `${c.ok ? "✓" : "✕"} ${c.name} (${c.status})`).join("\n");
+  }
+
+  /** Keeps the tail of a long path, which is the part that identifies it. */
+  function shortenPath(full) {
+    const home = /^\/home\/[^/]+|^\/Users\/[^/]+/.exec(full);
+    const tidy = home ? "~" + full.slice(home[0].length) : full;
+    const parts = tidy.split("/");
+    return parts.length > 4 ? parts[0] + "/…/" + parts.slice(-2).join("/") : tidy;
+  }
+
+  function setChannel(who) {
+    state.channel = who;
+    el.channel.value = who;
+    el.input.placeholder = state.canSend
+      ? "Message " + NAME[who] + "…"
+      : "Unavailable — see the message above";
+    renderRoster();
+  }
+
+  /** A chip with nothing to say is hidden rather than showing a placeholder. */
+  function setChip(node, value) {
+    const has = Boolean(value) && value !== "—";
+    node.hidden = !has;
+    if (has) node.textContent = value;
+  }
+
+  function renderComposer() {
+    el.send.disabled = state.busy || !state.canSend;
+    el.send.textContent = state.busy ? "Working…" : "Send";
+    el.stop.hidden = !state.busy;
+    el.channel.disabled = state.channelLocked;
+    el.channel.title = state.channelLocked
+      ? "Direct line is off — enable it in settings to talk to a teammate directly"
+      : "Choose who to talk to";
+  }
+
+  // ------------------------------------------------------------ host events
+
+  const handlers = {
+    roster(e) {
+      state.members = new Map(e.members.map((m) => [m.id, m]));
+      setChip(el.workspace, e.workspace);
+      setChip(el.autonomy, e.autonomy);
+      setChip(el.billing, e.billing);
+      renderConnectors(e.connectors || []);
+      renderRoster();
+    },
+    status(e) {
+      const member = state.members.get(e.who);
+      if (!member) return;
+      member.status = e.status;
+      member.activity = e.activity;
+      renderRoster();
+    },
+    screen(e) { showScreen(e.screen); },
+
+    auth(e) {
+      el.authDetail.textContent = e.signedIn
+        ? `Signed in as ${e.detail}.`
+        : `${e.detail} The team runs on your Claude Code login, so nothing can run until this is fixed.`;
+      el.authApiKey.textContent = e.usingApiKey ? "Update the API key" : "Use an API key instead";
+
+      el.account.textContent = e.signedIn ? e.detail : "sign in";
+      el.account.dataset.state = e.signedIn ? "in" : "out";
+      el.account.title = e.signedIn
+        ? `${e.detail} — click for account options`
+        : "Not signed in — click to sign in";
+    },
+
+    projects(e) { renderProjects(e); },
+
+    directLine(e) {
+      state.channelLocked = !e.enabled;
+      renderComposer();
+    },
+    channel(e) { setChannel(e.to); },
+    sendability(e) {
+      state.canSend = e.ok === true;
+      setChannel(state.channel);
+      renderComposer();
+      if (!e.ok && e.reason) {
+        const notice = { kind: "notice", level: "warn", text: e.reason };
+        clearEmpty();
+        state.log.push(notice);
+        renderEvent(notice);
+      }
+    },
+    restoreInput(e) {
+      if (!el.input.value.trim()) { el.input.value = e.text; resize(); }
+      el.input.focus();
+    },
+    busy(e) { state.busy = e.busy; renderComposer(); },
+    clear() {
+      state.log = [];
+      state.busy = false;
+      state.spendUsd = 0;
+      el.spend.textContent = "$0.0000";
+      rerender();
+      renderComposer();
+    },
+  };
+
+  window.addEventListener("message", (event) => {
+    const e = event.data;
+    if (!e || typeof e.kind !== "string") return;
+
+    const handler = handlers[e.kind];
+    if (handler) { handler(e); return; }
+
+    clearEmpty();
+    state.log.push(e);
+    renderEvent(e);
+  });
+
+  // ----------------------------------------------------------- interactions
+
+  function submit() {
+    const text = el.input.value.trim();
+    if (!text || state.busy || !state.canSend) return;
+    vscode.postMessage({ kind: "send", text });
+    el.input.value = "";
+    resize();
+  }
+
+  function resize() {
+    el.input.style.height = "auto";
+    el.input.style.height = Math.min(el.input.scrollHeight, 190) + "px";
+  }
+
+  el.send.addEventListener("click", submit);
+  el.stop.addEventListener("click", () => vscode.postMessage({ kind: "stop" }));
+  el.floorButton.addEventListener("click", () => vscode.postMessage({ kind: "openTeamFloor" }));
+  el.workspace.addEventListener("click", () => vscode.postMessage({ kind: "goHome" }));
+  el.authSignIn.addEventListener("click", () => vscode.postMessage({ kind: "signIn" }));
+  el.authApiKey.addEventListener("click", () => vscode.postMessage({ kind: "useApiKey" }));
+  el.authRecheck.addEventListener("click", () => vscode.postMessage({ kind: "refreshAuth" }));
+  el.account.addEventListener("click", () => vscode.postMessage({ kind: "account" }));
+  el.projectsConfigure.addEventListener("click", () =>
+    vscode.postMessage({ kind: "configure", setting: "cadre.projectRoots" }),
+  );
+  el.channel.addEventListener("change", () => {
+    setChannel(el.channel.value);
+    vscode.postMessage({ kind: "setChannel", to: el.channel.value });
+  });
+  el.input.addEventListener("input", resize);
+  el.input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); submit(); }
+  });
+
+  // Layout follows available width, so the same view works in a narrow sidebar
+  // and a full editor tab without the host telling it which one it is.
+  function applyLayout() {
+    const next = document.body.clientWidth >= LANE_BREAKPOINT ? "floor" : "stream";
+    if (next === state.layout) return;
+    state.layout = next;
+    el.body.dataset.layout = next;
+    rerender();
+    renderRoster();
+  }
+  new ResizeObserver(applyLayout).observe(document.body);
+
+  for (const id of ["workspace", "autonomy", "billing", "spend"]) {
+    const node = el[id] ?? document.getElementById(id);
+    if (node && (node.textContent || "").trim() === "—") node.hidden = true;
+  }
+  el.body.dataset.layout = state.layout;
+  showScreen("loading");
+  buildFloor();
+  showEmpty();
+  renderComposer();
+  vscode.postMessage({ kind: "ready" });
+  el.input.focus();
+})();
+</script>
+<script>
+  const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
+  const script = [{"kind":"screen","screen":"team"},{"kind":"roster","workspace":"…/pipeline","autonomy":"Standard — edits flow, risky commands ask","billing":"Claude subscription","connectors":[{"name":"kaggle","ok":true,"status":"connected"}],"members":[{"id":"lead","name":"Lead","role":"Interrogates the brief, decides scope, delegates","model":"opus","effort":"high","status":"thinking","activity":"reading the report"},{"id":"researcher","name":"Researcher","role":"Reads papers, docs and the web","model":"opus","effort":"high","status":"working","activity":"arxiv.org — CTC vs attention"},{"id":"engineer","name":"Engineer","role":"Writes, edits and runs the code","model":"opus","effort":"xhigh","status":"working","activity":"pytest tests/test_decode.py"}]},{"kind":"sendability","ok":true},{"kind":"userSaid","to":"lead","text":"Our ASR pipeline drops the last word on long audio. Fix it."},{"kind":"say","who":"lead","turn":"t1","delta":"Reproduced from your description, not yet from a run — I have no shell.\n\n**Goal:** stop the final token being truncated on utterances over ~30s.\n**Not doing:** the streaming path. Different code, and you did not ask.\n**Riskiest assumption:** this is the decoder's length cap, not the VAD trimming audio. If I am wrong we have spent one Engineer run.\n\nTwo briefs going out together."},{"kind":"assign","assignment":{"id":"R-01","from":"lead","to":"researcher","brief":"Does CTC beam search truncate the final token when the encoder output is padded? Answer for our installed version.","startedAt":0}},{"kind":"assign","assignment":{"id":"E-01","from":"lead","to":"engineer","brief":"Reproduce the dropped final word with a failing test over a 45s sample.","startedAt":0}},{"kind":"say","who":"researcher","turn":"t2","delta":"Reading the decoder source rather than the docs — the docs describe 0.9 and the lockfile pins 1.2."},{"kind":"act","who":"researcher","act":"a1","tool":"WebFetch","summary":"github.com/…/ctc_decoder.py"},{"kind":"actEnd","who":"researcher","act":"a1","ok":true,"summary":"fetched"},{"kind":"act","who":"researcher","act":"a2","tool":"Grep","summary":"max_length  in  site-packages/asr"},{"kind":"actEnd","who":"researcher","act":"a2","ok":true,"summary":"3 matches"},{"kind":"say","who":"engineer","turn":"t3","delta":"Writing the failing test first — a fix for a failure I never saw is unverified."},{"kind":"act","who":"engineer","act":"b1","tool":"Read","summary":"src/decode.py"},{"kind":"actEnd","who":"engineer","act":"b1","ok":true,"summary":"read 212 lines"},{"kind":"act","who":"engineer","act":"b2","tool":"Bash","summary":"pytest tests/test_decode.py -k long_audio"},{"kind":"actEnd","who":"engineer","act":"b2","ok":false,"summary":"1 failed — assert 'four' in transcript"},{"kind":"act","who":"engineer","act":"b3","tool":"Edit","summary":"src/decode.py"},{"kind":"deliver","id":"R-01","outcome":"delivered","summary":"Confirmed in 1.2: the beam ends at encoder_len, which excludes the pad frame carrying the final token."},{"kind":"spend","usd":0.4127,"turns":6,"durationMs":74300}];
+  // Deltas are delivered in one pass; the streaming path is the same code.
+  for (const e of script) send(e);
+  document.title = "ready";
+</script>
+</body></html>
