@@ -75,6 +75,27 @@ check("after approval, connectors load", Object.keys(vetted.connectors).length =
 check("after approval, plugins load", vetted.plugins.length === 1);
 check("and nothing is warned about twice", vetted.warnings.length === 0);
 
+// ---- the user's own choice must not be clamped -----------------------------
+// Cadre's own "Set Autonomy" command writes to workspace scope, which is
+// indistinguishable from a repo-shipped value. Approving at the point of
+// choice is what separates them; without it the extension refuses the level
+// the user just picked in front of a warning modal.
+// A fresh store: an earlier block in this file already approved "autonomous",
+// so reusing `trust` here would prove nothing.
+const freshStore = new Map();
+const freshTrust = new SettingsTrust({
+  get: (k, d) => (freshStore.has(k) ? freshStore.get(k) : d),
+  update: async (k, v) => { freshStore.set(k, v); },
+});
+const chosen = config({ autonomy: { defaultValue: "standard", workspaceValue: "autonomous" } });
+const beforeApproval = freshTrust.vet(chosen);
+check("an unapproved workspace escalation is still clamped", beforeApproval.autonomy === "standard");
+
+await freshTrust.approve("autonomy", "autonomous");
+const afterApproval = freshTrust.vet(chosen);
+check("the level the user picked in the UI is honoured", afterApproval.autonomy === "autonomous");
+check("and it stops warning about it", afterApproval.warnings.length === 0);
+
 // ---- approval is bound to the exact value ----------------------------------
 const changed = config({
   autonomy: { defaultValue: "standard", workspaceFolderValue: "autonomous" },

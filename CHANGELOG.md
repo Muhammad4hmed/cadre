@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.1
+
+**Fixed: choosing "autonomous" did nothing.** `Cadre: Set Autonomy` writes to workspace
+scope, which the trust layer could not distinguish from a value a cloned repo shipped — so
+it clamped the level the user had just picked in front of a warning modal, and kept
+prompting. Standing in front of that modal is the approval, and it is now recorded as one.
+The same applied to project profiles.
+
+- The settings hub shows the level actually in force, not the raw setting, so a clamp is
+  visible rather than silent.
+- A clamped setting now offers **Review…** inline instead of only a transcript notice.
+
+If a folder already carries an unapproved `autonomous`, re-pick it under **Cadre: Set
+Autonomy**, or allow it via **Cadre: Review Workspace Settings** — the fix does not
+retroactively approve what it previously refused.
+
 ## 0.1.0
 
 First release worth installing.

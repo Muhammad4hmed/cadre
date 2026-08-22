@@ -485,6 +485,11 @@ export class TeamController implements vscode.Disposable {
       this.shownWarnings.add(warning);
       this.broadcast({ kind: "notice", level: "warn", text: warning });
       this.log.warn(warning);
+      // A transcript notice is easy to miss, and the remedy is a command the
+      // user has to go find. Offer it directly.
+      void vscode.window.showWarningMessage(warning, "Review…").then((choice) => {
+        if (choice === "Review…") void vscode.commands.executeCommand("cadre.reviewWorkspaceSettings");
+      });
     }
 
     return {
@@ -517,6 +522,13 @@ export class TeamController implements vscode.Disposable {
   /** The folder-scoped configuration the trust review acts on. */
   configForActiveFolder(): vscode.WorkspaceConfiguration {
     return vscode.workspace.getConfiguration("cadre", this.activeFolder()?.uri);
+  }
+
+  /** What is actually in force, which may differ from the raw setting. */
+  effectiveAutonomy(): string {
+    const vetted = this.trust.vet(this.configForActiveFolder());
+    const raw = this.configForActiveFolder().get<string>("autonomy") ?? "standard";
+    return vetted.autonomy === raw ? raw : `${vetted.autonomy}  (${raw} not allowed from this folder)`;
   }
 
   forgetShownWarnings(): void {

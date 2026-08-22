@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {

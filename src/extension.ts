@@ -44,7 +44,7 @@ export function activate(context: vscode.ExtensionContext): void {
       await controller.refreshSendability();
     }),
     vscode.commands.registerCommand("cadre.chooseBilling", () => chooseBilling(controller)),
-    vscode.commands.registerCommand("cadre.setAutonomy", () => chooseAutonomy()),
+    vscode.commands.registerCommand("cadre.setAutonomy", () => chooseAutonomy(controller)),
     vscode.commands.registerCommand("cadre.settings", () => settingsHub(controller)),
     vscode.commands.registerCommand("cadre.setThinking", () => chooseThinking()),
     vscode.commands.registerCommand("cadre.setModel", () => choosePerTeammate("model")),
@@ -171,7 +171,7 @@ async function chooseBilling(controller: TeamController): Promise<void> {
   await controller.refreshSendability();
 }
 
-async function chooseAutonomy(): Promise<void> {
+async function chooseAutonomy(controller: TeamController): Promise<void> {
   const options: { label: string; detail: string; value: Autonomy }[] = [
     { label: "Standard", detail: "Edits flow; shell commands ask. Recommended.", value: "standard" },
     { label: "Supervised", detail: "Every edit and command needs your approval.", value: "supervised" },
@@ -193,9 +193,17 @@ async function chooseAutonomy(): Promise<void> {
     if (confirmed !== "I understand") return;
   }
 
+  const folder = controller.activeFolder();
   await vscode.workspace
-    .getConfiguration("cadre")
+    .getConfiguration("cadre", folder?.uri)
     .update("autonomy", picked.value, vscode.ConfigurationTarget.Workspace);
+
+  // The trust layer cannot tell a value the user picked here from one a cloned
+  // repo shipped — both land in workspace scope. Standing in front of this
+  // modal IS the approval, so record it, or we clamp the user's own choice.
+  await controller.trust.approve("autonomy", picked.value);
+  controller.forgetShownWarnings();
+  await controller.refreshSendability();
 }
 
 /**
@@ -342,7 +350,10 @@ async function applyProfile(controller: TeamController): Promise<void> {
     // WorkspaceFolder scope writes into that folder's .vscode/settings.json, so
     // the profile travels with the project rather than the machine.
     await cfg.update(key, value, vscode.ConfigurationTarget.WorkspaceFolder);
+    // Chosen here, so approved here — otherwise the trust layer clamps it back.
+    if (key === "autonomy") await controller.trust.approve("autonomy", value);
   }
+  controller.forgetShownWarnings();
   await controller.refreshSendability();
   void vscode.window.showInformationMessage(
     `${picked.label} profile applied to ${folder.name}. It is written to that folder's settings, so it travels with the project.`,
@@ -454,7 +465,7 @@ async function settingsHub(controller: TeamController): Promise<void> {
     { label: "$(hubot) Models", description: models.join(" · "), run: () => choosePerTeammate("model") },
     { label: "$(dashboard) Effort", description: TEAMMATES.map((id) => cfg.get<string>(`${id}.effort`) || "default").join(" · "), run: () => choosePerTeammate("effort") },
     { label: "$(lightbulb) Thinking", description: cfg.get<string>("thinking") ?? "adaptive", run: chooseThinking },
-    { label: "$(shield) Autonomy", description: cfg.get<string>("autonomy") ?? "standard", run: chooseAutonomy },
+    { label: "$(shield) Autonomy", description: controller.effectiveAutonomy(), run: () => chooseAutonomy(controller) },
     { label: "$(credit-card) Billing", description: billing.ok ? billing.describe : billing.reason, run: () => chooseBilling(controller) },
     { label: "$(account) Account", description: describeAuth(auth), run: () => showAccount(controller) },
     { label: "$(law) Spend cap", description: spend > 0 ? `$${spend.toFixed(2)} per run` : "none", run: chooseSpendCap },
