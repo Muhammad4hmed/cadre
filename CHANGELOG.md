@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.2.2
+
+Two features existed but were undiscoverable, which makes them close to not existing.
+
+- **Talking to a teammate directly.** Clicking the Researcher or Engineer used to dump you
+  in a settings file to find a boolean. It now offers the direct line where you reached for
+  it, explains the trade-off — the Lead does not see the exchange, so its picture goes
+  stale — and switches you over.
+- **"Onboard this project" is now "Survey this project"**, with what it produces stated:
+  it writes `PROJECT.md` so later sessions start informed.
+
 ## 0.2.1
 
 - The home screen now lists past conversations for the current project underneath the

@@ -432,7 +432,7 @@
 
       card.addEventListener("click", () => {
         if (state.channelLocked && who !== "lead") {
-          vscode.postMessage({ kind: "configure", setting: "cadre.directLine" });
+          vscode.postMessage({ kind: "requestDirectLine", to: who });
           return;
         }
         setChannel(who);
@@ -491,7 +491,7 @@
     el.stop.hidden = !state.busy;
     el.channel.disabled = state.channelLocked;
     el.channel.title = state.channelLocked
-      ? "Direct line is off — enable it in settings to talk to a teammate directly"
+      ? "Direct line is off — click a teammate above to turn it on"
       : "Choose who to talk to";
   }
 

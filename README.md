@@ -76,6 +76,20 @@ tool calls that resolve to ✓ or ✕, collapsed reasoning, running cost.
 </tr>
 </table>
 
+## Talking to a teammate directly
+
+By default you talk to the Lead and it delegates. Click the **Researcher** or **Engineer**
+in the roster to open a direct line for a quick question — Cadre asks first, because the
+Lead does not see a direct exchange and its picture of the work goes stale until you tell
+it. Switch back with the **Talking to** dropdown.
+
+## Surveying an unfamiliar project
+
+**Cadre: Survey This Project** sends one framed request: work out what this project is,
+how it is built, run and tested — with the commands *verified* rather than inferred from
+config files — what a newcomer would get wrong, and what is risky. The result is written
+to `PROJECT.md`, so later sessions start informed instead of re-deriving it.
+
 ## Images and long sessions
 
 Attach a screenshot with **＋**, a paste, or a drop anywhere on the composer — the team

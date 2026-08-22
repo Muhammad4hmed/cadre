@@ -5,7 +5,7 @@ import { Billing } from "../billing";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { TEAMMATES, type Attachment, type TeamEvent, type TeammateId, type UiCommand } from "./events";
+import { DISPLAY_NAME, TEAMMATES, type Attachment, type TeamEvent, type TeammateId, type UiCommand } from "./events";
 import { TeamSession, type TeamConfig } from "./orchestrator";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { discoverProjects } from "./project";
@@ -325,6 +325,9 @@ export class TeamController implements vscode.Disposable {
       case "openProject":
         void this.openProject(command.path, command.alreadyOpen);
         return;
+      case "requestDirectLine":
+        void this.offerDirectLine(command.to);
+        return;
       case "resumeSession":
         this.resumeSession(command.id, command.title);
         this.atHome = false;
@@ -392,6 +395,30 @@ export class TeamController implements vscode.Disposable {
       return;
     }
     session.send(trimmed, images);
+  }
+
+  /**
+   * Offers to open the direct line at the moment the user reaches for it,
+   * rather than sending them to a settings file to find a boolean.
+   */
+  private async offerDirectLine(to: TeammateId): Promise<void> {
+    const name = DISPLAY_NAME[to];
+    const choice = await vscode.window.showInformationMessage(
+      `Talk to the ${name} directly?`,
+      {
+        modal: true,
+        detail:
+          `Normally you talk to the Lead and it delegates. A direct line skips it — useful for a quick question, but the Lead does not see the exchange, so its picture of the work goes stale until you tell it.\n\nYou can switch back to the Lead at any time.`,
+      },
+      "Open a direct line",
+    );
+    if (choice !== "Open a direct line") return;
+
+    await vscode.workspace
+      .getConfiguration("cadre")
+      .update("directLine", true, vscode.ConfigurationTarget.Global);
+    await this.refreshSendability();
+    this.setChannel(to);
   }
 
   private setChannel(to: TeammateId): void {

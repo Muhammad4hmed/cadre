@@ -136,6 +136,7 @@ export type UiCommand =
   | { kind: "openProject"; path: string; alreadyOpen: boolean }
   | { kind: "goHome" }
   | { kind: "resumeSession"; id: string; title: string }
+  | { kind: "requestDirectLine"; to: TeammateId }
   | { kind: "signIn" }
   | { kind: "useApiKey" }
   | { kind: "refreshAuth" }

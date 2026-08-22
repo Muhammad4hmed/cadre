@@ -363,6 +363,29 @@ check("Home returns from a resumed session",
 
 check("the header carries a Home control", /id="home"/.test(view.webview.html));
 
+// ---- reaching for a teammate should offer the direct line, not a settings file
+settings["cadre.directLine"] = false;
+vscodeStub.__onConfig({ affectsConfiguration: () => true });
+await settle();
+
+let offered = null;
+const realInfo = vscodeStub.window.showInformationMessage;
+vscodeStub.window.showInformationMessage = async (message, opts, ...choices) => {
+  offered = { message, detail: opts?.detail, choices };
+  return choices[0];
+};
+
+posted.length = 0;
+receive({ kind: "requestDirectLine", to: "researcher" });
+await settle();
+
+check("clicking a teammate offers to open the line", /talk to the researcher directly/i.test(offered?.message ?? ""));
+check("it says what the trade-off is", /lead does not see/i.test(offered?.detail ?? ""));
+check("accepting turns the setting on", settings["cadre.directLine"] === true);
+check("and switches to that teammate",
+  (await waitFor("channel", (m) => m.to === "researcher"))?.to === "researcher");
+vscodeStub.window.showInformationMessage = realInfo;
+
 fs.rmSync(workRoot, { recursive: true, force: true });
 
 console.log("=== controller + composer ===");

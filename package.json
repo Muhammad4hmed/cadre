@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -142,7 +142,7 @@
       },
       {
         "command": "cadre.onboard",
-        "title": "Onboard This Project",
+        "title": "Survey This Project (writes PROJECT.md)",
         "category": "Cadre",
         "icon": "$(compass)"
       },
@@ -261,7 +261,7 @@
           "type": "boolean",
           "default": false,
           "scope": "resource",
-          "markdownDescription": "Let you talk straight to the Researcher or Engineer, bypassing the Lead. Off by default — the Lead's picture goes stale while it is on, and it will say so."
+          "markdownDescription": "Let you talk straight to the Researcher or Engineer instead of the Lead. Off by default — the Lead does not see a direct exchange, so its picture of the work goes stale until you tell it. You can also turn this on by clicking a teammate in the roster."
         },
         "cadre.lead.model": {
           "type": "string",
