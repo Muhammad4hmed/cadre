@@ -324,6 +324,78 @@ const second = store.createWorkflow(root, "My Team");
 check("a second workflow with the same name gets its own id", second.id !== created.id);
 check("one workflow does not see another's sessions", store.listSessions(root, second.id).length === 0);
 
+/* --------------------------------------- a workflow file with broken ids */
+
+// A workflow file lives in .cadre/ and travels with the repository, and it can
+// be hand-edited. Every id the builder makes is slug-safe, but a file's need
+// not be — and an agent id becomes an MCP tool name, which the SDK itself warns
+// about when it contains a slash, a space, or is "..". Two agents sharing an id
+// is worse: two lanes, and a brief that could mean either.
+{
+  const broken = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-ids-"));
+  const bdir = path.join(broken, ".cadre", "workflows");
+  fs.mkdirSync(bdir, { recursive: true });
+  const write = (wf) => fs.writeFileSync(path.join(bdir, "w.json"), JSON.stringify(wf));
+
+  write({
+    id: "w", name: "W", entry: "a/b", createdAt: 0, updatedAt: 0, revision: 0,
+    agents: [
+      { id: "a/b", name: "Slashed", prompt: "p", preset: "readonly" },
+      { id: "..", name: "Dots", prompt: "p", preset: "build" },
+      { id: "Upper Case", name: "Spaced", prompt: "p", preset: "build" },
+    ],
+    edges: [{ from: "a/b", to: "..", kind: "delegate" }],
+  });
+  const fixed = store.readWorkflow(broken, "w");
+  check("a workflow with unusable agent ids still opens", fixed !== undefined);
+  const ids = (fixed?.agents ?? []).map((a) => a.id);
+  check(`every id is repaired to something a tool name can be made from (${ids.join(",")})`,
+    ids.length === 3 && ids.every((i) => /^[a-z0-9][a-z0-9_]*$/.test(i)));
+  check("the arrows are rewritten to the repaired ids",
+    (fixed?.edges ?? []).every((e) => ids.includes(e.from) && ids.includes(e.to)));
+  check("...and the arrow still connects the same two agents",
+    fixed?.edges?.length === 1 && fixed.edges[0].from === ids[0] && fixed.edges[0].to === ids[1]);
+  check("the entry agent is rewritten too", ids.includes(fixed?.entry));
+
+  // The other half of the same rule: an id that is already fine must survive
+  // untouched. Rewriting every id on read would silently rename the agents in
+  // every workflow anyone has already built.
+  write({
+    id: "w", name: "W", entry: "lead", createdAt: 0, updatedAt: 0, revision: 0,
+    agents: [
+      { id: "lead", name: "Lead", prompt: "p", preset: "readonly" },
+      { id: "agent_2", name: "Second", prompt: "q", preset: "build" },
+      { id: "x9", name: "Third", prompt: "r", preset: "build" },
+    ],
+    edges: [{ from: "lead", to: "agent_2", kind: "delegate" },
+            { from: "agent_2", to: "x9", kind: "then" }],
+  });
+  const untouched = store.readWorkflow(broken, "w");
+  check("ids that are already usable are left exactly as they are",
+    (untouched?.agents ?? []).map((a) => a.id).join(",") === "lead,agent_2,x9");
+  check("...and so are the arrows between them",
+    JSON.stringify(untouched?.edges) ===
+      JSON.stringify([{ from: "lead", to: "agent_2", kind: "delegate" },
+                      { from: "agent_2", to: "x9", kind: "then" }]));
+  check("...and the entry agent", untouched?.entry === "lead");
+
+  // Two agents claiming one id: one brief, two possible meanings.
+  write({
+    id: "w", name: "W", entry: "a", createdAt: 0, updatedAt: 0, revision: 0,
+    agents: [
+      { id: "a", name: "First", prompt: "p", preset: "readonly" },
+      { id: "a", name: "Second", prompt: "q", preset: "build" },
+    ],
+    edges: [{ from: "a", to: "a", kind: "delegate" }],
+  });
+  const deduped = store.readWorkflow(broken, "w");
+  const dids = (deduped?.agents ?? []).map((a) => a.id);
+  check("two agents cannot end up sharing one id", new Set(dids).size === dids.length);
+  check("...and both are kept, rather than one silently vanishing", dids.length === 2);
+  check("...with their own prompts intact",
+    deduped.agents[0].prompt === "p" && deduped.agents[1].prompt === "q");
+}
+
 /* ------------------------------------------- a crash must not eat the work */
 
 // `writeFileSync` truncates before it writes, so a process that dies in between

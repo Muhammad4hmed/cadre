@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { slug, uniqueSlug } from "./model";
 import type { Scope, Workflow } from "./model";
 import { emptyWorkflow, uniqueSlug, validate } from "./model";
 
@@ -166,13 +167,39 @@ function normalise(parsed: unknown, id: string, scope: Scope): Workflow | undefi
       y: Number.isFinite(a.y) ? Number(a.y) : 60,
     }));
 
+  // An agent id becomes an MCP tool name — `brief_<id>` — and the SDK warns
+  // that a slash, a space or a leading dot in one "may cause compatibility
+  // issues". The builder only ever makes slug-safe ids, but a workflow file
+  // lives in `.cadre/`, travels with the repository, and can be hand-edited.
+  // Two agents sharing an id is worse than an unusable one: two lanes, and a
+  // brief that could mean either.
+  //
+  // Repaired rather than refused, like everything else here. A workflow that
+  // will not open is the one outcome nobody can do anything about.
+  const taken: string[] = [];
+  const renamed = new Map<string, string>();
+  for (const a of agents) {
+    const wanted = SAFE_ID.test(a.id) ? a.id : slug(a.id || a.name);
+    const settled = taken.includes(wanted) || !SAFE_ID.test(wanted)
+      ? uniqueSlug(a.name || a.id || "agent", taken)
+      : wanted;
+    taken.push(settled);
+    // Keyed on the original, so the arrows and the entry can be rewritten. A
+    // duplicate maps to whichever of the two was read first, which is the same
+    // agent the old file's arrows would have found.
+    if (!renamed.has(a.id)) renamed.set(a.id, settled);
+    a.id = settled;
+  }
+  const rename = (id: string): string => renamed.get(id) ?? id;
+
   const known = new Set(agents.map((a) => a.id));
   const edges = (Array.isArray(raw.edges) ? raw.edges : [])
     .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object" && !Array.isArray(e))
-    .filter((e) => typeof e.from === "string" && typeof e.to === "string" && known.has(e.from as string) && known.has(e.to as string))
+    .map((e) => ({ ...e, from: rename(String(e.from)), to: rename(String(e.to)) }))
+    .filter((e) => known.has(e.from) && known.has(e.to))
     .map((e) => ({
-      from: e.from as string,
-      to: e.to as string,
+      from: e.from,
+      to: e.to,
       kind: e.kind === "then" ? ("then" as const) : ("delegate" as const),
       ...(typeof e.label === "string" && e.label ? { label: e.label } : {}),
     }));
@@ -188,7 +215,7 @@ function normalise(parsed: unknown, id: string, scope: Scope): Workflow | undefi
     ...(raw.defaults && typeof raw.defaults === "object" && !Array.isArray(raw.defaults)
       ? { defaults: raw.defaults as Workflow["defaults"] }
       : {}),
-    entry: typeof raw.entry === "string" && known.has(raw.entry) ? raw.entry : (agents[0]?.id ?? ""),
+    entry: typeof raw.entry === "string" && known.has(rename(raw.entry)) ? rename(raw.entry) : (agents[0]?.id ?? ""),
     agents,
     edges,
     createdAt: Number.isFinite(raw.createdAt) ? Number(raw.createdAt) : 0,

@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.2 — a workflow file could name agents in ways the tools cannot
+
+An agent's id becomes an MCP tool name: `brief_<id>`. The builder only ever
+produces slug-safe ids, so nothing made from the canvas can go wrong. But a
+workflow file lives in `.cadre/`, which means it is inside the repository and
+travels with it, and it can be hand-edited.
+
+Given an id with a slash or a space in it, the SDK registers the tool and then
+warns that it "may cause compatibility issues" — a delegation that may or may
+not be callable, decided somewhere below us. Two agents sharing an id is worse:
+two lanes, and a brief that could mean either of them.
+
+Both are repaired on read now, like everything else in that function: a
+workflow that will not open is the one outcome nobody can do anything about.
+Arrows and the entry agent are rewritten to match, so a repaired workflow still
+connects the same agents it did before. Ids that were already fine are left
+exactly as they are — rewriting them on read would quietly rename the agents in
+every workflow anyone has already built.
+
+Found by fuzzing workflow files rather than reading the parser. Prototype
+pollution, five hundred agents, a self-referential arrow, an `entry` that is a
+number and a `revision` that is an object were all already handled.
+
+1149 checks.
+
 ## 0.13.1 — an agent's name could forge a line of its own prompt
 
 A system prompt is structured text, and names, roles, the workflow's title and
