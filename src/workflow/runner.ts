@@ -297,7 +297,23 @@ export class WorkflowSession implements vscode.Disposable {
    * Requires checkpointing, which is on by default.
    */
   async rewind(turnId: string, dryRun = false): Promise<{ ok: boolean; detail: string }> {
-    if (!this.stream) return { ok: false, detail: "No live session to rewind." };
+    // Said first, because it is the reason nothing can ever be rewound rather
+    // than the reason this attempt failed.
+    if (this.config.checkpoints === false) {
+      return {
+        ok: false,
+        detail: "Checkpoints are turned off, so there is nothing to restore from. Turn cadre.checkpoints back on and the next run will be rewindable.",
+      };
+    }
+    // The checkpoints belong to the query, so they go when it does. The command
+    // is in the palette either way, and someone reaches for it exactly when
+    // something has gone wrong — "no live session" reads as a fault in Cadre.
+    if (!this.stream) {
+      return {
+        ok: false,
+        detail: "This run has ended, and its checkpoints ended with it. Rewinding is only possible while a run is still going.",
+      };
+    }
     try {
       const result = await this.stream.rewindFiles(turnId, { dryRun });
       if (!result.canRewind) {

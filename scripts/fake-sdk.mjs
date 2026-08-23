@@ -84,6 +84,16 @@ export function query({ prompt, options }) {
     return registry.commands ?? [{ name: "loop", description: "repeat a task" }];
   };
 
+  /**
+   * Restoring files to a checkpoint. Lives on the query because that is what
+   * holds the checkpoints, which is why it cannot be done once a run is over.
+   */
+  stream.rewindFiles = async (turnId, opts = {}) => {
+    control.rewinds = (control.rewinds ?? []).concat([{ turnId, ...opts }]);
+    if (registry.rewind) return registry.rewind;
+    return { canRewind: true, filesChanged: 3 };
+  };
+
   stream.interrupt = async () => { control.interrupts += 1; };
   stream.close = () => { control.closed = true; ended = true; nudge(); };
   stream.setPermissionMode = async () => {};

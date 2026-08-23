@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.13.6 — Rewind Files said "No live session" and left you to work out why
+
+Rewind Files puts the workspace back to before a turn. The checkpoints it
+restores from belong to the query, so they go when the query does — which means
+rewinding genuinely is only possible while a run is still going. That is the
+SDK's shape and not something to argue with.
+
+What was wrong is what it said. Once a run's stream had ended, the answer was
+"No live session to rewind." — a sentence that reads as a fault in Cadre, at the
+exact moment someone is reaching for the undo button because something has gone
+wrong. It now says the run has ended and its checkpoints ended with it.
+
+And if `cadre.checkpoints` is off, that is said first and in its own words,
+because it is the reason nothing can *ever* be rewound rather than the reason
+this attempt failed. Previously it produced the same misleading sentence.
+
+Rewind had no test beyond "checkpointing is switched on". It has five now,
+including that a live run really can be rewound — which needed the fake CLI to
+grow a `rewindFiles`, and which is the check that would have caught this being
+broken outright rather than merely unhelpful.
+
+1169 checks.
+
 ## 0.13.5 — a repository could switch off the defence against its own servers
 
 `cadre.exclusiveConnectors` is the tight setting, not the loose one. Turning it

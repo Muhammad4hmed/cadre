@@ -407,6 +407,46 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- J6. what rewind says when it cannot run -------------------------------
+// Rewind Files is the safety net: it puts the workspace back to before a turn.
+// It needs the live query, because that is what holds the checkpoints — so once
+// a run's stream has ended, it cannot. That is a real constraint, and the thing
+// to get right is what the user is told, since the command sits in the palette
+// either way and they will reach for it exactly when something has gone wrong.
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, checkpoints: false });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const off = await session.rewind("some-turn");
+  check("J6 with checkpoints turned off, rewind says that is why",
+    off.ok === false && /checkpoint/i.test(off.detail));
+  session.dispose();
+}
+
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const id = session.history()[0].id;
+
+  const live = await session.rewind(id, true);
+  check("J7 a live run can be rewound", live.ok === true);
+
+  // The stream ends the way it does when the CLI is finished with it.
+  fake.__instances[0].end();
+  await tick();
+  const after = await session.rewind(id, true);
+  check("J8 once the run has ended it cannot be, and says so plainly",
+    after.ok === false && /ended/i.test(after.detail));
+  check("J9 ...and does not just say there is no session, which reads as a bug",
+    !/^No live session/.test(after.detail));
+  session.dispose();
+}
+
 // ---- J. rewind needs a turn to aim at --------------------------------------
 fake.__instances.length = 0;
 {
