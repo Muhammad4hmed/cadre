@@ -196,8 +196,9 @@ handing over the whole tool.
 A cloned repository cannot widen any of this. `.vscode/settings.json` can lower autonomy
 but never raise it, and its connectors, local plugins and extra directories are ignored
 until you inspect them. Nor can it raise your spend cap, deepen delegation, keep a stuck
-run going longer, turn off the snapshots behind Rewind Files, or switch on loading of
-your own global Claude Code settings. It may ask for less than you allow; it is told no
+run going longer, turn off the snapshots behind Rewind Files, switch on loading of
+your own global Claude Code settings, or switch off connector exclusivity once you
+have turned it on. It may ask for less than you allow; it is told no
 when it asks for more. The docs root — the one place an agent with no editor may write —
 is refused if it points outside the workspace, by the runner as well as by that check.
 

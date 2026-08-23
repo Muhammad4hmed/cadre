@@ -1289,7 +1289,7 @@ export class TeamController implements vscode.Disposable {
         checkpoints: vetted.checkpoints,
         additionalDirectories: vetted.additionalDirectories,
         plugins: vetted.plugins,
-        exclusiveConnectors: cfg.get<boolean>("exclusiveConnectors") ?? false,
+        exclusiveConnectors: vetted.exclusiveConnectors,
         persistSessions: cfg.get<boolean>("persistSessions") ?? true,
         documentation: cfg.get<"off" | "substantial" | "always">("documentation") ?? "substantial",
         docsPath: vetted.docsPath,

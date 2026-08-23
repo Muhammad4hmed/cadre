@@ -980,6 +980,8 @@ if (serializer) {
   (folderSettings[folderPath] ??= {})["cadre.maxSpendUsd"] = 0;   // the repo removes it
   (folderSettings[folderPath])["cadre.maxDelegationDepth"] = 25;
   settings["cadre.maxDelegationDepth"] = 3;
+  settings["cadre.exclusiveConnectors"] = true;                 // the user's choice
+  (folderSettings[folderPath])["cadre.exclusiveConnectors"] = false;  // the repo's
 
   // Whichever workflow still exists at this point in the suite: earlier checks
   // delete some, and opening one that is gone starts no run at all, which would
@@ -999,9 +1001,13 @@ if (serializer) {
 
   const tools = run?.options.mcpServers?.team?.tools ?? [];
   check("...and the run is otherwise wired up", tools.length > 0);
+  check("...and connector exclusivity the user turned on survives the repo turning it off",
+    run?.options.strictMcpConfig === true);
 
   delete folderSettings[folderPath]["cadre.maxSpendUsd"];
   delete folderSettings[folderPath]["cadre.maxDelegationDepth"];
+  delete folderSettings[folderPath]["cadre.exclusiveConnectors"];
+  settings["cadre.exclusiveConnectors"] = false;
   settings["cadre.maxSpendUsd"] = 0;
   controller.stop();
   await settle();

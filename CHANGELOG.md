@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.5 — a repository could switch off the defence against its own servers
+
+`cadre.exclusiveConnectors` is the tight setting, not the loose one. Turning it
+on means: use only the connectors Cadre was given, and ignore the project's own
+`.mcp.json`, the user's settings and any plugin-declared servers.
+
+It is resource-scoped, so a repository can set it — and it was not clamped. A
+repo could therefore turn off exactly the switch that stops its own `.mcp.json`
+starting processes, which is the thing the connectors clamp has guarded since
+the beginning. The guard was there; the way around it was one line of
+`.vscode/settings.json`.
+
+It can now be turned on by a repository and not off, like the five limits in
+0.13.0 — and, like those, there is a check that the value reaching the model run
+is the vetted one and not the setting read a second time.
+
+**Two things checked and deliberately left alone.** `cadre.playbooks` is
+resource-scoped and unclamped, but a repo-supplied list *narrows* which skills
+load rather than adding any, so it is not an escalation. And `settingSources`
+always includes `project`, which is how `CLAUDE.md` is loaded at all; the
+reasoning is written down where it happens, and `managedSettings` overrides what
+a project settings file would allow.
+
+1165 checks.
+
 ## 0.13.4 — a file name could forge a line of every agent's prompt
 
 Every agent's prompt ends with a short note about the project: what it is, and

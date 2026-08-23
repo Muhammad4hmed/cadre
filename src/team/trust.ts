@@ -40,6 +40,8 @@ export interface VettedSettings {
   maxContinuations: number;
   checkpoints: boolean;
   inheritGlobalConfig: boolean;
+  /** True means: only the connectors Cadre was given, ignoring the repo's own. */
+  exclusiveConnectors: boolean;
   connectors: Record<string, unknown>;
   plugins: string[];
   /** Extra folders the agents may read and edit, outside the workspace. */
@@ -218,6 +220,15 @@ export class SettingsTrust {
       (repo, user) => user === true && repo === false,
       () => "This folder's settings turn off the snapshots that let you undo what agents wrote. Keeping them on.");
 
+    // True is the tight setting here, not the loose one: it means use only the
+    // connectors Cadre was given and ignore the project's own .mcp.json, the
+    // user's settings and plugin-declared servers. A repository turning it off
+    // switches off the defence against its own .mcp.json — a file that spawns
+    // processes, and the thing the connectors clamp above exists to stop.
+    const exclusiveConnectors = clamp<boolean>("exclusiveConnectors", false,
+      (repo, user) => user === true && repo === false,
+      () => "This folder's settings switch off connector exclusivity, which would let its own .mcp.json start servers. Keeping it on.");
+
     const inheritGlobalConfig = clamp<boolean>("inheritGlobalConfig", false,
       (repo, user) => user === false && repo === true,
       () => "This folder's settings ask to load your own global Claude Code settings, which you had left out. Not loading them.");
@@ -225,6 +236,7 @@ export class SettingsTrust {
     return {
       autonomy, connectors, plugins, additionalDirectories, docsPath,
       maxSpendUsd, maxDelegationDepth, maxContinuations, checkpoints, inheritGlobalConfig,
+      exclusiveConnectors,
       warnings,
     };
   }

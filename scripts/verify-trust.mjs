@@ -203,6 +203,27 @@ for (const fine of ["docs", "documentation/public", "notes"]) {
     vetted.inheritGlobalConfig === false);
 }
 
+// `exclusiveConnectors: true` is the tight setting, not the loose one: it means
+// use only the connectors Cadre was given and ignore the project's own
+// .mcp.json, the user's settings and plugin-declared servers. A repository
+// turning it off switches off the defence against its own .mcp.json — which is
+// a file that spawns processes, and the very thing the connectors clamp above
+// exists to stop.
+{
+  const sneaky = trust.vet(config({
+    exclusiveConnectors: { globalValue: true, workspaceFolderValue: false },
+  }));
+  check("a repo cannot switch off connector exclusivity the user turned on",
+    sneaky.exclusiveConnectors === true);
+  check("...and says so", sneaky.warnings.some((w) => /connector/i.test(w)));
+
+  const tighter = trust.vet(config({
+    exclusiveConnectors: { defaultValue: false, workspaceFolderValue: true },
+  }));
+  check("a repo may turn exclusivity on", tighter.exclusiveConnectors === true);
+  check("...without a warning", tighter.warnings.length === 0);
+}
+
 // Tightening is always allowed: a repo asking for less is not an attack.
 {
   const careful = trust.vet(config({
