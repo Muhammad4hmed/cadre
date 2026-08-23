@@ -463,7 +463,8 @@
     "probe:models": "node scripts/probe-models.mjs",
     "probe:generate": "node scripts/probe-generate.mjs",
     "probe:replay": "esbuild src/team/replay.ts --bundle --platform=node --format=esm --outfile=scripts/.replay.mjs && node scripts/probe-replay.mjs",
-    "verify:package": "node scripts/verify-package.mjs"
+    "verify:package": "node scripts/verify-package.mjs",
+    "verify:sidebar": "node scripts/verify-sidebar.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.239",

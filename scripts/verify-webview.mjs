@@ -971,6 +971,7 @@ results.push(["the attachment checks ran at all", false]);
 (async () => {
   const finish = () => {
     document.body.setAttribute("data-results", JSON.stringify(results));
+    document.body.setAttribute("data-noise", JSON.stringify(window.__noise || []));
   };
   try {
     // The passthrough limit in the webview. Anything above it is re-encoded.
@@ -1107,6 +1108,26 @@ const page = `<!doctype html>
 <style>html,body{width:1180px;height:800px;margin:0}</style></head><body>
 ${body.replace(/\$\{[^}]*\}/g, "")}
 <script>
+  // Anything the page reports on its own: an uncaught error in a handler, a
+  // rejected promise nobody caught, a CSP violation, or a console.error the
+  // code itself chose to emit. None of it reached the suite before, so the page
+  // could be throwing on every message and still report every check green.
+  window.__noise = [];
+  window.addEventListener("error", (e) => {
+    window.__noise.push("error: " + (e.message || String(e.error)));
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    window.__noise.push("unhandled rejection: " + String(e.reason && e.reason.message ? e.reason.message : e.reason));
+  });
+  document.addEventListener("securitypolicyviolation", (e) => {
+    window.__noise.push("CSP: " + e.violatedDirective + " blocked " + e.blockedURI);
+  });
+  const realConsoleError = console.error.bind(console);
+  console.error = (...args) => {
+    window.__noise.push("console.error: " + args.map((a) => (a && a.message) || String(a)).join(" "));
+    realConsoleError(...args);
+  };
+
   window.__sent = [];
   window.acquireVsCodeApi = () => ({
     postMessage(m) { window.__sent.push(m); },
@@ -1121,6 +1142,7 @@ try { ${DRIVER} } catch (err) {
   window.__results = [["the driver threw after " + done + " checks: " + where, false]];
 }
 document.body.setAttribute("data-results", JSON.stringify(window.__results || []));
+document.body.setAttribute("data-noise", JSON.stringify(window.__noise || []));
 </script>
 </body></html>`;
 
@@ -1157,6 +1179,14 @@ if (!match) {
 const decode = (s) =>
   s.replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
 const results = JSON.parse(decode(match[1]));
+
+// What the page said about itself while all of that was happening.
+const noiseMatch = /data-noise="([^"]*)"/.exec(dom);
+const noise = noiseMatch ? JSON.parse(decode(noiseMatch[1])) : [];
+results.push([
+  noise.length ? `the page reported no errors of its own (${noise.slice(0, 3).join(" | ")})` : "the page reported no errors of its own",
+  noise.length === 0,
+]);
 
 console.log("=== webview ===");
 let failed = false;

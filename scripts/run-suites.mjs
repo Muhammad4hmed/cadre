@@ -22,7 +22,7 @@ import { spawnSync } from "node:child_process";
   console.log("  typecheck          ok");
 }
 
-const suites = ["verify-workflow", "verify-ui", "verify-lifecycle", "verify-auth", "verify-trust", "verify-tools", "verify-mcp", "verify-webview", "verify-package"];
+const suites = ["verify-workflow", "verify-ui", "verify-lifecycle", "verify-auth", "verify-trust", "verify-tools", "verify-mcp", "verify-webview", "verify-sidebar", "verify-package"];
 let total = 0;
 let failed = false;
 
