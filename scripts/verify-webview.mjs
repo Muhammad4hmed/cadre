@@ -938,6 +938,97 @@ send({ kind: "clear" });
     document.getElementById("stream-a7") === null);
 }
 
+// ---- attaching an image ----------------------------------------------------
+// Reading, downscaling and encoding an attachment is asynchronous, so it runs
+// after the synchronous driver and rewrites the results when it finishes. This
+// placeholder fails on its own: if the block below never runs, the suite goes
+// red rather than quietly dropping the checks.
+results.push(["the attachment checks ran at all", false]);
+
+(async () => {
+  const finish = () => {
+    document.body.setAttribute("data-results", JSON.stringify(results));
+  };
+  try {
+    const asFile = (bytes, type, name) =>
+      new File([new Uint8Array(bytes)], name, { type });
+
+    /** Waits for a condition, up to a deadline, without assuming a duration. */
+    const settled = async (ready) => {
+      for (let i = 0; i < 60; i += 1) {
+        if (ready()) return true;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      return false;
+    };
+    const chips = () => [...document.getElementById("attachments").querySelectorAll("img")];
+
+    // A real 1x1 PNG, small enough to pass straight through.
+    const png = Uint8Array.from(atob(
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    ), (c) => c.charCodeAt(0));
+
+    const staged = [];
+    const composer = document.querySelector(".composer");
+    const drop = (files) => {
+      const ev = new Event("drop", { bubbles: true });
+      Object.defineProperty(ev, "dataTransfer", { value: { files } });
+      composer.dispatchEvent(ev);
+    };
+
+    // A PNG is passed through untouched.
+    drop([asFile(png, "image/png", "shot.png")]);
+    await settled(() => chips().length > 0);
+    staged.push(chips().length);
+
+    // A format the API does not take must not be relabelled and sent raw. It
+    // used to come through as mediaType image/png carrying BMP bytes.
+    // A real 1x1 24-bit BMP, 58 bytes, so the browser can actually decode it.
+    // An undecodable one would be rejected before the labelling ever mattered,
+    // and the check would pass without testing anything.
+    const bmp = Uint8Array.from([
+      0x42, 0x4d, 0x3a, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x36, 0x00, 0x00, 0x00,
+      0x28, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
+      0x01, 0x00, 0x18, 0x00, 0x00, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00,
+      0x13, 0x0b, 0x00, 0x00, 0x13, 0x0b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+      0xff, 0x00, 0x00, 0x00,
+    ]);
+    drop([asFile(bmp, "image/bmp", "shot.bmp")]);
+    // Polled rather than slept on: reading and re-encoding an image takes as
+    // long as it takes, and a fixed wait that is a little too short turns the
+    // whole check green for the wrong reason. It did, at 300ms.
+    await settled(() => chips().length > staged[0]);
+
+    // The signature of the bug: a chip labelled image/png whose payload is the
+    // BMP that was dropped. Base64 of the bytes "BM" is "Qk0", so a src of
+    // data:image/png;base64,Qk0... is a label that does not match its data.
+    const srcs = chips().map((el) => el.getAttribute("src") || "");
+    const mislabelled = srcs.filter((src) => /^data:image\/png;base64,Qk0/.test(src));
+    const types = srcs.map((src) => (/^data:([^;,]+)/.exec(src) || [])[1]).filter(Boolean);
+
+    results.push(["a dropped png is attached", staged[0] >= 1]);
+    results.push([
+      "an image the API does not accept is not relabelled as one it does",
+      mislabelled.length === 0,
+    ]);
+    results.push([
+      "...and every attachment carries a type the API takes",
+      types.every((t) => ["image/png", "image/jpeg", "image/gif", "image/webp"].includes(t)),
+    ]);
+    results.push([
+      "...because it is converted rather than passed through",
+      chips().length === 2 && types.includes("image/jpeg"),
+    ]);
+
+    // Replace the placeholder now that the real checks are in.
+    const at = results.findIndex(([label]) => label === "the attachment checks ran at all");
+    if (at !== -1) results[at] = ["the attachment checks ran at all", true];
+  } catch (err) {
+    results.push(["the attachment checks threw: " + String(err && err.message ? err.message : err), false]);
+  }
+  finish();
+})();
+
 document.title = "done";
 window.__results = results;
 `;

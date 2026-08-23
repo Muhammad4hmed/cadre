@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.12 — an image the API cannot read was sent labelled as one it can
+
+Attachments are passed straight through when they are small enough, and
+re-encoded through a canvas when they are not. The passthrough decided the label
+separately from the data: anything outside PNG, JPEG, GIF and WebP was **called**
+`image/png` and sent with its original bytes.
+
+Drag in a screenshot saved as BMP, or an SVG from a file manager, and the label
+said one thing while the payload said another. The message then failed at the
+API rather than here, where the reason would have been obvious.
+
+Passthrough is now limited to formats the API actually accepts. Everything else
+goes through the canvas and comes back a real JPEG. A GIF small enough to pass
+through still keeps its animation.
+
+A dead branch went with it: the GIF special case was written to keep large GIFs
+out of the canvas, but a nested condition meant it never did anything a plain
+size check would not have done.
+
+1005 checks, and the webview suite can now test asynchronous work — reading and
+re-encoding an image happens after the synchronous driver, so the attachment
+checks rewrite the results when they finish, and a placeholder fails on its own
+if they never run.
+
 ## 0.11.11 — the separator had the same problem the canvas did
 
 The handle between the map and the lanes takes pointer capture, which usually

@@ -1091,18 +1091,27 @@
   /** Reads a File, downscaling if it is larger than the model can use. */
   function readImage(file) {
     return new Promise((resolve, reject) => {
-      const type = ACCEPTED.includes(file.type) ? file.type : "image/png";
       const reader = new FileReader();
       reader.onerror = () => reject(new Error("could not read " + file.name));
       reader.onload = () => {
         const dataUrl = String(reader.result);
-        // Animated GIFs lose their animation through a canvas, so pass through.
-        if (type === "image/gif" || file.size <= MAX_BYTES) {
+        /*
+         * Pass through only a format the API accepts, at a size it accepts.
+         *
+         * Anything else is redrawn and comes back a real JPEG. A screenshot
+         * saved as BMP, or an SVG dragged in from a file manager, used to be
+         * relabelled `image/png` and sent with its original bytes: the label
+         * said one thing, the data was another, and the message failed on the
+         * API rather than here.
+         *
+         * A GIF small enough to pass through keeps its animation. One too large
+         * is flattened, because the size limit is the harder constraint and the
+         * model reads a single frame either way.
+         */
+        if (ACCEPTED.includes(file.type) && file.size <= MAX_BYTES) {
           const [, data] = dataUrl.split(",");
-          if (file.size <= MAX_BYTES) {
-            resolve({ name: file.name || "pasted image", mediaType: type, data, bytes: file.size });
-            return;
-          }
+          resolve({ name: file.name || "pasted image", mediaType: file.type, data, bytes: file.size });
+          return;
         }
         const img = new Image();
         img.onerror = () => reject(new Error("could not decode " + file.name));
