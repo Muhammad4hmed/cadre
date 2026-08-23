@@ -127,19 +127,89 @@ export function listWorkflows(root: string): WorkflowSummary[] {
  * workflow shadowing a global one of the same name is the intuitive precedence,
  * and it lets a project pin its own version of a shared workflow.
  */
+/**
+ * Turns whatever was in the file into a workflow, or rejects it.
+ *
+ * These files are plain JSON in the project, which is the point — they get
+ * hand-edited, merged badly, and half-written. Valid JSON is not a valid
+ * workflow: a file containing `42`, `null`, `"text"` or an array used to be
+ * spread into an object that looked like a workflow and was not, and one such
+ * file threw out of `listWorkflows` and took the whole home screen with it.
+ *
+ * Repaired where repair is meaningful — a missing `edges` becomes an empty
+ * list, so the workflow still opens in the builder with its problems flagged.
+ * Rejected where it is not: there is nothing to recover from a number.
+ */
+function normalise(parsed: unknown, id: string, scope: Scope): Workflow | undefined {
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return undefined;
+  const raw = parsed as Record<string, unknown>;
+
+  const agents = (Array.isArray(raw.agents) ? raw.agents : [])
+    .filter((a): a is Record<string, unknown> => Boolean(a) && typeof a === "object" && !Array.isArray(a))
+    .map((a, index) => ({
+      id: typeof a.id === "string" && a.id ? a.id : `agent_${index + 1}`,
+      name: typeof a.name === "string" ? a.name : "",
+      role: typeof a.role === "string" ? a.role : "",
+      prompt: typeof a.prompt === "string" ? a.prompt : "",
+      ...(typeof a.rawPrompt === "string" ? { rawPrompt: a.rawPrompt } : {}),
+      preset: (["readonly", "research", "build", "full"] as const).includes(a.preset as never)
+        ? (a.preset as Workflow["agents"][number]["preset"])
+        : "readonly",
+      ...(typeof a.model === "string" ? { model: a.model } : {}),
+      ...(typeof a.effort === "string" ? { effort: a.effort } : {}),
+      ...(Array.isArray(a.tools) ? { tools: a.tools.map(String) } : {}),
+      ...(Array.isArray(a.disallowedTools) ? { disallowedTools: a.disallowedTools.map(String) } : {}),
+      ...(Array.isArray(a.skills) ? { skills: a.skills.map(String) } : {}),
+      ...(Array.isArray(a.connectors) ? { connectors: a.connectors.map(String) } : {}),
+      ...(Number.isFinite(a.maxTurns) ? { maxTurns: Number(a.maxTurns) } : {}),
+      x: Number.isFinite(a.x) ? Number(a.x) : 60,
+      y: Number.isFinite(a.y) ? Number(a.y) : 60,
+    }));
+
+  const known = new Set(agents.map((a) => a.id));
+  const edges = (Array.isArray(raw.edges) ? raw.edges : [])
+    .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object" && !Array.isArray(e))
+    .filter((e) => typeof e.from === "string" && typeof e.to === "string" && known.has(e.from as string) && known.has(e.to as string))
+    .map((e) => ({
+      from: e.from as string,
+      to: e.to as string,
+      kind: e.kind === "then" ? ("then" as const) : ("delegate" as const),
+      ...(typeof e.label === "string" && e.label ? { label: e.label } : {}),
+    }));
+
+  return {
+    // The id is the filename and the scope is the directory, whatever the file
+    // says: a copied file that kept its old id would otherwise shadow the
+    // workflow it was copied from.
+    id,
+    scope,
+    name: typeof raw.name === "string" && raw.name.trim() ? raw.name : id,
+    ...(typeof raw.description === "string" ? { description: raw.description } : {}),
+    ...(raw.defaults && typeof raw.defaults === "object" && !Array.isArray(raw.defaults)
+      ? { defaults: raw.defaults as Workflow["defaults"] }
+      : {}),
+    entry: typeof raw.entry === "string" && known.has(raw.entry) ? raw.entry : (agents[0]?.id ?? ""),
+    agents,
+    edges,
+    createdAt: Number.isFinite(raw.createdAt) ? Number(raw.createdAt) : 0,
+    updatedAt: Number.isFinite(raw.updatedAt) ? Number(raw.updatedAt) : 0,
+    revision: Number.isFinite(raw.revision) ? Number(raw.revision) : 0,
+    ...(typeof raw.template === "string" ? { template: raw.template } : {}),
+  };
+}
+
 export function readWorkflow(root: string, id: string, scope?: Scope): Workflow | undefined {
   if (!isSafeId(id)) return undefined;
   const order: Scope[] = scope ? [scope] : ["local", "global"];
   for (const where of order) {
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(fs.readFileSync(file(root, where, id), "utf8")) as Workflow;
-      // The id is the filename and the scope is the directory, whatever the
-      // file says: a copied file that kept its old id would otherwise shadow
-      // the workflow it was copied from.
-      return { ...parsed, id, scope: where };
+      parsed = JSON.parse(fs.readFileSync(file(root, where, id), "utf8"));
     } catch {
-      // try the next scope
+      continue;   // not there, or not JSON at all
     }
+    const workflow = normalise(parsed, id, where);
+    if (workflow) return workflow;
   }
   return undefined;
 }

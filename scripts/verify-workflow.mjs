@@ -389,6 +389,76 @@ check("...because the arrows explain it instead", teamLead.includes("brief_resea
 check("the ported lead prompt keeps its judgement sections",
   /Price the decision before you spend on it/.test(teamLead));
 
+/* ------------------------------------------------- files that are not workflows */
+
+// These are plain JSON in the project, which is the point — so they get
+// hand-edited, merged badly and half-written. One file containing `42` used to
+// throw out of listWorkflows and take the entire home screen with it.
+const messy = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-messy-"));
+const messyDir = path.join(messy, ".cadre", "workflows");
+fs.mkdirSync(messyDir, { recursive: true });
+
+const UNRECOVERABLE = {
+  a_string: '"just a string"',
+  a_number: "42",
+  an_array: "[1,2,3]",
+  null_file: "null",
+  a_bool: "true",
+  truncated: '{"name":"X","agents":[{"id":"a"',
+  empty: "",
+};
+const REPAIRABLE = {
+  no_agents: '{"name":"X","entry":"a"}',
+  agents_not_array: '{"name":"X","agents":"nope","edges":[],"entry":"a"}',
+  edges_null: '{"name":"X","agents":[],"edges":null,"entry":"a"}',
+  junk_agents: '{"name":"X","agents":[null,42,{"id":"a","prompt":"p"}],"edges":[{"from":"a"}],"entry":"zzz"}',
+};
+for (const [name, body] of Object.entries({ ...UNRECOVERABLE, ...REPAIRABLE })) {
+  fs.writeFileSync(path.join(messyDir, `${name}.json`), body);
+}
+fs.writeFileSync(path.join(messyDir, "good.json"), JSON.stringify({
+  name: "Good", entry: "a", edges: [],
+  agents: [{ id: "a", name: "A", role: "", prompt: "p", preset: "readonly", x: 0, y: 0 }],
+}));
+
+let listed;
+let listThrew = false;
+try { listed = store.listWorkflows(messy); } catch { listThrew = true; }
+check("one unreadable file does not take the whole list down", !listThrew);
+check("the good workflow is still listed alongside the bad ones",
+  (listed ?? []).some((w) => w.id === "good"));
+
+for (const name of Object.keys(UNRECOVERABLE)) {
+  check(`nothing is invented from ${name}`, store.readWorkflow(messy, name) === undefined);
+}
+for (const name of Object.keys(REPAIRABLE)) {
+  const w = store.readWorkflow(messy, name);
+  check(`${name} is repaired rather than discarded`, Boolean(w));
+  check(`${name} comes back with a usable shape`,
+    Array.isArray(w?.agents) && Array.isArray(w?.edges) && typeof w?.name === "string");
+}
+
+// Guarded: if repair regresses, `agents` is undefined and reading `.length`
+// throws — which reads as "no failures" rather than as the failure it is.
+const junk = store.readWorkflow(messy, "junk_agents") ?? {};
+const junkAgents = Array.isArray(junk.agents) ? junk.agents : [];
+const junkEdges = Array.isArray(junk.edges) ? junk.edges : [];
+check("agents that are not objects are dropped", junkAgents.length === 1);
+check("a missing agent name does not become undefined", typeof junkAgents[0]?.name === "string");
+check("an unknown preset falls back to the safest", junkAgents[0]?.preset === "readonly");
+check("an edge missing its target is dropped", junkEdges.length === 0);
+check("an entry pointing at nothing falls back to a real agent", junk.entry === "a");
+check("positions are numbers even when the file had none",
+  Number.isFinite(junkAgents[0]?.x) && Number.isFinite(junkAgents[0]?.y));
+
+// Everything that survives the read must be safe to hand to the rest of the
+// product — that is the whole point of repairing rather than trusting.
+for (const summary of listed ?? []) {
+  let problems;
+  try { problems = model.validate(store.readWorkflow(messy, summary.id)); } catch { /* reported below */ }
+  check(`${summary.id} can be validated without throwing`, Array.isArray(problems));
+}
+
 /* -------------------------------------------------------- unsafe ids */
 
 // Workflow ids reach the store from webview messages and become filenames.

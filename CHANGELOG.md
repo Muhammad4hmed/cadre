@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.9.5
+
+**One malformed workflow file no longer takes the home screen with it.** Workflows are
+plain JSON in the project — that is the point of storing them there — so they get
+hand-edited, merged badly and half-written. A file containing `42`, `null`, `"text"` or an
+array was spread into an object that looked like a workflow and was not, and the first one
+of those threw straight out of `listWorkflows`: no workflows listed at all, for anyone with
+a single bad file.
+
+Files are now normalised on read. Repaired where repair means something — a missing
+`agents`, a null `edges`, an agent with no position, an unknown preset, an edge pointing at
+a deleted agent, an entry that names nobody — so the workflow still opens in the builder
+with its problems flagged and can be fixed there. Rejected where it does not: there is
+nothing to recover from a number.
+
+753 checks. Removing the repair turns 16 of them red.
+
 ## 0.9.4
 
 Listing only, no behaviour change. The README now opens with a poster that links to the
