@@ -11,6 +11,7 @@
 import * as esbuild from "esbuild";
 import { baseOptions } from "./esbuild-shared.mjs";
 import { createRequire } from "node:module";
+import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -24,6 +25,35 @@ await esbuild.build({
 });
 const wf = createRequire(import.meta.url)(outfile);
 const { model, presets, protocol, store, templates, generate, models } = wf;
+
+
+/**
+ * Start a child writing the session index, kill it part-way, and report both
+ * how many times the file was left unreadable and how many times the child
+ * actually got far enough to write. The second number matters: a child that
+ * never wrote proves nothing, and a test that cannot tell the difference
+ * passes for the wrong reason.
+ */
+async function killMidWrite(bundle, root, id, file, rounds) {
+  let torn = 0;
+  let wrote = 0;
+  for (let round = 0; round < rounds; round++) {
+    // Compare contents, not size: the child writes uniform-length records, so
+    // the file can be rewritten from end to end without changing size.
+    const before = fs.readFileSync(file, "utf8");
+    const child = spawn(process.execPath, ["scripts/kill-mid-write.mjs", bundle, root, id], {
+      stdio: "ignore",
+    });
+    // A real sleep, not a spin: the child needs the CPU to reach its first
+    // write, and a busy-wait starves it on a loaded machine.
+    await new Promise((r) => setTimeout(r, 200 + round * 25));
+    child.kill("SIGKILL");
+    await new Promise((r) => child.on("exit", r));
+    if (fs.readFileSync(file, "utf8") !== before) wrote += 1;
+    try { JSON.parse(fs.readFileSync(file, "utf8")); } catch { torn += 1; }
+  }
+  return { torn, wrote };
+}
 
 const checks = [];
 const check = (label, ok) => checks.push([label, ok]);
@@ -223,6 +253,71 @@ check("re-recording a session updates rather than duplicates",
 const second = store.createWorkflow(root, "My Team");
 check("a second workflow with the same name gets its own id", second.id !== created.id);
 check("one workflow does not see another's sessions", store.listSessions(root, second.id).length === 0);
+
+/* ------------------------------------------- a crash must not eat the work */
+
+// `writeFileSync` truncates before it writes, so a process that dies in between
+// leaves a prefix behind. For these two files that is not a cache to rebuild —
+// it is the workflow the user drew and every conversation they have had under
+// it — and both fail quietly: a torn workflow reads as missing, a torn session
+// index reads as no history at all.
+//
+// This is tested by actually doing it: a child process writes the index in a
+// loop and is killed part-way through, repeatedly. Against a plain
+// `writeFileSync` this leaves the file unreadable roughly half the time.
+{
+  const sfile = path.join(root, ".cadre/workflows", `${created.id}.sessions.json`);
+  const wfile = path.join(root, ".cadre/workflows", `${created.id}.json`);
+
+  // The deterministic signature of the technique: a rename replaces the file,
+  // so its inode changes. A truncating write keeps the same inode, which is
+  // exactly the window where a reader can see half a file.
+  const inodeBefore = fs.statSync(sfile).ino;
+  store.recordSession(root, created.id, { sessionId: "inode", title: "inode", when: 8 });
+  check("a write replaces the file rather than truncating it in place",
+    fs.statSync(sfile).ino !== inodeBefore);
+
+  const ROUNDS = 8;
+  const killed = await killMidWrite(outfile, root, created.id, sfile, ROUNDS);
+  check(`killing a write ${ROUNDS} times never leaves the history unreadable`, killed.torn === 0);
+  check("...and the child really was writing when it died, or that proved nothing",
+    killed.wrote >= ROUNDS - 1);
+  check("...and the workflow survives it too",
+    store.readWorkflow(root, created.id)?.name === created.name);
+  check("...and no half-written temp file is mistaken for a workflow",
+    !store.listWorkflows(root).some((w) => String(w.id).includes("tmp")));
+  check("...and writing still works afterwards", (() => {
+    // Later than anything the child wrote, so "newest first" puts it on top.
+    store.recordSession(root, created.id, { sessionId: "after-crash", title: "after", when: 1e9 });
+    return store.listSessions(root, created.id)[0].sessionId === "after-crash";
+  })());
+
+  // A write that genuinely cannot happen must say so rather than looking like
+  // it worked, and must not leave its scratch file behind in the repository.
+  const readOnly = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-ro-"));
+  const roWf = store.createWorkflow(readOnly, "Locked");
+  const roDir = path.join(readOnly, ".cadre/workflows");
+  fs.chmodSync(roDir, 0o500);
+  let threw = false;
+  try { store.recordSession(readOnly, roWf.id, { sessionId: "x", title: "x", when: 1 }); }
+  catch { threw = true; }
+  fs.chmodSync(roDir, 0o700);
+  check("a write that cannot happen reports it rather than failing silently", threw);
+
+  // Failing *after* the scratch file exists is the case that can litter the
+  // repository, so force one: a directory where the file should be makes the
+  // rename fail while the temp write succeeds.
+  const blocked = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-blocked-"));
+  const blWf = store.createWorkflow(blocked, "Blocked");
+  const blDir = path.join(blocked, ".cadre/workflows");
+  fs.mkdirSync(path.join(blDir, `${blWf.id}.sessions.json`), { recursive: true });
+  let blockedThrew = false;
+  try { store.recordSession(blocked, blWf.id, { sessionId: "x", title: "x", when: 1 }); }
+  catch { blockedThrew = true; }
+  check("a write that fails after its scratch file exists still reports it", blockedThrew);
+  check("...and does not leave the scratch file in the repository",
+    !fs.readdirSync(blDir).some((f) => f.endsWith(".tmp")));
+}
 
 /* ------------------------------------------------------------ scope */
 

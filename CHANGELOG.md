@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.10.2 — a crash could take the workflow with it
+
+Both of the files Cadre owns were written with `writeFileSync`, which truncates
+the file and then writes it. A process that dies in between leaves a prefix
+behind — and VS Code windows get closed, machines run out of disk, laptops lose
+power.
+
+For these two files that is not a cache to rebuild. One is the workflow you drew:
+the agents, their prompts, the arrows. The other is every conversation you have
+had under it. Both fail quietly rather than loudly — a torn workflow reads as
+missing and a torn session index reads as no history at all, because the parse
+error is caught and turned into an empty list.
+
+Measured, not assumed: killing the write mid-flight left the file unreadable in
+**7 of 12 attempts**. Writes now go to a temporary file in the same directory,
+are flushed, and are renamed into place, so a reader sees either the old file or
+the new one. Across the same 12 kills, zero losses.
+
+The full-view tab also survives a window reload now. VS Code persists the tab and
+hands it back on the next launch, but nothing re-adopted it, so it returned as a
+blank panel that never filled in — which reads as a hang rather than as a tab to
+close.
+
+850 checks. The crash test is the real thing: a child process writing in a loop,
+killed part-way, repeatedly — and it asserts the child actually got to write, so
+it cannot pass by never having tested anything.
+
 ## 0.10.1 — a repository cannot widen what the agents can reach
 
 Two settings granted access beyond the workspace, and both are `resource`-scoped, which

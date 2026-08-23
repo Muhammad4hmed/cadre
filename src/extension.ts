@@ -24,6 +24,11 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.window.registerWebviewViewProvider(ChatViewProvider.viewId, sidebar, {
       webviewOptions: { retainContextWhenHidden: true },
     }),
+    vscode.window.registerWebviewPanelSerializer(TeamFloor.viewType, {
+      async deserializeWebviewPanel(panel: vscode.WebviewPanel) {
+        floor.adopt(panel);
+      },
+    }),
 
     vscode.commands.registerCommand("cadre.newSession", () => controller.newSession()),
     vscode.commands.registerCommand("cadre.stop", () => controller.stop()),
@@ -114,22 +119,49 @@ class TeamFloor implements vscode.Disposable {
     private readonly controller: TeamController,
   ) {}
 
+  static readonly viewType = "cadre.floor";
+
   reveal(): void {
     if (this.panel) {
       this.panel.reveal(vscode.ViewColumn.Active);
       return;
     }
-    this.panel = vscode.window.createWebviewPanel(
-      "cadre.floor",
-      "Cadre — Full view",
-      vscode.ViewColumn.Active,
-      { ...webviewOptions(this.context), retainContextWhenHidden: true },
+    this.adopt(
+      vscode.window.createWebviewPanel(
+        TeamFloor.viewType,
+        "Cadre — Full view",
+        vscode.ViewColumn.Active,
+        { ...webviewOptions(this.context), retainContextWhenHidden: true },
+      ),
     );
-    this.panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "media", "icon.svg");
-    this.panel.webview.html = teamHtml(this.panel.webview, this.context);
-    this.attachment = this.controller.attach(this.panel.webview);
+  }
 
-    this.panel.onDidDispose(() => {
+  /**
+   * Take ownership of a panel — a fresh one from `reveal`, or one VS Code has
+   * restored after a window reload. A restored panel keeps its tab but none of
+   * its wiring: no html, no message listener, and `localResourceRoots` reset to
+   * the workspace, so its script will not load. Without this it comes back as a
+   * blank tab that never fills in, which reads as a hang rather than as a tab
+   * that needs closing.
+   */
+  adopt(panel: vscode.WebviewPanel): void {
+    if (this.panel && this.panel !== panel) {
+      // Two panels would both be attached to one controller and would fight
+      // over the same state. The one the user just asked for wins.
+      this.attachment?.dispose();
+      this.attachment = undefined;
+      const stale = this.panel;
+      this.panel = undefined;
+      stale.dispose();
+    }
+    this.panel = panel;
+    panel.iconPath = vscode.Uri.joinPath(this.context.extensionUri, "media", "icon.svg");
+    panel.webview.options = webviewOptions(this.context);
+    panel.webview.html = teamHtml(panel.webview, this.context);
+    this.attachment = this.controller.attach(panel.webview);
+
+    panel.onDidDispose(() => {
+      if (this.panel !== panel) return;
       this.attachment?.dispose();
       this.attachment = undefined;
       this.panel = undefined;

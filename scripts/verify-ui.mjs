@@ -30,6 +30,28 @@ const folderSettings = {};
 const shownErrors = [];
 const secrets = new Map();
 
+/**
+ * A webview panel that records what was done to it. Restoring a panel after a
+ * window reload is the case that matters: VS Code hands the extension a panel
+ * that still has a tab but no html, no listener, and default resource roots.
+ */
+const panels = [];
+function makePanel(viewType = "cadre.floor") {
+  const panel = {
+    viewType,
+    webview: {
+      options: {}, html: "", cspSource: "x", asWebviewUri: (u) => u,
+      onDidReceiveMessage: () => ({ dispose() {} }), postMessage: async () => true,
+    },
+    disposed: false, revealed: 0,
+    onDidDispose: (cb) => { panel.__onDispose = cb; return { dispose() {} }; },
+    reveal: () => { panel.revealed += 1; },
+    dispose: () => { panel.disposed = true; panel.__onDispose?.(); },
+  };
+  panels.push(panel);
+  return panel;
+}
+
 const vscodeStub = {
   Uri: { joinPath: (base, ...parts) => ({ fsPath: [base.fsPath, ...parts].join("/") }) },
   ViewColumn: { Active: -1 },
@@ -44,11 +66,11 @@ const vscodeStub = {
       show: () => {}, dispose: () => {},
     }),
     registerWebviewViewProvider: (_id, provider) => { vscodeStub.__provider = provider; return { dispose() {} }; },
-    createWebviewPanel: () => ({
-      webview: { options: {}, html: "", cspSource: "x", asWebviewUri: (u) => u,
-        onDidReceiveMessage: () => ({ dispose() {} }), postMessage: async () => true },
-      onDidDispose: () => ({ dispose() {} }), reveal: () => {}, dispose: () => {},
-    }),
+    registerWebviewPanelSerializer: (id, serializer) => {
+      (vscodeStub.__serializers ??= {})[id] = serializer;
+      return { dispose() {} };
+    },
+    createWebviewPanel: (...args) => makePanel(...args),
     showErrorMessage: async (m) => { shownErrors.push(m); return undefined; },
     showWarningMessage: async () => vscodeStub.__warn,
     showInformationMessage: async () => undefined,
@@ -779,6 +801,46 @@ check("...and its session index with it",
 check("deleting returns you to the list",
   (await waitFor("screen", (m) => m.screen === "home"))?.screen === "home");
 vscodeStub.__warn = undefined;
+
+
+// ---- the full-view tab survives a window reload ---------------------------
+// VS Code persists the tab itself, then hands it back on the next launch. A
+// restored panel keeps its tab but none of its wiring — no html, no message
+// listener, and resource roots reset to the workspace, so its script will not
+// load. Unregistered, it comes back as a blank tab that never fills in, which
+// reads as a hang rather than as a tab to close.
+const serializer = vscodeStub.__serializers?.["cadre.floor"];
+check("the full-view panel registers a serializer", Boolean(serializer));
+
+if (serializer) {
+  panels.length = 0;
+  const restored = makePanel("cadre.floor");
+  restored.webview.html = "";
+  restored.webview.options = {};
+  await serializer.deserializeWebviewPanel(restored, undefined);
+
+  check("a restored panel gets its html back", restored.webview.html.includes("<script"));
+  check("...and its scripts re-enabled", restored.webview.options.enableScripts === true);
+  check("...and its resource root back to the extension's media folder",
+    (restored.webview.options.localResourceRoots ?? []).some((u) => String(u.fsPath).endsWith("/media")));
+  check("...and is attached to the controller",
+    typeof restored.webview.postMessage === "function" && restored.webview.html.length > 0);
+
+  // Revealing after a restore must not build a second panel: two panels both
+  // attached to one controller would fight over the same state.
+  const before = panels.length;
+  await vscodeStub.__commands["cadre.openTeamFloor"]();
+  check("revealing an already-restored panel reuses it", panels.length === before);
+  check("...by revealing rather than recreating", restored.revealed === 1);
+
+  // And a panel disposed after being superseded must not tear down the live one.
+  const second = makePanel("cadre.floor");
+  await serializer.deserializeWebviewPanel(second, undefined);
+  check("adopting a second panel disposes the stale one", restored.disposed === true);
+  check("...and leaves the new one live", second.disposed === false);
+  await vscodeStub.__commands["cadre.openTeamFloor"]();
+  check("...and the new one is what reveal now finds", second.revealed === 1);
+}
 
 
 console.log("=== ui ===");

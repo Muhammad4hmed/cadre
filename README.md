@@ -125,6 +125,9 @@ Your choice, per workflow:
 *Globalise* and *Localise* move one either way. A local workflow shadows a global one of
 the same id, so a project can pin its own version of something shared.
 
+Your workflow and its history are written by rename rather than in place, so a
+window closed at the wrong moment cannot leave either one half-written.
+
 Conversations always stay with the project, even for a global workflow — the same workflow
 used in three repositories has three separate histories, and one merged list would be
 misleading. Each is named by Claude's own summary of it, and resumes with the transcript
@@ -244,7 +247,7 @@ changing.
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 831 checks, no API calls
+npm run verify:fast    # 850 checks, no API calls
 npm run verify:team    # a live run; costs tokens
 ```
 

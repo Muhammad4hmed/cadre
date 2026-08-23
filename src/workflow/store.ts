@@ -223,7 +223,7 @@ export function writeWorkflow(root: string, workflow: Workflow, scope?: Scope): 
     revision: (workflow.revision ?? 0) + 1,
   };
   fs.mkdirSync(dirFor(root, where), { recursive: true });
-  fs.writeFileSync(file(root, where, workflow.id), `${JSON.stringify(saved, null, 2)}\n`, "utf8");
+  writeAtomic(file(root, where, workflow.id), `${JSON.stringify(saved, null, 2)}\n`);
   return saved;
 }
 
@@ -253,6 +253,48 @@ export function moveWorkflow(root: string, id: string, to: Scope): Workflow | un
   const written = writeWorkflow(root, { ...source, id: targetId }, to);
   fs.rmSync(file(root, source.scope ?? "local", id), { force: true });
   return written;
+}
+
+/**
+ * Replace a file's contents in one step.
+ *
+ * `writeFileSync` truncates and then writes, so a process that dies in between
+ * — a closed window, a crash, a full disk — leaves a prefix of the new content
+ * behind. For these files that is not a corrupt cache to rebuild: it is the
+ * workflow the user drew, and the list of every conversation they have had
+ * under it. Both parse as nothing and both fail quietly.
+ *
+ * Writing to a sibling temporary file and renaming makes the swap atomic, so a
+ * reader sees either the old file or the new one and never half of either. The
+ * temporary lives in the same directory because rename is only atomic within a
+ * filesystem, and /tmp is often a different one.
+ */
+function writeAtomic(target: string, contents: string): void {
+  fs.mkdirSync(path.dirname(target), { recursive: true });
+  const temp = `${target}.${process.pid}.tmp`;
+  let handle: number | undefined;
+  try {
+    handle = fs.openSync(temp, "w");
+    fs.writeFileSync(handle, contents, "utf8");
+    // Rename only orders the directory entry. Without this the rename can land
+    // before the contents do, which on a power loss is the same empty file we
+    // are trying to avoid.
+    try {
+      fs.fsyncSync(handle);
+    } catch {
+      // Some filesystems refuse fsync. Losing durability is survivable;
+      // losing the write is not.
+    }
+    fs.closeSync(handle);
+    handle = undefined;
+    fs.renameSync(temp, target);
+  } catch (error) {
+    if (handle !== undefined) {
+      try { fs.closeSync(handle); } catch { /* already gone */ }
+    }
+    try { fs.unlinkSync(temp); } catch { /* never created */ }
+    throw error;
+  }
 }
 
 /** A workflow id that is not taken in either scope, derived from the name. */
@@ -295,11 +337,10 @@ export function listSessions(root: string, id: string): StoredSession[] {
 export function recordSession(root: string, id: string, session: StoredSession): void {
   const existing = listSessions(root, id).filter((s) => s.sessionId !== session.sessionId);
   const next = [session, ...existing].slice(0, 200);
-  fs.mkdirSync(path.join(root, WORKFLOW_DIR), { recursive: true });
-  fs.writeFileSync(sessionsFile(root, id), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  writeAtomic(sessionsFile(root, id), `${JSON.stringify(next, null, 2)}\n`);
 }
 
 export function forgetSession(root: string, id: string, sessionId: string): void {
   const next = listSessions(root, id).filter((s) => s.sessionId !== sessionId);
-  fs.writeFileSync(sessionsFile(root, id), `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  writeAtomic(sessionsFile(root, id), `${JSON.stringify(next, null, 2)}\n`);
 }
