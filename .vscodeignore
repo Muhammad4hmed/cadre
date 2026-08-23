@@ -24,6 +24,10 @@ LICENSE.md
 # --no-dependencies. See `npm run package:bundled`.
 node_modules/**
 
-# The demo film is for the repo and the listing page, not the package.
+# Launch material — the film, the generated stills, the post drafts. All of it
+# is for the repo and the listing page; none of it belongs in a package users
+# download. Three JPEGs quietly took it from 1.7 MB to 6.6 MB.
 media/demo.mp4
+media/nano banana/**
+media/LAUNCH.md
 .shots/**
