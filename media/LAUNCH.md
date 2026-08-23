@@ -17,14 +17,23 @@ ships in the extension.
 
 ## Uploading to the Marketplace
 
-The listing still shows **0.1.0**. `cadre.vsix` in the repo root is the current build.
+The listing still shows **0.1.0**. `cadre.vsix` in the repo root is the current build
+(**0.9.4**, 1.83 MB).
 
 1. https://marketplace.visualstudio.com/manage/publishers/Cadre
 2. Cadre → **…** → **Update**
 3. Upload `cadre.vsix`. It takes a few minutes to verify.
 
-The version, description, screenshots and README all come from inside the package, so
-nothing else needs editing by hand.
+Everything on the listing page comes from inside the package, so nothing else needs
+editing by hand. Two things worth knowing about how it renders there:
+
+- **Images work, video does not.** `vsce` rewrites every relative image path to an
+  absolute `github.com/.../raw/HEAD/...` URL at package time — verified in the packaged
+  readme — but the Marketplace will not embed an `.mp4`. That is why the README leads
+  with a poster image that *links* to the film: it renders as a player on GitHub and as a
+  clickable still on the Marketplace.
+- **Push before you upload.** Those image URLs point at `main`, so a screenshot that is
+  only on your disk shows as a broken image on the listing.
 
 ---
 

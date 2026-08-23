@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.9.4
+
+Listing only, no behaviour change. The README now opens with a poster that links to the
+demo — a bare video URL renders as a player on GitHub and as naked text on the
+Marketplace, which is where most people will read it. Dropped the "Programming Languages"
+category: that is for grammars and language support, and a wrong category puts the
+extension in front of people who did not want it.
+
 ## 0.9.3
 
 **Finding the `claude` binary no longer spawns a process every time.** Resolution falls
