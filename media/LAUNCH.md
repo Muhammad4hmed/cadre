@@ -18,7 +18,7 @@ ships in the extension.
 ## Uploading to the Marketplace
 
 The listing still shows **0.1.0**. `cadre.vsix` in the repo root is the current build
-(**0.10.2**, ~1.9 MB).
+(**0.11.4**, ~1.9 MB).
 
 1. https://marketplace.visualstudio.com/manage/publishers/Cadre
 2. Cadre → **…** → **Update**
@@ -87,7 +87,7 @@ narration is there for anyone who unmutes.
 > edit anything before it runs.
 >
 > **3. Tests pass for the wrong reasons, constantly.**
-> 850 hermetic checks. Along the way I found that `git_view show .env` printed a
+> 968 hermetic checks. Along the way I found that `git_view show .env` printed a
 > live secret straight past the deny list, that a workflow id from the UI could
 > write outside the project, and that Stop did not reach a chain of agents. Every
 > one of those was found by attacking it, not by using it.
