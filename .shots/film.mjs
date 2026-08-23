@@ -19,6 +19,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { page } from "./harness.mjs";
+import * as opener from "./opener.mjs";
 
 const OUT = ".shots/film";
 const W = 1280;
@@ -33,6 +34,19 @@ fs.rmSync(OUT, { recursive: true, force: true });
 fs.mkdirSync(OUT, { recursive: true });
 
 let shot = 0;
+/** Renders a bare HTML string — used for the explainer, which is not the UI. */
+function card(html, label) {
+  const file = path.join(OUT, `card-${shot}.html`);
+  fs.writeFileSync(file, html);
+  const png = path.join(OUT, `f${String(shot).padStart(4, "0")}.png`);
+  execFileSync(CHROME, [
+    "--headless=new", "--disable-gpu", "--no-sandbox", "--hide-scrollbars",
+    "--force-device-scale-factor=1", `--window-size=${W},${H}`,
+    "--virtual-time-budget=1500", `--screenshot=${png}`, `file://${path.resolve(file)}`,
+  ], { stdio: "ignore" });
+  process.stdout.write(`  ${String(shot).padStart(3)}  ${label}\n`);
+  shot += 1;
+}
 /** Renders one frame of the real UI at the film's aspect ratio. */
 function frame(events, { extraCss = "", after = "", label = "" } = {}) {
   const file = path.join(OUT, `page-${shot}.html`);
@@ -96,6 +110,16 @@ const open = `document.getElementById("livemap").open = true;
 /* ------------------------------------------------------------- the scenes */
 
 console.log("rendering frames");
+
+// The explainer. A viewer who has never seen this cannot learn what it is from
+// the UI alone — they have to know what they are looking at first.
+card(opener.one(), "explainer: one assistant");
+card(opener.team(false), "explainer: a team");
+card(opener.team(true), "explainer: wired up");
+card(opener.arrows("delegate"), "explainer: delegate arrow");
+card(opener.arrows("then"), "explainer: then arrow");
+card(opener.enforced(), "explainer: enforced");
+card(opener.end(), "end card");
 
 // 1. The home screen: what you come back to.
 const HOME = [
@@ -221,80 +245,3 @@ for (let i = 0; i < 10; i += 1) {
 
 console.log(`${shot} frames`);
 if (process.argv.includes("--frames")) process.exit(0);
-
-/* ------------------------------------------------------------- the film */
-
-const f = (n) => path.join(OUT, `f${String(n).padStart(4, "0")}.png`);
-const still = (n, seconds) => ["-loop", "1", "-t", String(seconds), "-i", f(n)];
-
-// A held still for each beat, plus the two flow sequences looped as real video.
-const inputs = [
-  ...still(0, 3.2),                       // home
-  ...still(1, 0.5), ...still(2, 0.5), ...still(3, 1.4),  // typing
-  ...still(4, 1.6),                       // designing
-  ...still(5, 3.4),                       // the graph
-  ...still(6, 3.2),                       // one agent
-  "-stream_loop", "4", "-framerate", "12", "-i", path.join(OUT, "f%04d.png"),
-];
-
-// Rebuild the flow clips separately: a glob input cannot start mid-sequence.
-for (const [name, first] of [["flow-a", 7], ["flow-b", 17]]) {
-  fs.mkdirSync(path.join(OUT, name), { recursive: true });
-  for (let i = 0; i < 10; i += 1) {
-    fs.copyFileSync(f(first + i), path.join(OUT, name, `${String(i).padStart(3, "0")}.png`));
-  }
-}
-
-const clip = (name, loops) => [
-  "-stream_loop", String(loops), "-framerate", "12", "-i", path.join(OUT, name, "%03d.png"),
-];
-
-const CAPTIONS = [
-  [0.2, 3.0, "Every workflow you have, in the project"],
-  [3.6, 6.8, "Describe the pipeline. Claude designs the team."],
-  [7.4, 10.6, "Six agents. Two kinds of arrow. Edit anything."],
-  [11.0, 14.0, "Capabilities are enforced, not requested"],
-  [14.4, 20.5, "Then watch all six of them work"],
-];
-
-const drawtext = CAPTIONS.map(([from, to, text]) =>
-  `drawtext=text='${text.replace(/'/g, "\\u2019").replace(/:/g, "\\:")}'` +
-  `:fontcolor=white:fontsize=30:box=1:boxcolor=0x0d1117cc:boxborderw=18` +
-  `:x=(w-text_w)/2:y=h-96:enable='between(t,${from},${to})'`,
-).join(",");
-
-const args = [
-  "-y",
-  ...inputs.slice(0, inputs.indexOf("-stream_loop")),
-  ...clip("flow-a", 3),
-  ...clip("flow-b", 4),
-  "-filter_complex",
-  // Seven stills, then the two live sequences, crossfaded end to end.
-  [
-    // xfade refuses to join streams with different timebases, and the stills
-    // default to 25fps while the flow clips are 12 — so every input is
-    // normalised to the film's rate before anything is joined.
-    ...Array.from({ length: 9 }, (_, i) =>
-      `[${i}:v]scale=1280:720,setsar=1,fps=${FPS},settb=1/${FPS}[a${i}]`),
-    "[a0][a1]xfade=transition=fade:duration=0.3:offset=2.9[x1]",
-    "[x1][a2]xfade=transition=fade:duration=0.2:offset=3.3[x2]",
-    "[x2][a3]xfade=transition=fade:duration=0.2:offset=3.7[x3]",
-    "[x3][a4]xfade=transition=fade:duration=0.3:offset=4.9[x4]",
-    "[x4][a5]xfade=transition=fade:duration=0.4:offset=6.3[x5]",
-    "[x5][a6]xfade=transition=fade:duration=0.4:offset=9.4[x6]",
-    "[x6][a7]xfade=transition=fade:duration=0.4:offset=12.3[x7]",
-    "[x7][a8]xfade=transition=fade:duration=0.4:offset=15.6[x8]",
-    `[x8]${drawtext},format=yuv420p[v]`,
-  ].join(";"),
-  "-map", "[v]", "-r", String(FPS),
-  "-c:v", "libx264", "-preset", "slow", "-crf", "20", "-movflags", "+faststart",
-  "media/demo.mp4",
-];
-
-console.log("encoding");
-const run = spawnSync("ffmpeg", args, { encoding: "utf8" });
-if (run.status !== 0) {
-  console.error(run.stderr.split("\n").slice(-25).join("\n"));
-  process.exit(1);
-}
-console.log(`media/demo.mp4  ${(fs.statSync("media/demo.mp4").size / 1e6).toFixed(1)} MB`);

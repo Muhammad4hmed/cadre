@@ -1,0 +1,69 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  @font-face { font-family: fallback; src: local("DejaVu Sans"); }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #0d1117; }
+  body {
+    font-family: "Segoe UI", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
+    color: #e6edf3;
+    -webkit-font-smoothing: antialiased;
+  }
+  .stage { position: relative; width: 100%; height: 100%; }
+  .line {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-size: 40px; font-weight: 600; letter-spacing: -0.01em;
+  }
+  .sub { font-size: 21px; font-weight: 400; color: #8b949e; letter-spacing: 0; }
+  .mono { font-family: ui-monospace, "DejaVu Sans Mono", monospace; }
+  .box {
+    position: absolute; width: 210px; height: 86px; border-radius: 10px;
+    background: #161b22; border: 1px solid #30363d; border-left: 4px solid var(--accent, #8b949e);
+    padding: 12px 14px; box-sizing: border-box;
+  }
+  .box b { display: block; font-size: 16px; font-weight: 600; }
+  .box span { display: block; font-size: 12px; color: #8b949e; margin-top: 4px; line-height: 1.35; }
+  .dim { opacity: 0.28; }
+  svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+  .wire.dim { opacity: 0.18; }
+  .wire { fill: none; stroke-width: 2.5; }
+  .wire.solid { stroke: #60a5fa; }
+  .wire.dash { stroke: #4ade80; stroke-dasharray: 9 7; }
+  .wire.live { stroke: #fbbf24; stroke-width: 4.5; stroke-dasharray: 10 8; }
+  .tag {
+    position: absolute; font-size: 15px; font-family: ui-monospace, "DejaVu Sans Mono", monospace;
+    background: #0d1117; padding: 2px 8px; border-radius: 4px;
+  }
+  .brand {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-size: 64px; font-weight: 700; letter-spacing: 0.22em;
+  }
+</style></head><body><div class="stage">
+  <div class="line" style="top:76px">Two kinds of arrow.</div>
+  <svg><defs>
+  <marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 10 5 L 0 9 z" fill="#60a5fa"/>
+  </marker>
+  <marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 10 5 L 0 9 z" fill="#4ade80"/>
+  </marker>
+  <marker id="amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/>
+  </marker></defs>
+    <path class="wire solid dim" marker-end="url(#blue)"
+     d="M 430 258 C 520 258, 610 258, 700 258"/>
+    <path class="wire dash" marker-end="url(#green)"
+     d="M 430 500 C 520 500, 610 500, 700 500"/>
+  </svg>
+  <div class="box dim" style="left:220px;top:215px;--accent:#a78bfa">
+     <b>Lead</b><span></span></div>
+  <div class="box dim" style="left:700px;top:215px;--accent:#fbbf24">
+     <b>Engineer</b><span></span></div>
+  <div class="box " style="left:220px;top:457px;--accent:#22d3ee">
+     <b>Writer</b><span></span></div>
+  <div class="box " style="left:700px;top:457px;--accent:#4ade80">
+     <b>Editor</b><span></span></div>
+  <div class="tag dim" style="left:487px;top:196px;color:#60a5fa">delegate</div>
+  <div class="tag " style="left:495px;top:438px;color:#4ade80">then</div>
+  <div class="line sub dim" style="top:330px">Hands work over and waits for the report. Cycles allowed — they can argue.</div>
+  <div class="line sub " style="top:572px">Starts automatically when the work before it is done.</div>
+</div></body></html>
