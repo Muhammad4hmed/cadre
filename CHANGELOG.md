@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.16 — consulting a teammate showed you raw JSON
+
+How a tool call is labelled named `ask_researcher` and `ask_engineer`
+specifically, the two teammates the fixed roster had. Ask anyone else and it
+fell through to a dump of the tool input, so the lane read
+
+    {"question":"Is the claim settled?","why":"It decides the positioning"}
+
+instead of the question. The same label is used in three places, and all three
+showed it: the tool chip, the status line under the working agent, and the
+detail in the permission prompt.
+
+Briefs were never handled at all and took the same route.
+
+Both are matched by prefix now, so it works for a teammate with any name.
+
+That is the fourth leftover from the fixed three-agent roster, after the lane
+that events were placed into, the transcript replay and the empty-board
+placeholder. A sweep of the shipped code finds no more: what remains is comments
+about them, and one documented default for a caller replaying a transcript with
+no workflow to hand.
+
+1029 checks.
+
 ## 0.11.15 — the same Windows bug again, in the project picker
 
 Each card on the project picker shows where the project is, shortened to its

@@ -24,7 +24,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 const wf = createRequire(import.meta.url)(outfile);
-const { model, presets, protocol, store, templates, generate, models, replay } = wf;
+const { model, presets, protocol, store, templates, generate, models, replay, describe } = wf;
 
 
 /**
@@ -322,6 +322,35 @@ check("one workflow does not see another's sessions", store.listSessions(root, s
   check("a write that fails after its scratch file exists still reports it", blockedThrew);
   check("...and does not leave the scratch file in the repository",
     !fs.readdirSync(blDir).some((f) => f.endsWith(".tmp")));
+}
+
+/* ------------------------------------------------- labelling a tool call */
+
+// How a tool call reads in the lane, in the status line under the agent, and in
+// the permission prompt. It named ask_researcher and ask_engineer specifically
+// — the two teammates the fixed roster had — so consulting anyone else fell
+// through to a raw JSON dump of the tool input.
+{
+  const d = describe.describeTool;
+  check("a shell command is shown as the command",
+    d("Bash", { command: "pytest -q" }) === "pytest -q");
+  check("a file tool is shown as the file", d("Read", { file_path: "src/a.ts" }) === "src/a.ts");
+
+  check("consulting a teammate shows the question, whoever they are",
+    d("mcp__team__ask_positioning", { question: "Is the claim settled?", why: "x" })
+      === "Is the claim settled?");
+  check("...including the two the old roster had",
+    d("mcp__team__ask_researcher", { question: "Is this deprecated?", why: "x" })
+      === "Is this deprecated?");
+  check("...and never as a dump of the tool input",
+    !/[{}"]/.test(d("mcp__team__ask_head", { question: "Who owns this?", why: "x" })));
+
+  check("a brief shows what was asked for rather than its json",
+    d("mcp__team__brief_architect", { objective: "Design the store", done_when: "y" })
+      === "Design the store");
+
+  check("something unrecognised still says something",
+    d("SomeNewTool", { a: 1 }).length > 0);
 }
 
 /* ------------------------------------------------- replaying a transcript */
