@@ -197,6 +197,10 @@ leaks a file just as surely as reading it does.
 Permission prompts offer a narrowly scoped grant — *Always allow `pytest`* — rather than
 handing over the whole tool.
 
+That guarantee is about files. An agent with a shell inherits the environment the CLI
+runs in, and a secret in an environment variable is not a file — see *Honest
+limitations*.
+
 A cloned repository cannot widen any of this. `.vscode/settings.json` can lower autonomy
 but never raise it, and its connectors, local plugins and extra directories are ignored
 until you inspect them. Nor can it raise your spend cap, deepen delegation, keep a stuck
@@ -250,6 +254,15 @@ changing.
   `cadre.maxSpendUsd`.
 - The canvas has no pan or zoom yet. It scrolls, so nothing is unreachable even in a
   narrow sidebar, but a very large workflow is workable rather than comfortable.
+- **The deny rules cover files, not the environment.** An agent with a shell runs
+  inside the CLI process and inherits its environment, so `AWS_SECRET_ACCESS_KEY` is
+  readable to it even though `.aws/credentials` is not, and the same goes for your
+  Anthropic key when you bill by API key. Stripping the environment would break the
+  tools agents legitimately run — `git`, `npm`, `gh` all need it — so this is a real
+  limit rather than an oversight, and Claude Code behaves the same way. If a secret in
+  your shell would matter, do not run an agent with a shell in that shell. Under a
+  subscription, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed rather than
+  passed on.
 - `hooks` and sandboxing are not wired up.
 
 ## Development

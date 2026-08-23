@@ -46,6 +46,16 @@ export class Billing {
   }
 
   /** The environment handed to the CLI subprocess. */
+  /**
+   * The environment the CLI subprocess runs in.
+   *
+   * The whole of ours, deliberately: agents run `git`, `npm`, `gh` and the rest,
+   * and those need it. It does mean an agent with a shell can read any secret
+   * that lives in an environment variable — which the deny rules do not cover,
+   * because they cover files. `.aws/credentials` is refused; `AWS_SECRET_ACCESS_KEY`
+   * is not, and cannot be without breaking the tools. Said out loud in the
+   * README under Honest limitations rather than left for someone to discover.
+   */
   async environment(): Promise<Record<string, string | undefined>> {
     const base = { ...process.env } as Record<string, string | undefined>;
 
