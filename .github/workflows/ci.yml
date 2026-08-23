@@ -16,6 +16,10 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run typecheck
+      # Before the suites: verify-package asks vsce what would ship, and vsce
+      # reports what is on disk without running the prepublish build. Without
+      # this the bundle is simply absent and the check cannot say anything.
+      - run: npm run build
       # The fast suites are hermetic — they stub `vscode` and alias the SDK out,
       # so CI needs no Claude credentials.
       - run: npm run verify:fast

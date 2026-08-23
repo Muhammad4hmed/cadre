@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.5 — the packaging check failed CI for a reason that was not a bug
+
+`verify-package` asks vsce what would ship. vsce reports what is on disk and
+does not run the prepublish build, so on a tree that has not been built there is
+no bundle to find — and the suite called that a missing bundle. Locally it never
+showed, because a build always precedes a test run; in CI, `verify:fast` runs
+straight after `npm ci`, so it failed on every push from 0.11.2 onwards.
+
+The packaged extension was never affected: vsce runs the prepublish build itself,
+so the artifact CI uploads has always contained the bundle. What was broken was
+the check, and what it cost was three red builds that said nothing true.
+
+Not built and built-but-excluded are now told apart — the first says plainly that
+it could not check, the second still fails. CI builds before running the suites,
+so the check does its job there rather than being skipped.
+
+968 checks.
+
 ## 0.11.4 — Build with Claude, against output nobody controls
 
 A generated design is the one input here that nothing validates on the way in.

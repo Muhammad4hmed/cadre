@@ -71,7 +71,18 @@ if (unexpected.length) {
 }
 
 // The two things without which the extension does not run.
-check("the bundle itself is in there", files.includes("dist/extension.js"));
+//
+// `vsce ls` reports what is on disk and does not run the prepublish build, so
+// on a tree that has not been built there is no bundle to find. That is not the
+// same as the bundle being excluded, and reporting it as a failure sends the
+// reader looking for a packaging bug that is not there. Distinguish the two:
+// built-but-missing is a real fault, not-built is a gap in what was checked.
+if (fs.existsSync("dist/extension.js")) {
+  check("the bundle itself is in there", files.includes("dist/extension.js"));
+} else {
+  console.log("SKIP  no dist/extension.js on disk — run `npm run build` first;");
+  console.log("      whether the bundle would be packaged was NOT checked");
+}
 check("...and the webview it loads", files.includes("media/team.js"));
 
 // The suite writes into whatever folder it is pointed at. If it is ever
