@@ -1,3 +1,4 @@
+import * as os from "node:os";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { BetaRawMessageStreamEvent } from "@anthropic-ai/sdk/resources/beta/messages/messages.mjs";
@@ -1512,10 +1513,20 @@ function headlineOf(report: string): string {
   return line.length > 220 ? `${line.slice(0, 220)}…` : line;
 }
 
-function shortPath(p: string): string {
-  const home = process.env.HOME;
+/**
+ * The workspace path, shortened for a chip that has room for about thirty
+ * characters.
+ *
+ * Exported for the suite, and worth testing: this read `process.env.HOME`,
+ * which is not set on Windows, and split on `/` alone, which a Windows path
+ * does not contain. Both failures were silent and both pointed the same way —
+ * the chip showed the entire path, and the part CSS then cut off was the end,
+ * which is the only part that identifies the project.
+ */
+export function shortPath(p: string): string {
+  const home = os.homedir();
   const shown = home && p.startsWith(home) ? `~${p.slice(home.length)}` : p;
-  const parts = shown.split("/");
+  const parts = shown.split(/[\\/]/).filter(Boolean);
   return parts.length > 3 ? `…/${parts.slice(-2).join("/")}` : shown;
 }
 

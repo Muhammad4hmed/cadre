@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.14 — the workspace chip was unreadable on Windows
+
+The chip in the header shows which project you are in, shortened to its last two
+segments because there is room for about thirty characters. It found home by
+reading `process.env.HOME`, which Windows does not set, and it split the path on
+`/` alone, which a Windows path does not contain.
+
+Both failed silently and both the same way: the whole path was shown, and the
+part the chip then cut off was the end — the only part that names the project.
+So on Windows the chip read `C:\Users\someone\Documents\projec…` where it
+should have read `…/code/pipeline`.
+
+Found by looking for what this codebase assumes about the machine it is on,
+after two CI failures in a row turned out to be tests assuming their
+environment. It is the one place in the extension that built a path by hand
+rather than going through `node:path`.
+
+1013 checks.
+
 ## 0.11.13 — renaming a workflow and not clicking away lost the rename
 
 The name field commits on blur. Every explicit save reads the box directly, so

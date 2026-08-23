@@ -41,7 +41,7 @@ await esbuild.build({
 });
 
 const require = createRequire(import.meta.url);
-const { WorkflowSession } = require(outfile);
+const { WorkflowSession, shortPath } = require(outfile);
 const TeamSession = WorkflowSession;
 const fake = await import("./fake-sdk.mjs");
 
@@ -1198,6 +1198,33 @@ fake.__instances.length = 0;
   check("T8 an interrupt settles an open question instead of hanging",
     abandoned.behavior === "deny");
   session.dispose();
+}
+
+// ---- the workspace chip on someone else's machine -------------------------
+// The chip has room for about thirty characters, so the path is shortened to
+// its last two segments. It read process.env.HOME, which Windows does not set,
+// and split on "/" alone, which a Windows path does not contain. Both failed
+// silently and both the same way: the whole path was shown, and the part the
+// chip then cut off was the end, which is the only part naming the project.
+{
+  const home = os.homedir();
+  check("a deep path is shortened to what identifies it",
+    shortPath("/srv/work/clients/acme/pipeline") === "…/acme/pipeline");
+  check("a Windows path is shortened too, not left whole",
+    shortPath("C:\\Users\\me\\code\\pipeline") === "…/code/pipeline");
+  check("a short path is left alone", shortPath("/a/b") === "/a/b");
+  check("a short Windows path is left alone too", shortPath("C:\\proj") === "C:\\proj");
+  check("a path under home is written with a tilde",
+    shortPath(home + "/x").startsWith("~"));
+
+  // The case Windows is always in: no HOME in the environment. homedir() knows
+  // where home is anyway; reading the variable directly did not.
+  const savedHome = process.env.HOME;
+  delete process.env.HOME;
+  const withoutHome = shortPath(home + "/x");
+  if (savedHome !== undefined) process.env.HOME = savedHome;
+  check("...even with no HOME set, which is where Windows always is",
+    withoutHome.startsWith("~"));
 }
 
 console.log("=== session lifecycle + team wiring ===");
