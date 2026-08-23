@@ -46,23 +46,35 @@ const SCRIPT = [
   { say: "Cadre is a team you draw.",
     text: "Cadre is a team you draw", shots: [1, 2, 3] },
   { say: "Describe what you want, and Claude designs the whole team.",
-    text: "Describe what you want — Claude designs the team", shots: [4, 5, 13, 14] },
+    text: "Describe what you want — Claude designs the team", shots: [14, 15, 16, 17] },
   { say: "Then shape every agent yourself.",
     text: "Then shape every agent yourself", shots: [6] },
   { say: "Its own prompt, its own model, and exactly which tools it can touch.",
-    text: "Its own prompt, its own model, its own tools", shots: [6, 15] },
+    text: "Its own prompt, its own model, its own tools", shots: [6, 19] },
   { say: "Give each one the skills and connectors it needs.",
     text: "Add the skills and connectors it needs", shots: [6] },
-  { say: "And they work as a team, handing work over and asking each other questions.",
-    text: "They work as a team, not a queue", shots: [7] },
-  { say: "Then watch all of them at once.",
-    text: "Then watch all of them at once", shots: [{ flow: 16 }] },
-  { say: "Every agent in its own lane, live.",
-    text: "Every agent in its own lane, live", shots: [{ flow: 26 }] },
+
+  // The worked example. This is the part that makes "a team" concrete.
+  { say: "Say you want a model built. You brief the lead, and it decides who does what.",
+    text: "Brief the lead — it decides who does what", shots: [7] },
+  { say: "The researcher reads the literature while the engineer runs the experiments.",
+    text: "Researcher and engineer, working at the same time", shots: [8] },
+  { say: "They ask each other questions as they go.",
+    text: "They ask each other questions as they go", shots: [9] },
+  { say: "And out the far end comes a working model, and the technical report that explains it.",
+    text: "Out the far end: a working model and its report", shots: [10] },
+
+  { say: "It does not have to be code. A development team, a research lab, a whole H R department.",
+    text: "A dev team · a research lab · an HR department", shots: [11] },
+  { say: "Anything you would hand to a team of people, you can draw here.",
+    text: "Anything you would hand to a team of people", shots: [11] },
+
+  { say: "Watch all of them at once, every agent in its own lane, live.",
+    text: "Watch all of them at once, live", shots: [18, { flow: 20 }, { flow: 30 }] },
   { say: "Install it from the Extensions tab in VS Code.",
-    text: "Install it from the Extensions tab in VS Code", shots: [8] },
+    text: "Install it from the Extensions tab in VS Code", shots: [12] },
   { say: "It is open source, and it runs on the Claude Code subscription you already have.",
-    text: "Open source · runs on your Claude Code subscription", shots: [8] },
+    text: "Open source · runs on your Claude Code subscription", shots: [12] },
 ];
 
 /** Where each line actually begins and ends, from the spoken alignment. */
@@ -117,6 +129,16 @@ const MOVES = [
   { transition: "smoothleft", duration: 0.5 },  // → the real product
   { transition: "fade", duration: 0.3 },
   { transition: "circleopen", duration: 0.55 }, // → the board, running
+  { transition: "fade", duration: 0.3 },
+  { transition: "fade", duration: 0.3 },
+  { transition: "fade", duration: 0.3 },
+  { transition: "smoothup", duration: 0.5 },    // → the worked example
+  { transition: "fade", duration: 0.3 },
+  { transition: "fade", duration: 0.3 },
+  { transition: "fade", duration: 0.3 },
+  { transition: "smoothleft", duration: 0.5 },  // → what you can build
+  { transition: "fade", duration: 0.3 },
+  { transition: "circleopen", duration: 0.55 }, // → the running board
   { transition: "fade", duration: 0.3 },
   { transition: "fade", duration: 0.3 },
   { transition: "fadeblack", duration: 0.6 },   // → the end card

@@ -3,7 +3,7 @@
 Everything here is for the LinkedIn post and the Marketplace listing. None of it
 ships in the extension.
 
-- `demo.mp4` — 41s, 1280×720, H.264 + AAC, ~2.9 MB. Narrated, with a music bed and
+- `demo.mp4` — 61s, 1280×720, H.264 + AAC, ~3.4 MB. Narrated, with a music bed and
   burnt-in subtitles. Built in two steps:
 
       node .shots/film.mjs --frames   # render every frame from the real webview
