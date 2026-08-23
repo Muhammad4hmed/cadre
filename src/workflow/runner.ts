@@ -344,6 +344,12 @@ export class WorkflowSession implements vscode.Disposable {
   private endStream(): void {
     if (this.disposed) return;
     const wasBusy = this.busy;
+    // Anything still waiting on the run that has just ended. Interrupt,
+    // teardown and dispose all did this; the path where the stream itself
+    // fails did not, so a question the user had not answered sat in the lane
+    // waiting for an answer that could no longer go anywhere.
+    this.settleAsks();
+    this.settlePermissions("The run ended before this was approved.");
     this.stream = undefined;
     this.pump = undefined;
     this.input.detach();

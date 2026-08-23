@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.2 — a question left open when the CLI died stayed open
+
+An agent can stop and ask you something, and the question waits in the lane
+until you answer it. Stopping the run settles it, so does switching teammate,
+so does closing the session — all three resolve the waiting promise, and the
+code that closes the card runs when that promise resolves.
+
+The path where the CLI itself falls over did not. The promise was never
+resolved, so the card was never told, and it sat there waiting for an answer
+that could no longer go anywhere. The composer had already reopened and the
+session had already reported that it ended, which makes the still-waiting
+question worse rather than better: everything else says the run is over.
+
+That is the state an unattended run gets stuck in, which is what this was worth
+finding for.
+
+1073 checks.
+
 ## 0.12.1 — a directory next door counted as inside the workspace
 
 The `paper` tool takes a directory, which makes it the one team tool that can be

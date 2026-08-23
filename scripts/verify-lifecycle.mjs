@@ -1200,6 +1200,51 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- U. a question left open when the CLI dies ---------------------------
+// Interrupt, teardown and dispose all settle an open question. The path where
+// the stream itself fails did not: the promise was never resolved, so the code
+// that emits askClosed never ran, and the card sat in the lane waiting for an
+// answer that could no longer go anywhere. Exactly the state an unattended run
+// gets stuck in.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  const gate = main.options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  const ask = {
+    questions: [{
+      question: "Which corpus should I fine-tune on, since it changes the whole plan?",
+      header: "Corpus", multiSelect: false,
+      options: [{ label: "Common Voice", description: "Open, smaller." },
+                { label: "Licensed set", description: "Costs money." }],
+    }],
+  };
+
+  const open = gate("AskUserQuestion", ask, ctx);
+  await tick();
+  check("U1 the question is put to the user", of("ask").length > 0);
+
+  // The CLI falls over with the question still on screen.
+  main.fail(new Error("the CLI exited unexpectedly"));
+  await tick();
+  await tick();
+
+  const settled = await Promise.race([
+    open,
+    new Promise((r) => setTimeout(() => r("HUNG"), 500)),
+  ]);
+  check("U2 a stream that dies settles the open question rather than hanging",
+    settled !== "HUNG");
+  check("U3 ...and the card is told, so it stops waiting",
+    of("askClosed").some((e) => e.answered === false));
+  check("U4 ...and the composer is released", of("busy").at(-1)?.busy === false);
+  session.dispose();
+}
+
 // ---- the workspace chip on someone else's machine -------------------------
 // The chip has room for about thirty characters, so the path is shortened to
 // its last two segments. It read process.env.HOME, which Windows does not set,
