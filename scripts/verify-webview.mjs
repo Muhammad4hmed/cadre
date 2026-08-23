@@ -585,6 +585,33 @@ check("it is visible while the map is open", splitter.hidden === false);
 check("it announces itself to a screen reader",
   splitter.getAttribute("role") === "separator");
 
+// Dragging it, and letting go where this document cannot see the release. The
+// handle takes pointer capture, which usually keeps the events coming, but
+// capture can be refused or taken away and there was nothing to end the drag if
+// it was: the map would go on resizing under a pointer nobody was pressing.
+{
+  const heightNow = () => runMap.getBoundingClientRect().height;
+  const initial = heightNow();
+  splitter.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientY: 300, buttons: 1 }));
+  check("dragging the separator marks it as being dragged", splitter.dataset.dragging === "true");
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientY: 360, buttons: 1 }));
+  check("...and the map follows the pointer", heightNow() !== initial);
+
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientY: 400, buttons: 0 }));
+  check("letting go out of sight ends the drag", splitter.dataset.dragging === undefined);
+  const settled = heightNow();
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientY: 500, buttons: 0 }));
+  check("...and the map stops resizing under an unpressed pointer", heightNow() === settled);
+
+  // Losing capture has to end it too.
+  splitter.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientY: 300, buttons: 1 }));
+  splitter.dispatchEvent(new PointerEvent("lostpointercapture", { bubbles: true }));
+  check("losing pointer capture ends the drag", splitter.dataset.dragging === undefined);
+  const afterLoss = heightNow();
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientY: 560, buttons: 1 }));
+  check("...and nothing keeps resizing afterwards", heightNow() === afterLoss);
+}
+
 const startHeight = runMap.style.height;
 splitter.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
 check("it can be resized from the keyboard, not only by dragging",

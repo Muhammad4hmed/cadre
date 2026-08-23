@@ -2608,21 +2608,40 @@
     el.splitter.addEventListener("pointerdown", (event) => {
       if (!el.livemap.open) return;
       event.preventDefault();
-      el.splitter.setPointerCapture(event.pointerId);
+      // Capture keeps the pointer aimed at the handle while it is dragged past
+      // the edges of it. It can be refused, and a refusal is not a reason to
+      // abandon the drag, so the listeners go on the window either way.
+      try { el.splitter.setPointerCapture(event.pointerId); } catch { /* not fatal */ }
       el.splitter.dataset.dragging = "true";
       const startY = event.clientY;
       const startHeight = el.runMap.getBoundingClientRect().height;
 
-      const move = (m) => setMapHeight(startHeight + (m.clientY - startY));
-      const up = () => {
-        el.splitter.removeEventListener("pointermove", move);
-        el.splitter.removeEventListener("pointerup", up);
+      let ended = false;
+      const done = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        window.removeEventListener("pointercancel", up);
+        el.splitter.removeEventListener("lostpointercapture", up);
         delete el.splitter.dataset.dragging;
+      };
+      const move = (m) => {
+        // Same reasoning as the canvas: a move with no button held means the
+        // release already happened where we could not see it. Left attached,
+        // the map would go on resizing under a pointer nobody is pressing.
+        if (!m.buttons) { up(); return; }
+        setMapHeight(startHeight + (m.clientY - startY));
+      };
+      const up = () => {
+        if (ended) return;
+        ended = true;
+        done();
         // The SVG scales to its box, so it has to be redrawn at the new size.
         renderLiveMap();
       };
-      el.splitter.addEventListener("pointermove", move);
-      el.splitter.addEventListener("pointerup", up);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      window.addEventListener("pointercancel", up);
+      el.splitter.addEventListener("lostpointercapture", up);
     });
 
     el.splitter.addEventListener("dblclick", () => { setMapHeight(DEFAULT_MAP); renderLiveMap(); });

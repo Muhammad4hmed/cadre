@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.11 — the separator had the same problem the canvas did
+
+The handle between the map and the lanes takes pointer capture, which usually
+keeps the events coming while you drag past the edge of it. Capture can be
+refused, and it can be taken away, and there was nothing to end the drag if
+either happened: the move listener stayed attached and the map went on resizing
+under a pointer nobody was pressing.
+
+It ends on a move with no buttons held, on `pointercancel`, and on
+`lostpointercapture`, the same way the canvas drags now do.
+
+`setPointerCapture` is also wrapped now. It throws when the pointer id is not
+one it knows, and that threw out of the whole handler, so a refused capture
+meant no drag at all rather than a drag without capture.
+
+1000 checks.
+
 ## 0.11.10 — a node you let go of outside the panel kept following the cursor
 
 Dragging an agent, or pulling an arrow out of a port, listens on the window for
