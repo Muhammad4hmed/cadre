@@ -794,6 +794,16 @@ receive({ kind: "openWorkflow", id: "software_team" });
 await settle();
 const live = last("screen")?.screen;
 
+// A run actually in flight, for both halves of this: an autosave must not kill
+// a live conversation — it fires every 45 seconds while the user is still
+// editing — and a deliberate save must, because the agents it started no longer
+// match what was saved.
+fake.__instances.length = 0;
+receive({ kind: "send", text: "start working" });
+await settle();
+const liveRun = fake.__instances.find((i) => i.options?.mcpServers?.team);
+check("there is a run in flight for a save to act on", liveRun !== undefined);
+
 posted.length = 0;
 const edited = JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"));
 edited.agents[0].role = "changed by an autosave";
@@ -809,14 +819,25 @@ check("an autosave does not move the user off the screen they are on",
   (last("screen")?.screen ?? live) === live);
 check("an autosave does not reset the running session",
   !posted.some((m) => m.kind === "notice" && /session was reset/i.test(m.text)));
+check("...and the conversation is genuinely still running, not merely unannounced",
+  liveRun?.options.abortController?.signal.aborted === false && liveRun?.closed !== true);
 
 posted.length = 0;
 edited.agents[0].role = "changed deliberately";
+// The run that is about to be reset, so it can be checked that it really stops.
+// Resetting by dropping the reference would leave the agents running: still
+// editing files, still spending, with nothing listening to them and no way for
+// the user to reach them again.
+const beforeSave = liveRun;
 receive({ kind: "saveWorkflow", workflow: edited });
 await settle();
 check("an explicit save is acknowledged as deliberate", last("saved")?.auto === false);
 check("an explicit save does reset the running session, and says so",
   posted.some((m) => m.kind === "notice" && /session was reset/i.test(m.text)));
+check("...and the agents are actually stopped, not just let go of",
+  beforeSave?.options.abortController?.signal.aborted === true);
+check("...and the query itself is closed, so nothing keeps streaming",
+  beforeSave?.closed === true);
 
 // ---- the builder must be told when it may replace its own draft -------------
 posted.length = 0;
