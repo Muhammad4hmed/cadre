@@ -324,6 +324,40 @@ const second = store.createWorkflow(root, "My Team");
 check("a second workflow with the same name gets its own id", second.id !== created.id);
 check("one workflow does not see another's sessions", store.listSessions(root, second.id).length === 0);
 
+/* ------------------------------------------ a session index from a repo */
+
+// The session index lives beside the workflows in .cadre/, so it travels with
+// the repository just as they do. Its entries are handed back as ids, and an id
+// is given to the CLI to look a conversation up by — it is a name in a store on
+// disk. A repository does not get to choose those.
+{
+  const proj = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-sess-"));
+  const sdir = path.join(proj, ".cadre", "workflows");
+  fs.mkdirSync(sdir, { recursive: true });
+  const wf = store.createWorkflow(proj, "Thing");
+  const indexFile = path.join(sdir, `${wf.id}.sessions.json`);
+
+  fs.writeFileSync(indexFile, JSON.stringify([
+    { sessionId: "../../../../etc/passwd", title: "climbing out", when: 9 },
+    { sessionId: "..", title: "the parent", when: 8 },
+    { sessionId: "a/b", title: "a path", when: 7 },
+    { sessionId: "", title: "nothing at all", when: 6 },
+    { sessionId: "x".repeat(500), title: "far too long", when: 5 },
+    { sessionId: "0199c2e1-4f4a-7bb0-9a1e-2f4c6d8e0a11", title: "a real one", when: 4 },
+    { sessionId: "s-1", title: "the shape tests use", when: 3 },
+  ]));
+
+  const listed = store.listSessions(proj, wf.id);
+  const ids = listed.map((s) => s.sessionId);
+  check(`an id that climbs out of the store is not listed (${ids.join(" ")})`,
+    !ids.some((i) => i.includes("..")));
+  check("...nor one carrying a path separator", !ids.some((i) => /[\\/]/.test(i)));
+  check("...nor an empty one", !ids.some((i) => i === ""));
+  check("...nor one far longer than any real id", !ids.some((i) => i.length > 128));
+  check("a real session id is kept", ids.includes("0199c2e1-4f4a-7bb0-9a1e-2f4c6d8e0a11"));
+  check("...and so is the short shape used in tests", ids.includes("s-1"));
+}
+
 /* --------------------------------------- a workflow file with broken ids */
 
 // A workflow file lives in .cadre/ and travels with the repository, and it can

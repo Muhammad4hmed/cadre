@@ -351,11 +351,27 @@ export function duplicateWorkflow(root: string, id: string): Workflow | undefine
  * The CLI stores sessions per working directory, not per workflow, so two
  * workflows in one project would otherwise show each other's history.
  */
+/**
+ * What a conversation id may look like.
+ *
+ * The index sits beside the workflows in `.cadre/`, so it travels with the
+ * repository exactly as they do — and an id from it is handed to the CLI to
+ * look a conversation up by, which is to say it is a name in a store on disk.
+ * A repository does not get to choose those. Permissive about shape, because
+ * the CLI owns the format and it is not ours to pin down; strict about the
+ * things that make an identifier something other than an identifier.
+ */
+const SAFE_SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
+const usableSession = (s: StoredSession): boolean =>
+  Boolean(s) && typeof s.sessionId === "string" && SAFE_SESSION_ID.test(s.sessionId);
+
 export function listSessions(root: string, id: string): StoredSession[] {
   if (!isSafeId(id)) return [];
   try {
     const parsed = JSON.parse(fs.readFileSync(sessionsFile(root, id), "utf8")) as StoredSession[];
-    return Array.isArray(parsed) ? parsed.sort((a, b) => b.when - a.when) : [];
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(usableSession).sort((a, b) => b.when - a.when);
   } catch {
     return [];
   }

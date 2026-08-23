@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.13.3 — a repository could name a conversation for you
+
+The session index sits beside the workflows in `.cadre/`, so it travels with the
+repository exactly as they do. Its entries come back as ids, and an id is handed
+to the CLI to look a conversation up by — which is to say it is a name in a
+store on disk. A repository does not get to choose those.
+
+It mattered less often than it might have: the list is normally intersected with
+what the CLI actually holds, and a fabricated id is dropped there. But that
+intersection is inside a `try`, and when listing fails — no store yet, a
+permission problem, an older CLI — the code falls back to the index alone. That
+is the moment a made-up entry becomes a row the user can click.
+
+Ids are now checked when the index is read: alphanumeric to start, then the
+characters an identifier is made of, and not longer than any real one. Nothing
+about the CLI's format is pinned down beyond that, because the format is not
+ours.
+
+**A guard removed while adding it.** I also rejected any id containing `..`. The
+pattern already refuses a leading dot and any separator, so the only thing that
+check could still catch was `a..b`, which is a perfectly ordinary filename. No
+test failed without it, so it is gone.
+
+1155 checks.
+
 ## 0.13.2 — a workflow file could name agents in ways the tools cannot
 
 An agent's id becomes an MCP tool name: `brief_<id>`. The builder only ever
