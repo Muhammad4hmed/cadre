@@ -16,7 +16,7 @@ given up on, and shutting down ends both.
 
 Neither path had a single test before this.
 
-975 checks.
+977 checks.
 
 ## 0.11.5 — the packaging check failed CI for a reason that was not a bug
 
