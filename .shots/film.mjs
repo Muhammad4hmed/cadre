@@ -113,12 +113,12 @@ console.log("rendering frames");
 
 // The explainer. A viewer who has never seen this cannot learn what it is from
 // the UI alone — they have to know what they are looking at first.
-card(opener.one(), "explainer: one assistant");
-card(opener.team(false), "explainer: a team");
-card(opener.team(true), "explainer: wired up");
-card(opener.arrows("delegate"), "explainer: delegate arrow");
-card(opener.arrows("then"), "explainer: then arrow");
-card(opener.enforced(), "explainer: enforced");
+card(opener.one(), "one assistant");
+card(opener.team(0), "a team — boxes");
+card(opener.team(1), "a team — wired");
+card(opener.team(2), "a team — lit");
+card(opener.describe("Read incoming support tickets, work out which are real bugs,"), "describe (typing)");
+card(opener.describe("Read incoming support tickets, work out which are real bugs, reproduce them against our repo, and draft a reply for each one."), "describe (full)");
 card(opener.end(), "end card");
 
 // 1. The home screen: what you come back to.

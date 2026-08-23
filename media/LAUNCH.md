@@ -3,8 +3,14 @@
 Everything here is for the LinkedIn post and the Marketplace listing. None of it
 ships in the extension.
 
-- `demo.mp4` — 19.8s, 1280×720, H.264, ~780 KB. Rendered from the real webview by
-  `node .shots/film.mjs`, so it cannot drift from the product.
+- `demo.mp4` — 24.4s, 1280×720, H.264 + AAC, ~1.6 MB. Narrated, with a music bed and
+  burnt-in subtitles. Built in two steps:
+
+      node .shots/film.mjs --frames   # render every frame from the real webview
+      node .shots/cut.mjs             # cut to the narration, mix, burn subtitles
+
+  Scene lengths come from ElevenLabs' character-level timings, so rewriting the script
+  and regenerating the voice re-times the picture instead of drifting out of sync.
 - `screenshots/` — the listing images, same harness.
 
 ---
@@ -29,7 +35,8 @@ a concrete number travels further than an adjective, and the people worth reachi
 switch off at "revolutionary".
 
 Attach `demo.mp4` directly (native video, not a YouTube link — LinkedIn suppresses
-off-platform links). It autoplays muted, so the captions in the film do the work.
+off-platform links). It autoplays muted, so the burnt-in subtitles do the work; the
+narration is there for anyone who unmutes.
 
 ### Draft A — short, built around the one surprising fact
 

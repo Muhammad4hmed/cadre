@@ -1,10 +1,10 @@
 /**
- * Cuts the film to the narration and mixes the audio.
+ * Cuts the film to the narration, burns in the subtitles, and mixes the audio.
  *
- * Scene lengths are not hand-tuned: each line of the voiceover gets a share of
- * its real duration proportional to its length, and the scenes assigned to that
- * line split it. Hand-timed cuts drift the moment a word changes, and the
- * voiceover is the thing most likely to be rewritten.
+ * Timings are not estimated. ElevenLabs returns the start and end time of every
+ * character it spoke, so each line's real span is looked up rather than guessed
+ * from its length — which is what clipped the last line before: the picture
+ * ended where the arithmetic said the speech should, not where it did.
  *
  * Run `.shots/film.mjs --frames` first; this consumes what it leaves behind.
  */
@@ -15,57 +15,73 @@ import * as path from "node:path";
 const OUT = ".shots/film";
 const AUDIO = ".shots/audio";
 const FPS = 30;
-const XFADE = 0.35;
+
+/** A held frame at the end, so the last word is not the last frame. */
+const TAIL = 2.4;
 
 const f = (n) => path.join(OUT, `f${String(n).padStart(4, "0")}.png`);
-const duration = (file) =>
-  Number(spawnSync("ffprobe", ["-v", "error", "-show_entries", "format=duration",
-    "-of", "csv=p=0", file], { encoding: "utf8" }).stdout.trim());
-
 const VO = path.join(AUDIO, "vo.mp3");
 const BED = path.join(AUDIO, "bed.mp3");
-for (const file of [VO, BED]) {
-  if (!fs.existsSync(file)) throw new Error(`missing ${file} — generate the audio first`);
+const ALIGN = path.join(AUDIO, "vo-align.json");
+for (const file of [VO, BED, ALIGN]) {
+  if (!fs.existsSync(file)) throw new Error(`missing ${file}`);
 }
-const voLength = duration(VO);
+
+/* ------------------------------------------------------- when things happen */
+
+const align = JSON.parse(fs.readFileSync(ALIGN, "utf8"));
+const spoken = align.characters.join("");
+const starts = align.character_start_times_seconds;
+const ends = align.character_end_times_seconds;
 
 /**
- * Each line of narration, and the frames that play under it.
+ * Each line of narration, the frames under it, and the subtitle.
  *
- * `flow` entries are the ten-frame sequences where the arrows actually move;
- * everything else is a still held for its share of the line.
+ * The subtitle is not always the line: spoken punctuation and an em dash read
+ * badly on screen, and a caption is skimmed rather than read.
  */
 const SCRIPT = [
-  ["Most AI coding tools are one assistant, doing everything.", [0]],
-  ["Cadre is a team you draw.", [1]],
-  ["Every agent gets its own prompt, its own tools, and its own lane.", [2]],
-  ["A solid arrow delegates — one agent hands work over, and waits for the report.", [3]],
-  ["A dashed arrow hands off automatically, the moment the work before it is done.", [4]],
-  ["Describe a pipeline in a sentence, and Claude designs the whole team.", [7, 8, 9, 10, 11]],
-  ["Then watch all of them work at once.", [12, { flow: 14 }]],
-  ["And a read-only agent physically cannot write a file. That is enforced, not requested.", [13, 5]],
-  ["Open source, and it runs on the Claude Code subscription you already have.", [{ flow: 24 }, 6]],
+  { say: "Most AI coding tools are one assistant, doing everything.",
+    text: "Most AI coding tools are one assistant", shots: [0] },
+  { say: "Cadre is a team you draw.",
+    text: "Cadre is a team you draw", shots: [1, 2, 3] },
+  { say: "Describe what you want, and Claude designs the whole team",
+    text: "Describe what you want", shots: [4, 5] },
+  { say: "the agents, and how they work together.",
+    text: "Claude designs the agents and how they connect", shots: [11, 12] },
+  { say: "Then watch all of them at once.",
+    text: "Then watch all of them at once", shots: [{ flow: 14 }] },
+  { say: "Every agent in its own lane, live.",
+    text: "Every agent in its own lane, live", shots: [13, { flow: 24 }] },
+  { say: "Open source. And it runs on the Claude Code subscription you already have.",
+    text: "Open source · runs on your Claude Code subscription", shots: [6] },
 ];
 
-const chars = SCRIPT.reduce((sum, [line]) => sum + line.length, 0);
-
-/** Flatten into scenes with a duration each. */
-const scenes = [];
-for (const [line, shots] of SCRIPT) {
-  const share = (line.length / chars) * voLength;
-  // Typing frames read as motion, so they get a short slice each and the last
-  // frame of the group keeps the remainder.
-  const quick = shots.filter((s) => typeof s === "number" && s >= 8 && s <= 10).length;
-  const quickTime = quick * 0.42;
-  const rest = (share - quickTime) / Math.max(1, shots.length - quick);
-  for (const s of shots) {
-    const isQuick = typeof s === "number" && s >= 8 && s <= 10;
-    scenes.push({ shot: s, seconds: Math.max(0.4, isQuick ? 0.42 : rest) });
-  }
+/** Where each line actually begins and ends, from the spoken alignment. */
+let cursor = 0;
+for (const line of SCRIPT) {
+  const at = spoken.indexOf(line.say, cursor);
+  if (at === -1) throw new Error(`not in the narration: ${JSON.stringify(line.say.slice(0, 40))}`);
+  line.start = starts[at];
+  line.end = ends[Math.min(at + line.say.length - 1, ends.length - 1)];
+  cursor = at + line.say.length;
 }
 
-// Copy each flow sequence into its own directory: an image glob cannot start
-// part-way through a numbered run.
+// A line runs until the next one starts, so a pause belongs to the picture
+// before it rather than becoming a gap with nothing on screen.
+SCRIPT.forEach((line, i) => {
+  line.until = i + 1 < SCRIPT.length ? SCRIPT[i + 1].start : line.end + TAIL;
+});
+
+const scenes = [];
+for (const line of SCRIPT) {
+  const each = (line.until - line.start) / line.shots.length;
+  line.shots.forEach((shot) => scenes.push({ shot, seconds: each }));
+}
+const total = SCRIPT.at(-1).until;
+
+// Copy each flow run into its own directory: an image glob cannot start
+// part-way through a numbered sequence.
 for (const scene of scenes) {
   if (typeof scene.shot !== "object") continue;
   const dir = path.join(OUT, `flow-${scene.shot.flow}`);
@@ -76,20 +92,43 @@ for (const scene of scenes) {
   }
 }
 
-/* ------------------------------------------------------------ the command */
+/* ------------------------------------------------------------- transitions */
+
+/**
+ * A different move for each kind of cut.
+ *
+ * Within one idea the transition should be almost invisible; between ideas it
+ * should be felt. All the same is monotonous; all different is a showreel.
+ */
+const MOVES = [
+  { transition: "fadeblack", duration: 0.5 },   // one assistant → a team
+  { transition: "fade", duration: 0.3 },        // the team building up
+  { transition: "fade", duration: 0.3 },
+  { transition: "smoothleft", duration: 0.5 },  // → describe what you want
+  { transition: "fade", duration: 0.25 },       // typing
+  { transition: "smoothleft", duration: 0.5 },  // → the real product
+  { transition: "fade", duration: 0.3 },
+  { transition: "circleopen", duration: 0.55 }, // → the board, running
+  { transition: "fade", duration: 0.3 },
+  { transition: "fade", duration: 0.3 },
+  { transition: "fadeblack", duration: 0.6 },   // → the end card
+];
+const move = (i) => MOVES[Math.min(i, MOVES.length - 1)];
+
+/* ------------------------------------------------------------- the command */
 
 const inputs = [];
-for (const scene of scenes) {
-  // Each clip runs XFADE longer than its slot, because a crossfade consumes the
-  // tail of one scene and the head of the next.
-  const hold = (scene.seconds + XFADE).toFixed(3);
+scenes.forEach((scene, i) => {
+  // Held past its slot by the crossfade that follows, since a fade consumes
+  // the tail of one clip and the head of the next.
+  const hold = (scene.seconds + (i < scenes.length - 1 ? move(i).duration : 0) + 0.1).toFixed(3);
   if (typeof scene.shot === "object") {
-    const dir = path.join(OUT, `flow-${scene.shot.flow}`);
-    inputs.push("-stream_loop", "40", "-framerate", "12", "-t", hold, "-i", path.join(dir, "%03d.png"));
+    inputs.push("-stream_loop", "60", "-framerate", "12", "-t", hold,
+      "-i", path.join(OUT, `flow-${scene.shot.flow}`, "%03d.png"));
   } else {
     inputs.push("-loop", "1", "-t", hold, "-i", f(scene.shot));
   }
-}
+});
 inputs.push("-i", VO, "-i", BED);
 
 const voIn = scenes.length;
@@ -100,28 +139,45 @@ const filters = scenes.map((_, i) =>
 
 let last = "v0";
 let offset = 0;
-scenes.slice(1).forEach((scene, index) => {
+scenes.slice(1).forEach((_, index) => {
   offset += scenes[index].seconds;
-  const out = `x${index}`;
-  filters.push(`[${last}][v${index + 1}]xfade=transition=fade:duration=${XFADE}:offset=${offset.toFixed(3)}[${out}]`);
-  last = out;
+  const { transition, duration } = move(index);
+  filters.push(`[${last}][v${index + 1}]xfade=transition=${transition}:duration=${duration}:offset=${offset.toFixed(3)}[x${index}]`);
+  last = `x${index}`;
 });
 
-const total = scenes.reduce((sum, s) => sum + s.seconds, 0);
+/* --------------------------------------------------------------- subtitles */
+
+const FONT = [
+  "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+  "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+].find((p) => fs.existsSync(p));
+
+const escape = (s) => s.replace(/\\/g, "\\\\").replace(/:/g, "\\:").replace(/'/g, "\u2019");
+
+// Held a beat past the speech so a caption is never gone before it is read, and
+// sat above the bottom edge, where a feed puts its own furniture.
+const subs = SCRIPT.map((line) => {
+  const from = Math.max(0, line.start - 0.12).toFixed(2);
+  const to = Math.min(total, line.until + 0.2).toFixed(2);
+  return `drawtext=${FONT ? `fontfile=${FONT}:` : ""}text='${escape(line.text)}'` +
+    `:fontcolor=#f2f6fb:fontsize=31` +
+    `:box=1:boxcolor=#0b0e14@0.82:boxborderw=20` +
+    `:x=(w-text_w)/2:y=h-120:enable='between(t,${from},${to})'`;
+}).join(",");
 
 filters.push(
-  // Speech forward, music well under it, and ducked further whenever there is
-  // speech — a bed mixed by eye rides over the voice on phone speakers.
+  // Speech forward; the bed sits under it and ducks further while there is
+  // speech, because a bed mixed by eye rides over the voice on a phone.
   `[${voIn}:a]loudnorm=I=-16:TP=-1.5:LRA=11,asplit=2[vo][key]`,
-  `[${bedIn}:a]loudnorm=I=-28:TP=-2,atrim=0:${(total + 1).toFixed(2)},` +
-    `afade=t=in:st=0:d=1.2,afade=t=out:st=${(total - 1.6).toFixed(2)}:d=1.6[bedq]`,
-  `[bedq][key]sidechaincompress=threshold=0.05:ratio=6:attack=8:release=320[duck]`,
-  `[vo][duck]amix=inputs=2:duration=first:dropout_transition=0,` +
-    // Single-pass loudnorm lands about 2 dB under its target, measured on the
-    // finished file rather than assumed. Social platforms sit near -14 LUFS.
+  `[${bedIn}:a]loudnorm=I=-29:TP=-2,atrim=0:${(total + 1).toFixed(2)},` +
+    `afade=t=in:st=0:d=1.4,afade=t=out:st=${(total - 1.8).toFixed(2)}:d=1.8[bedq]`,
+  `[bedq][key]sidechaincompress=threshold=0.05:ratio=7:attack=8:release=340[duck]`,
+  `[vo][duck]amix=inputs=2:duration=longest:dropout_transition=0,` +
+    // Single-pass loudnorm lands about 2 dB under target; measured, not assumed.
     `loudnorm=I=-14:TP=-2:LRA=11,volume=2.0dB,alimiter=limit=0.89,` +
     `aresample=48000,aformat=channel_layouts=stereo[a]`,
-  `[${last}]format=yuv420p[v]`,
+  `[${last}]${subs},format=yuv420p[v]`,
 );
 
 const args = [
@@ -134,7 +190,7 @@ const args = [
   "media/demo.mp4",
 ];
 
-console.log(`${scenes.length} scenes, ${total.toFixed(1)}s of picture, ${voLength.toFixed(1)}s of narration`);
+console.log(`${scenes.length} scenes · picture ${total.toFixed(1)}s · speech ends ${ends.at(-1).toFixed(1)}s`);
 const run = spawnSync("ffmpeg", args, { encoding: "utf8" });
 if (run.status !== 0) {
   console.error(run.stderr.split("\n").slice(-24).join("\n"));

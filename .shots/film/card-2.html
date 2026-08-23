@@ -1,68 +1,95 @@
 <!doctype html>
 <html><head><meta charset="utf-8">
 <style>
-  @font-face { font-family: fallback; src: local("DejaVu Sans"); }
-  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #0d1117; }
+  html, body { margin: 0; width: 1280px; height: 720px; overflow: hidden; background: #0b0e14; }
   body {
     font-family: "Segoe UI", "Noto Sans", "DejaVu Sans", system-ui, sans-serif;
     color: #e6edf3;
     -webkit-font-smoothing: antialiased;
   }
-  .stage { position: relative; width: 100%; height: 100%; }
-  .line {
+  /* A slow radial wash so a flat card is not a flat rectangle of one colour. */
+  .stage {
+    position: relative; width: 100%; height: 100%;
+    background:
+      radial-gradient(900px 520px at 50% 34%, #131a26 0%, #0b0e14 68%),
+      radial-gradient(circle at 1px 1px, #1b2432 1px, transparent 0) 0 0 / 26px 26px;
+  }
+  .headline {
     position: absolute; left: 0; right: 0; text-align: center;
-    font-size: 40px; font-weight: 600; letter-spacing: -0.01em;
+    font-size: 46px; font-weight: 650; letter-spacing: -0.022em; line-height: 1.15;
   }
-  .sub { font-size: 21px; font-weight: 400; color: #8b949e; letter-spacing: 0; }
+  .sub {
+    position: absolute; left: 0; right: 0; text-align: center;
+    font-size: 20px; font-weight: 400; color: #8b949e; letter-spacing: 0;
+  }
   .mono { font-family: ui-monospace, "DejaVu Sans Mono", monospace; }
+
   .box {
-    position: absolute; width: 210px; height: 86px; border-radius: 10px;
-    background: #161b22; border: 1px solid #30363d; border-left: 4px solid var(--accent, #8b949e);
-    padding: 12px 14px; box-sizing: border-box;
+    position: absolute; width: 208px; height: 84px; border-radius: 12px;
+    background: linear-gradient(180deg, #1a212c 0%, #161b22 100%);
+    border: 1px solid #2b3440;
+    padding: 13px 15px 0 17px; box-sizing: border-box;
+    box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
   }
-  .box b { display: block; font-size: 16px; font-weight: 600; }
-  .box span { display: block; font-size: 12px; color: #8b949e; margin-top: 4px; line-height: 1.35; }
-  .dim { opacity: 0.28; }
+  /* The accent is a bar, not a border, so it reads at a glance on a phone. */
+  .box::before {
+    content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: 4px;
+    border-radius: 0 3px 3px 0; background: var(--accent, #8b949e);
+  }
+  .box b { display: block; font-size: 17px; font-weight: 620; letter-spacing: -0.01em; }
+  .box span { display: block; font-size: 12.5px; color: #8b949e; margin-top: 5px; line-height: 1.4; }
+  .box.lit {
+    border-color: color-mix(in srgb, var(--accent) 55%, #2b3440);
+    box-shadow: 0 10px 26px rgba(0,0,0,.45), 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent),
+                0 0 30px color-mix(in srgb, var(--accent) 22%, transparent);
+  }
+  .dim { opacity: 0.22; }
+
   svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
-  .wire.dim { opacity: 0.18; }
   .wire { fill: none; stroke-width: 2.5; }
   .wire.solid { stroke: #60a5fa; }
   .wire.dash { stroke: #4ade80; stroke-dasharray: 9 7; }
-  .wire.live { stroke: #fbbf24; stroke-width: 4.5; stroke-dasharray: 10 8; }
-  .tag {
-    position: absolute; font-size: 15px; font-family: ui-monospace, "DejaVu Sans Mono", monospace;
-    background: #0d1117; padding: 2px 8px; border-radius: 4px;
-  }
+  .wire.live { stroke: #fbbf24; stroke-width: 4.5; stroke-dasharray: 11 8;
+               filter: drop-shadow(0 0 7px rgba(251,191,36,.6)); }
+  .wire.faint { opacity: 0.16; }
+
   .brand {
     position: absolute; left: 0; right: 0; text-align: center;
-    font-size: 64px; font-weight: 700; letter-spacing: 0.22em;
+    font-size: 74px; font-weight: 750; letter-spacing: 0.2em;
+    background: linear-gradient(92deg, #a78bfa, #22d3ee 46%, #60a5fa);
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .rule {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    width: 120px; height: 2px; border-radius: 2px;
+    background: linear-gradient(90deg, transparent, #a78bfa, transparent);
   }
 </style></head><body><div class="stage">
-  <div class="line" style="top:96px">Cadre is a team you draw.</div>
-  <svg><defs>
-  <marker id="blue" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <div class="headline" style="top:74px">Cadre is a team you draw.</div>
+    <svg><defs>
+  <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M 0 1 L 10 5 L 0 9 z" fill="#60a5fa"/>
   </marker>
-  <marker id="green" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+  <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M 0 1 L 10 5 L 0 9 z" fill="#4ade80"/>
   </marker>
-  <marker id="amber" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
     <path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/>
   </marker></defs>
-    <path class="wire solid" marker-end="url(#blue)"
-     d="M 330 300 C 390 300, 430 210, 490 210"/>
-    <path class="wire solid" marker-end="url(#blue)"
-     d="M 330 300 C 390 300, 430 400, 490 400"/>
-    <path class="wire dash" marker-end="url(#green)"
-     d="M 700 400 C 760 400, 800 300, 860 300"/>
-  </svg>
-  <div class="box " style="left:120px;top:257px;--accent:#a78bfa">
+      <path class="wire solid faint" marker-end="url(#b)"
+     d="M 300 342 C 370 342, 400 220, 470 220"/>
+      <path class="wire solid faint" marker-end="url(#b)"
+     d="M 300 342 C 370 342, 400 462, 470 462"/>
+      <path class="wire dash faint" marker-end="url(#g)"
+     d="M 678 462 C 748 462, 778 342, 848 342"/>
+    </svg>
+    <div class="box " style="left:92px;top:300px;--accent:#a78bfa">
      <b>Lead</b><span>Decides and delegates</span></div>
-  <div class="box " style="left:490px;top:167px;--accent:#22d3ee">
+    <div class="box " style="left:470px;top:178px;--accent:#22d3ee">
      <b>Researcher</b><span>Reads the outside world</span></div>
-  <div class="box " style="left:490px;top:357px;--accent:#fbbf24">
+    <div class="box " style="left:470px;top:420px;--accent:#fbbf24">
      <b>Engineer</b><span>Writes and proves it</span></div>
-  <div class="box " style="left:860px;top:257px;--accent:#f472b6">
+    <div class="box " style="left:848px;top:300px;--accent:#f472b6">
      <b>Reviewer</b><span>Reads the diff</span></div>
-  <div class="line sub" style="top:560px">Each one with its own prompt, its own tools, its own lane.</div>
-</div></body></html>
+    <div class="sub" style="top:572px">Each with its own prompt, its own tools, its own lane.</div>
+  </div></body></html>
