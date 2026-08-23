@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.10.0 — whole departments
+
+Three more ready-to-run templates, and none of them touch code. The general model is the
+product, and a template set made mostly of software teams quietly argues the opposite.
+
+**Hiring team** — six agents. A Head of People who decides whether the role should exist
+before anyone starts filling it and writes the bar down *before* seeing a candidate,
+because meeting a likeable one and reverse-engineering the requirements is the most
+reliable way to hire badly. A sourcer who maps the market rather than searching it, a
+screener who reads against the bar rather than against the other candidates, an interview
+designer who deletes any stage that cannot say what it is for, verification that separates
+"contradicted" from "unconfirmed", and onboarding that plans ninety days of work rather
+than ninety days of reading.
+
+**Marketing team** — six agents. Nothing gets written until the claim is settled and the
+measure is agreed, and the measure has to be something that could come back negative.
+Audience research that collects the words people actually use, positioning that names the
+real alternative — usually a spreadsheet or doing nothing — a writer who keeps the caveats
+it was handed, distribution that starts from where the audience already is, and
+measurement that will say "this went up and we cannot say we caused it".
+
+**Outreach team** — six agents, and the one with the sharpest bar. A cold message spends
+attention nobody offered, so the head's test is whether you could defend this message to
+this person out loud. Targeting that writes down the disqualifiers, per-account research
+where "no trigger found" is a legitimate answer, copy that makes one small ask and never
+states an inference as fact, compliance that will say a market cannot be sent to as
+written, and a reviewer who reads it as the recipient and can stop it for free.
+
+795 checks. The "ready to run" label is asserted rather than claimed — five agents
+minimum, more arrows than agents, every arrow labelled, every prompt 150–600 words, an
+entry agent that cannot do the work itself.
+
 ## 0.9.5
 
 **One malformed workflow file no longer takes the home screen with it.** Workflows are

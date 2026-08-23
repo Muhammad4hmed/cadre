@@ -134,7 +134,7 @@ replayed rather than just the model's memory.
 
 ## Templates
 
-Eleven, in two groups, and deliberately not all about code — the point of the model is
+Fourteen, in two groups, and deliberately not all about code — the point of the model is
 that it does not care.
 
 **Ready to run** — six or seven agents, peers that push back on each other, and prompts
@@ -144,7 +144,10 @@ written for the job rather than for the demo:
 |---|---|
 | **Ship a feature** | Product decides scope, an Architect designs before anyone writes, the Implementer can argue with both, a Reviewer sends real defects back, a Test engineer proves it, Docs writes it up |
 | **Security review** | A lead who finds the trust boundary, three specialists on source, dependencies and deployment, and an agent that actually tries to exploit what they find |
-| **Bid response** | Qualify, break the tender down, gather provable evidence, cost it honestly, write it, and check it complies. No code anywhere |
+| **Bid response** | Qualify, break the tender down, gather provable evidence, cost it honestly, write it, and check it complies |
+| **Hiring team** | Decide whether the role should exist, map the market, screen against a written bar, design an interview that measures the work, verify what is checkable, plan the first ninety days |
+| **Marketing team** | Nothing is written until the claim is settled and the measure is agreed — audience research, positioning, content, distribution, and measurement that can come back negative |
+| **Outreach team** | Targeting with disqualifiers, per-account research where "no trigger found" is a real answer, copy a person would answer, compliance that can say no, and a reviewer who reads it as the recipient |
 
 **Starting points** — smaller shapes to build on:
 
@@ -236,7 +239,7 @@ changing.
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 753 checks, no API calls
+npm run verify:fast    # 795 checks, no API calls
 npm run verify:team    # a live run; costs tokens
 ```
 
