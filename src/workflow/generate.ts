@@ -220,24 +220,42 @@ export async function generateWorkflow(request: GenerateRequest): Promise<Genera
  * away, `entry` can point at nothing. A generated workflow that fails to open
  * is far worse than one that opens with a warning on it.
  */
+/**
+ * How many agents a generated design may carry into the builder. Every agent is
+ * a real model run, so a design that asks for thirty is a bill, not a team.
+ */
+const MAX_GENERATED_AGENTS = 8;
+
 export function assemble(raw: RawWorkflow, taken: string[]): GenerateResult {
   const used = new Set(taken);
   const remap = new Map<string, string>();
 
+  // The model's output is the one input here nobody controls. The schema
+  // usually shapes it, but a CLI without structured output falls back to
+  // parsing free text, and this is the only thing between that and the UI —
+  // so nothing here may assume a type it has not checked.
+  const list = <T,>(value: unknown): T[] => (Array.isArray(value) ? (value as T[]) : []);
+  const object = (value: unknown): Record<string, unknown> =>
+    value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
+  const text = (value: unknown): string => (typeof value === "string" ? value : "");
+
+  const proposed = list<unknown>(raw?.agents);
   const agents: AgentSpec[] = [];
-  (raw.agents ?? []).slice(0, 8).forEach((agent, index) => {
-    const name = (agent.name ?? "").trim() || `Agent ${index + 1}`;
-    const wanted = (agent.id ?? "").trim() || name;
+  proposed.slice(0, MAX_GENERATED_AGENTS).forEach((entry, index) => {
+    const agent = object(entry) as RawAgent;
+    const name = text(agent.name).trim() || `Agent ${index + 1}`;
+    const wanted = text(agent.id).trim() || name;
     const id = uniqueSlug(wanted, [...used, ...agents.map((a) => a.id)]);
     remap.set(wanted, id);
     remap.set(name, id);
 
-    const preset: Preset = (agent.preset && agent.preset in PRESETS ? agent.preset : "readonly") as Preset;
+    const presetName = text(agent.preset);
+    const preset: Preset = (presetName && presetName in PRESETS ? presetName : "readonly") as Preset;
     agents.push({
       id,
       name,
-      role: (agent.role ?? "").trim(),
-      prompt: (agent.prompt ?? "").trim(),
+      role: text(agent.role).trim(),
+      prompt: text(agent.prompt).trim(),
       preset,
       // Laid out left to right in the order they were designed, which usually
       // matches the direction the work flows. The user drags from there.
@@ -254,24 +272,26 @@ export function assemble(raw: RawWorkflow, taken: string[]): GenerateResult {
     return mapped && ids.has(mapped) ? mapped : undefined;
   };
 
+  const rawEdges = raw?.edges;
   const seen = new Set<string>();
   const edges: Edge[] = [];
-  for (const edge of raw.edges ?? []) {
-    const from = resolve(edge.from);
-    const to = resolve(edge.to);
+  for (const raw of list<unknown>(rawEdges)) {
+    const edge = object(raw) as { from?: string; to?: string; kind?: string; label?: string };
+    const from = resolve(text(edge.from));
+    const to = resolve(text(edge.to));
     if (!from || !to || from === to) continue;
     const kind = edge.kind === "then" ? "then" : "delegate";
     const key = `${kind}:${from}->${to}`;
     if (seen.has(key)) continue;
     seen.add(key);
-    edges.push({ from, to, kind, ...(edge.label?.trim() ? { label: edge.label.trim() } : {}) });
+    edges.push({ from, to, kind, ...(text(edge.label).trim() ? { label: text(edge.label).trim() } : {}) });
   }
 
-  const entry = resolve(raw.entry) ?? agents[0]?.id ?? "";
+  const entry = resolve(text(raw?.entry)) ?? agents[0]?.id ?? "";
 
   const workflow = {
-    name: (raw.name ?? "").trim() || "New workflow",
-    description: (raw.description ?? "").trim() || undefined,
+    name: text(raw?.name).trim() || "New workflow",
+    description: text(raw?.description).trim() || undefined,
     entry,
     agents,
     edges,
@@ -287,12 +307,17 @@ export function assemble(raw: RawWorkflow, taken: string[]): GenerateResult {
   }).filter((p) => p.level === "error");
 
   const shape = `${agents.length} agent${agents.length === 1 ? "" : "s"}, ${edges.length} arrow${edges.length === 1 ? "" : "s"}`;
+  // A design quietly shrunk from twelve to eight is a lie the user cannot see.
+  const dropped = proposed.length - agents.length;
+  const trimmed = dropped > 0
+    ? ` It designed ${proposed.length}; the last ${dropped} ${dropped === 1 ? "was" : "were"} left out, because every agent is a paid model run — add them back if you want them.`
+    : "";
   return {
     ok: true,
     workflow,
     note: problems.length
-      ? `Built ${shape}, with ${problems.length} thing${problems.length === 1 ? "" : "s"} to fix — they are flagged below.`
-      : `Built ${shape}. Read the prompts before you launch it.`,
+      ? `Built ${shape}, with ${problems.length} thing${problems.length === 1 ? "" : "s"} to fix — they are flagged below.${trimmed}`
+      : `Built ${shape}. Read the prompts before you launch it.${trimmed}`,
   };
 }
 

@@ -728,6 +728,44 @@ const duplicated = generate.assemble(design({
 check("two agents given the same id are separated",
   duplicated.workflow.agents[0].id !== duplicated.workflow.agents[1].id);
 
+// A design is a draft for the builder, not a saved workflow — so a problem in
+// it is flagged rather than refused. But the model's output is the one input
+// here that nobody controls, and assemble is the only thing between it and the
+// UI: it has to survive a shape the schema did not produce.
+for (const [label, broken] of [
+  ["agents as an object", { ...design(), agents: { a: 1 } }],
+  ["agents as a string", { ...design(), agents: "two of them" }],
+  ["edges as a string", { ...design(), edges: "none" }],
+  ["edges as an object", { ...design(), edges: { from: "a", to: "b" } }],
+  ["an agent that is not an object", { ...design(), agents: ["Triage", 7, null] }],
+  ["an edge that is not an object", { ...design(), edges: ["Triage -> Fixer"] }],
+  ["nothing at all", {}],
+]) {
+  let threw = false;
+  let result;
+  try { result = generate.assemble(broken, []); } catch { threw = true; }
+  check(`a design with ${label} is handled, not thrown at the user`, !threw);
+  check(`...and ${label} still yields a workflow object`,
+    threw || (result.workflow !== undefined && Array.isArray(result.workflow.agents)));
+}
+
+// The cap is real and reasonable — every agent is a paid model run — but a
+// design quietly shrunk from twelve to eight is a lie the user cannot see.
+{
+  const big = {
+    ...design(),
+    agents: Array.from({ length: 12 }, (_, i) => ({
+      name: "Agent " + i, role: "r", prompt: "x".repeat(60), preset: "build",
+    })),
+    edges: [],
+    entry: "Agent 0",
+  };
+  const capped = generate.assemble(big, []);
+  check("a design larger than the cap is trimmed", capped.workflow.agents.length === 8);
+  check("...and says so rather than quietly dropping four agents",
+    /12|four|4 /.test(capped.note) && /drop|left out|only|trimm/i.test(capped.note));
+}
+
 const dangling = generate.assemble(design({
   edges: [
     { from: "triage", to: "ghost", kind: "delegate" },

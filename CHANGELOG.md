@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.4 — Build with Claude, against output nobody controls
+
+A generated design is the one input here that nothing validates on the way in.
+The schema usually shapes it, but a CLI without structured output falls back to
+parsing free text, and `assemble` is the only thing between that and the
+builder. It assumed types it had not checked: `agents` as an object rather than
+an array threw `.slice is not a function` at the user instead of saying the
+design came back malformed. Every field is checked now — a design that arrives
+as nonsense produces an empty workflow and a problem list, which is what the
+builder is for.
+
+It also **silently trimmed to eight agents**. Ask for a twelve-person department
+and you got eight, with a note saying "Built 8 agents" and nothing to say four
+had been dropped. The cap stays — every agent is a real model run — but it says
+what it left out.
+
+968 checks.
+
 ## 0.11.3 — the board picked its shape a frame late, and nothing had ever tested it
 
 The webview chooses between one merged lane and a lane per agent by measuring
