@@ -229,7 +229,12 @@ check("blocked send -> nothing rendered as said", !posted.some((m) => m.kind ===
 check("blocked send -> native prompt offered", shownErrors.length === 1);
 
 // ---- folder opened ----------------------------------------------------------
-state.workspaceFolders = [{ uri: { fsPath: process.cwd() } }];
+// A scratch directory, not the repository. The suite drives the real controller,
+// which writes workflows and session indexes into the open folder — pointed at
+// the working tree it left files behind, and .vscodeignore does not exclude
+// .cadre, so a stray one was packaged into the extension users download.
+const project = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-project-"));
+state.workspaceFolders = [{ uri: { fsPath: project } }];
 posted.length = 0;
 vscodeStub.__onFolders();
 await settle();
@@ -239,7 +244,6 @@ check("...and it says which of the two is missing",
   /open a workflow/i.test(last("sendability")?.reason ?? ""));
 
 // ---- creating a workflow from a template -----------------------------------
-const project = process.cwd();
 const wfDir = path.join(project, ".cadre", "workflows");
 fs.rmSync(wfDir, { recursive: true, force: true });
 

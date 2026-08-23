@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.11.2 — the package shipped a file from my working tree
+
+`.vscodeignore` is an allowlist by omission: anything not named in it ships.
+`.cadre/` was not named, and the test suite pointed its fake workspace at the
+repository itself — so a workflow the tests created was written into the working
+tree and packaged into the extension. `.github/` went along too.
+
+Nothing published it — the file list is only visible if you unzip the package
+and read it — and nothing would have caught it. Three fixes: the suite writes to
+a scratch directory instead of the working tree, both ignore files exclude
+`.cadre` and `.github`, and a new suite asks vsce for the real file list and
+refuses anything the product does not mean to ship. It fails on a stray file, on
+sources, on the test suite, on a source map, on the demo film.
+
+930 checks.
+
 ## 0.11.1 — the fixed roster was still wired into four places
 
 This started as three agents called Lead, Researcher and Engineer. When

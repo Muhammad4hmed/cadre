@@ -12,3 +12,9 @@ package-lock.json
 **/*.ts
 node_modules/**
 !node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/**
+
+# Local state and repository furniture. .vscodeignore is an allowlist by
+# omission, so anything not named here ships — a workflow the test suite wrote
+# into the working tree was packaged into the extension users download.
+.cadre/**
+.github/**
