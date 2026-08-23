@@ -49,51 +49,68 @@ narration is there for anyone who unmutes.
 
 ### The launch post
 
-Plain words, short lines, no dashes. Written to be read by someone who does not
-code, on a phone, while scrolling.
+Your structure, four blocks in order. No markdown: LinkedIn has no bold or
+italics and renders asterisks literally, so the shape comes from line breaks
+alone. No dashes. Paste it as is.
 
-> I spent my weekends building this. Today I'm giving it away for free.
+> Today I'm making one of my weekend projects, Cadre, open source.
 >
 > Most people use AI like a single assistant. You ask, it answers. One brain, one
 > chat window.
 >
-> I wanted a team instead.
+> Cadre gives you a team instead.
 >
-> So I built Cadre. You open VS Code, drop a few boxes on a canvas, and draw
-> arrows between them. Each box is an AI agent with a job. The arrows decide who
-> hands work to whom.
->
+> You open VS Code, drop a few boxes on a canvas, and draw arrows between them.
+> Each box is an AI agent with a job. The arrows decide who hands work to whom.
 > Then you hit launch and watch all of them work at once, side by side.
 >
-> Here is the one that gets people:
+> Here is one that ships with it. A hiring team, six agents:
 >
-> A hiring team. Six agents.
 > One decides whether the role should exist at all.
 > One goes and finds candidates.
 > One screens them against a written bar.
-> One designs an interview that actually tests the job.
-> One checks what can be checked.
+> One designs an interview that tests the actual job.
+> One verifies what can be verified.
 > One plans the first ninety days.
 >
-> You describe the role once. They do the rest. And they argue with each other on
-> the way, which is the whole point.
+> You describe the role once. They do the rest, and they push back on each other
+> while they do it.
 >
-> There is a marketing team. An outreach team where one agent's only job is to say
-> no to anything that would embarrass you. Fourteen ready made teams in total, or
-> you build your own in about two minutes.
+> There is a marketing team too. An outreach team where one agent's only job is to
+> say no to anything that would embarrass you. Fourteen ready made teams in total,
+> or you build your own in about two minutes.
 >
-> The part I am proudest of is the boring part.
+> So how is this different from n8n or Zapier?
 >
-> Every agent only gets the access you give it. If you say an agent can read but
-> not write, it cannot write. Not "please don't". It genuinely cannot. Because the
-> second one agent can do everything, it stops asking anyone else, and your team
-> turns into decoration.
+> Those automate steps. You draw the flow, you decide every branch, and it does
+> exactly what you drew. Perfect for "when a row is added, send a Slack message".
 >
-> No API keys. No billing setup. Nothing to paste anywhere. If you already pay for
-> Claude, you log in once and it just runs.
+> But every one of those steps is a decision you had to make in advance. The moment
+> reality does something you did not predict, the flow either breaks or does
+> something stupid, confidently.
 >
-> Free forever. Open source, MIT. Install it from the Extensions tab in VS Code and
-> you are running in under a minute.
+> Cadre is not a flowchart. You are not writing steps. You are describing people.
+>
+> You say what each agent is for and what it is allowed to touch. Then they work it
+> out between themselves. They question the brief. They hand work over. They
+> disagree with each other, which is the part I did not expect to matter so much.
+>
+> And here is the bit no automation tool does. Every agent only gets the access you
+> give it. If you say an agent can read but not write, it cannot write. Not "please
+> don't". It genuinely cannot. Because the second one agent can do everything, it
+> stops asking anyone else, and your team turns into decoration.
+>
+> There are no API keys anywhere in this.
+>
+> It runs on Claude Code, Anthropic's own CLI. If you already pay for Claude, you
+> are done. Log in once inside VS Code, either through Cadre or through the Claude
+> CLI, and start. Nothing to paste, nothing to configure, nothing to leak.
+>
+> And it is open source, MIT, completely free.
+>
+> Install it from the Extensions tab in VS Code and you are running in under a
+> minute. If you want to add something, the repo is open and I will read every pull
+> request.
 >
 > Tell me one thing: what team would you hire?
 >
