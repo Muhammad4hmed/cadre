@@ -9,7 +9,9 @@
 You draw the workflow — as many agents as you want, each with its own prompt and its own
 tools — and Cadre runs it inside VS Code, one live lane per agent.
 
-<img src="media/screenshots/builder.png" width="900" alt="A workflow on the canvas: four agents connected by delegate and handoff arrows">
+<img src="media/screenshots/builder.png" width="900" alt="A workflow on the canvas: agents connected by delegate and handoff arrows">
+
+https://github.com/Muhammad4hmed/cadre/raw/main/media/demo.mp4
 
 </div>
 

@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.9.2
+
+**The arrow carrying work is actually visible now.** At the width the live map is usually
+given, a 3px dashed line was almost invisible — which defeats the point of animating it.
+Thicker, a longer dash, and a stronger glow. Measured rather than eyeballed: frame-to-frame
+change in that region went from 7 to 96 out of 255.
+
+Also adds `.shots/film.mjs`, which renders the demo film from the real webview — the same
+extracted markup and shipped CSS and JS as the listing screenshots, driven by genuine
+events. The arrows move because the dash offset is stepped frame by frame, not because
+motion was added afterwards. A change to the product changes the film.
+
 ## 0.9.1
 
 **Stop now stops work that chains or continues.** A handoff chain and a turn-limit

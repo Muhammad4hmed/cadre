@@ -1,47 +1,6 @@
-/**
- * Renders the real webview — media/team.css and media/team.js, unmodified —
- * against a scripted sequence of genuine TeamEvents, so the listing images are
- * the actual interface rather than a mockup of it.
- */
+/** Listing screenshots, rendered from the real webview. See harness.mjs. */
 import * as fs from "node:fs";
-
-// Extracted on every run, not read from a checked-in copy. A separate
-// extraction step goes stale silently, which is exactly what "cannot drift"
-// was supposed to prevent — and did not.
-const source = fs.readFileSync("src/extension.ts", "utf8");
-const body = source.slice(
-  source.indexOf('  <header class="bar">'),
-  source.indexOf("  <script nonce="),
-);
-if (!body.includes("screen-projects")) throw new Error("markup extraction failed — anchors moved");
-const css = fs.readFileSync("media/team.css", "utf8");
-const js = fs.readFileSync("media/team.js", "utf8");
-const theme = fs.readFileSync(".shots/theme.css", "utf8");
-
-const page = (events, { width, settle = 0 }) => `<!doctype html>
-<html><head><meta charset="utf-8">
-<style>${theme}</style><style>${css}</style>
-<style>html,body{width:${width}px;height:100%;margin:0;overflow:hidden}</style>
-</head><body>
-${body.replace(/\$\{[^}]*\}/g, "")}
-<script>
-  // The webview's only host dependency.
-  window.acquireVsCodeApi = () => ({ postMessage(){}, getState(){}, setState(){} });
-</script>
-<script>${js}</script>
-<script>
-  const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
-  const script = ${JSON.stringify(events)};
-  // Deltas are delivered in one pass; the streaming path is the same code.
-  for (const e of script) send(e);
-  const live = document.getElementById("livemap");
-  if (live && document.getElementById("screen-run")?.dataset.active === "true") {
-    live.open = true;
-    live.dispatchEvent(new Event("toggle"));
-  }
-  document.title = "ready";
-</script>
-</body></html>`;
+import { page } from "./harness.mjs";
 
 const roster = (over = {}) => ({
   kind: "roster",

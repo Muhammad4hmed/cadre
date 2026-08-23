@@ -1111,13 +1111,16 @@ button.chip.account[data-state="out"] {
    travelling along an arrow is the single thing a static picture cannot say. */
 .map .wire.live {
   stroke: var(--vscode-charts-yellow, #fbbf24);
-  stroke-width: 3;
-  stroke-dasharray: 8 7;
-  animation: flow 0.75s linear infinite;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--vscode-charts-yellow, #fbbf24) 55%, transparent));
+  /* Thicker than the resting wires and thicker than it needs to be at full
+     size: at the width the map is usually given, a 3px dash was almost
+     invisible, which defeats the point of showing motion at all. */
+  stroke-width: 4.5;
+  stroke-dasharray: 10 8;
+  animation: flow 0.7s linear infinite;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--vscode-charts-yellow, #fbbf24) 70%, transparent));
 }
 .map .head.live { fill: var(--vscode-charts-yellow, #fbbf24); }
-@keyframes flow { to { stroke-dashoffset: -30; } }
+@keyframes flow { to { stroke-dashoffset: -36; } }
 
 /* An agent that is not working recedes: dimmed, grey bar, thin outline. */
 .map-node.resting { opacity: 0.42; color: var(--dim); }

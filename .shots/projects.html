@@ -1149,13 +1149,16 @@ button.chip.account[data-state="out"] {
    travelling along an arrow is the single thing a static picture cannot say. */
 .map .wire.live {
   stroke: var(--vscode-charts-yellow, #fbbf24);
-  stroke-width: 3;
-  stroke-dasharray: 8 7;
-  animation: flow 0.75s linear infinite;
-  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--vscode-charts-yellow, #fbbf24) 55%, transparent));
+  /* Thicker than the resting wires and thicker than it needs to be at full
+     size: at the width the map is usually given, a 3px dash was almost
+     invisible, which defeats the point of showing motion at all. */
+  stroke-width: 4.5;
+  stroke-dasharray: 10 8;
+  animation: flow 0.7s linear infinite;
+  filter: drop-shadow(0 0 6px color-mix(in srgb, var(--vscode-charts-yellow, #fbbf24) 70%, transparent));
 }
 .map .head.live { fill: var(--vscode-charts-yellow, #fbbf24); }
-@keyframes flow { to { stroke-dashoffset: -30; } }
+@keyframes flow { to { stroke-dashoffset: -36; } }
 
 /* An agent that is not working recedes: dimmed, grey bar, thin outline. */
 .map-node.resting { opacity: 0.42; color: var(--dim); }
@@ -1386,7 +1389,8 @@ button.chip.account[data-state="out"] {
   background: var(--surface);
 }
 </style>
-<style>html,body{width:420px;height:100%;margin:0;overflow:hidden}</style>
+<style>html,body{width:420px;height:760px;margin:0;overflow:hidden}</style>
+<style></style>
 </head><body>
   <header class="bar">
     <button class="brand" id="home" title="Home — projects and past sessions">CADRE</button>
@@ -3660,7 +3664,7 @@ button.chip.account[data-state="out"] {
     advanced.appendChild(multi("Skills", state.palette.skills, agent.skills, (next) => {
       agent.skills = next;
       touch();
-    }, "Every skill the workspace offers"));
+    }, "Every skill this Claude Code has"));
     advanced.appendChild(multi("Connectors", state.palette.connectors, agent.connectors, (next) => {
       agent.connectors = next;
       touch();
@@ -3749,7 +3753,7 @@ button.chip.account[data-state="out"] {
 
     el.inspector.appendChild(multi("Skills", state.palette.skills, d.skills, (next) => {
       d.skills = next; touch();
-    }, "Every skill the workspace offers"));
+    }, "Every skill this Claude Code has"));
     el.inspector.appendChild(multi("Connectors", state.palette.connectors, d.connectors, (next) => {
       d.connectors = next; touch();
     }, "Every connector the workspace offers"));
@@ -3826,9 +3830,17 @@ button.chip.account[data-state="out"] {
   function multi(title, options, chosen, onChange, inheritLabel) {
     const wrap = node("div", "multi");
     wrap.appendChild(node("h4", null, title));
-    if (!options.length) {
-      wrap.appendChild(node("p", "fhint", `No ${title.toLowerCase()} configured for this workspace.`));
+    // Options may be plain strings (connectors) or described objects (skills).
+    const items = options.map((o) => (typeof o === "string" ? { name: o } : o));
+    if (!items.length) {
+      wrap.appendChild(node("p", "fhint", `No ${title.toLowerCase()} available.`));
       return wrap;
+    }
+    if (title === "Skills") {
+      // Said once, up front. A skill that cannot work should not be discovered
+      // by watching an agent fail halfway through a run.
+      wrap.appendChild(node("p", "fhint",
+        "Skills that schedule work for later or fan it out — /loop, /schedule, /batch, /deep-research — cannot run here: Workflow, Agent, Cron and ScheduleWakeup are denied to every agent, at every autonomy level. An arrow is the only fan-out a workflow has."));
     }
 
     const inherit = node("label", "tool-row");
@@ -3841,19 +3853,24 @@ button.chip.account[data-state="out"] {
     inherit.appendChild(node("span", "tblurb", inheritLabel));
     wrap.appendChild(inherit);
 
-    for (const option of options) {
+    for (const option of items) {
       const row = node("label", "tool-row");
       const tick = document.createElement("input");
       tick.type = "checkbox";
       tick.disabled = chosen === undefined;
-      tick.checked = (chosen || []).includes(option);
+      tick.checked = (chosen || []).includes(option.name);
       tick.addEventListener("change", () => {
         const current = new Set(chosen || []);
-        if (tick.checked) current.add(option); else current.delete(option);
+        if (tick.checked) current.add(option.name); else current.delete(option.name);
         onChange([...current]);
       });
       row.appendChild(tick);
-      row.appendChild(node("span", "tname", option));
+      row.appendChild(node("span", "tname", `/${option.name}`));
+      if (option.description) {
+        const blurb = node("span", "tblurb", option.description);
+        blurb.title = option.description;
+        row.appendChild(blurb);
+      }
       wrap.appendChild(row);
     }
     return wrap;
@@ -4134,7 +4151,7 @@ button.chip.account[data-state="out"] {
 </script>
 <script>
   const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
-  const script = [{"kind":"auth","signedIn":true,"detail":"you@example.com · max","billing":"Claude subscription","usingApiKey":false},{"kind":"screen","screen":"projects"},{"kind":"projects","roots":["/home/you/code"],"active":"/home/you/code/pipeline","items":[{"path":"/home/you/code/pipeline","name":"pipeline","open":true,"known":true,"stack":["Python","Docker"],"lastTouched":0},{"path":"/home/you/code/web-console","name":"web-console","open":true,"known":false,"stack":["Node","TypeScript"],"lastTouched":0},{"path":"/home/you/code/infra","name":"infra","open":false,"known":true,"stack":["Docker"],"lastTouched":0},{"path":"/home/you/code/label-tool","name":"label-tool","open":false,"known":false,"stack":["Python"],"lastTouched":0}]},{"kind":"sessions","project":"pipeline","items":[{"id":"1","title":"Urdu TTS under 10 MB — feasibility","when":1787474807082},{"id":"2","title":"fix the decoder dropping the final word","when":1787392007082},{"id":"3","title":"set up CI and the release workflow","when":1787140007082}]}];
+  const script = [{"kind":"auth","signedIn":true,"detail":"you@example.com · max","billing":"Claude subscription","usingApiKey":false},{"kind":"screen","screen":"projects"},{"kind":"projects","roots":["/home/you/code"],"active":"/home/you/code/pipeline","items":[{"path":"/home/you/code/pipeline","name":"pipeline","open":true,"known":true,"stack":["Python","Docker"],"lastTouched":0},{"path":"/home/you/code/web-console","name":"web-console","open":true,"known":false,"stack":["Node","TypeScript"],"lastTouched":0},{"path":"/home/you/code/infra","name":"infra","open":false,"known":true,"stack":["Docker"],"lastTouched":0},{"path":"/home/you/code/label-tool","name":"label-tool","open":false,"known":false,"stack":["Python"],"lastTouched":0}]},{"kind":"sessions","project":"pipeline","items":[{"id":"1","title":"Urdu TTS under 10 MB — feasibility","when":1787476862094},{"id":"2","title":"fix the decoder dropping the final word","when":1787394062094},{"id":"3","title":"set up CI and the release workflow","when":1787142062094}]}];
   // Deltas are delivered in one pass; the streaming path is the same code.
   for (const e of script) send(e);
   const live = document.getElementById("livemap");
@@ -4142,6 +4159,7 @@ button.chip.account[data-state="out"] {
     live.open = true;
     live.dispatchEvent(new Event("toggle"));
   }
+  
   document.title = "ready";
 </script>
 </body></html>
