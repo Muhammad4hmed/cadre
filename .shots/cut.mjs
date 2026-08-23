@@ -45,16 +45,24 @@ const SCRIPT = [
     text: "Most AI coding tools are one assistant", shots: [0] },
   { say: "Cadre is a team you draw.",
     text: "Cadre is a team you draw", shots: [1, 2, 3] },
-  { say: "Describe what you want, and Claude designs the whole team",
-    text: "Describe what you want", shots: [4, 5] },
-  { say: "the agents, and how they work together.",
-    text: "Claude designs the agents and how they connect", shots: [11, 12] },
+  { say: "Describe what you want, and Claude designs the whole team.",
+    text: "Describe what you want — Claude designs the team", shots: [4, 5, 13, 14] },
+  { say: "Then shape every agent yourself.",
+    text: "Then shape every agent yourself", shots: [6] },
+  { say: "Its own prompt, its own model, and exactly which tools it can touch.",
+    text: "Its own prompt, its own model, its own tools", shots: [6, 15] },
+  { say: "Give each one the skills and connectors it needs.",
+    text: "Add the skills and connectors it needs", shots: [6] },
+  { say: "And they work as a team, handing work over and asking each other questions.",
+    text: "They work as a team, not a queue", shots: [7] },
   { say: "Then watch all of them at once.",
-    text: "Then watch all of them at once", shots: [{ flow: 14 }] },
+    text: "Then watch all of them at once", shots: [{ flow: 16 }] },
   { say: "Every agent in its own lane, live.",
-    text: "Every agent in its own lane, live", shots: [13, { flow: 24 }] },
-  { say: "Open source. And it runs on the Claude Code subscription you already have.",
-    text: "Open source · runs on your Claude Code subscription", shots: [6] },
+    text: "Every agent in its own lane, live", shots: [{ flow: 26 }] },
+  { say: "Install it from the Extensions tab in VS Code.",
+    text: "Install it from the Extensions tab in VS Code", shots: [8] },
+  { say: "It is open source, and it runs on the Claude Code subscription you already have.",
+    text: "Open source · runs on your Claude Code subscription", shots: [8] },
 ];
 
 /** Where each line actually begins and ends, from the spoken alignment. */
@@ -172,11 +180,16 @@ filters.push(
   `[${voIn}:a]loudnorm=I=-16:TP=-1.5:LRA=11,asplit=2[vo][key]`,
   `[${bedIn}:a]loudnorm=I=-29:TP=-2,atrim=0:${(total + 1).toFixed(2)},` +
     `afade=t=in:st=0:d=1.4,afade=t=out:st=${(total - 1.8).toFixed(2)}:d=1.8[bedq]`,
-  `[bedq][key]sidechaincompress=threshold=0.05:ratio=7:attack=8:release=340[duck]`,
-  `[vo][duck]amix=inputs=2:duration=longest:dropout_transition=0,` +
+  // sidechaincompress returns LESS than either input — 25.4s of bed keyed by
+  // 22s of speech came back as 19.2s, which silently cut the final line. Both
+  // legs are padded and trimmed to the full length so the mix cannot be short.
+  `[bedq][key]sidechaincompress=threshold=0.05:ratio=7:attack=8:release=340,` +
+    `apad,atrim=0:${total.toFixed(2)}[duck]`,
+  `[vo]apad,atrim=0:${total.toFixed(2)}[vop]`,
+  `[vop][duck]amix=inputs=2:duration=longest:dropout_transition=0,` +
     // Single-pass loudnorm lands about 2 dB under target; measured, not assumed.
     `loudnorm=I=-14:TP=-2:LRA=11,volume=2.0dB,alimiter=limit=0.89,` +
-    `aresample=48000,aformat=channel_layouts=stereo[a]`,
+    `aresample=48000,aformat=channel_layouts=stereo,apad,atrim=0:${total.toFixed(2)}[a]`,
   `[${last}]${subs},format=yuv420p[v]`,
 );
 

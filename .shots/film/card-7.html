@@ -65,36 +65,29 @@
     background: linear-gradient(90deg, transparent, #a78bfa, transparent);
   }
 </style></head><body><div class="stage">
-  <div class="headline" style="top:70px">Shape every agent yourself.</div>
-  <div style="position:absolute;left:200px;top:186px;width:880px;
-              border:1px solid #2b3440;border-radius:14px;background:#161b22;
-              box-shadow:0 16px 40px rgba(0,0,0,.45);overflow:hidden">
-    <div style="padding:16px 24px;border-bottom:1px solid #2b3440;display:flex;align-items:center;gap:12px">
-      <span style="width:4px;height:26px;border-radius:3px;background:#fbbf24;display:inline-block"></span>
-      <b style="font-size:20px">Implementer</b>
-      <span style="color:#8b949e;font-size:14px">Writes the change</span>
-    </div>
-    
-      <div style="display:flex;padding:13px 24px;border-bottom:1px solid #1d2530">
-        <span class="mono" style="width:150px;color:#8b949e;font-size:14px;text-transform:uppercase;letter-spacing:.07em">Prompt</span>
-        <span style="font-size:16px">What good work looks like in this role</span>
-      </div>
-      <div style="display:flex;padding:13px 24px;border-bottom:1px solid #1d2530">
-        <span class="mono" style="width:150px;color:#8b949e;font-size:14px;text-transform:uppercase;letter-spacing:.07em">Model</span>
-        <span style="font-size:16px">Fable · Opus · Sonnet · Haiku</span>
-      </div>
-      <div style="display:flex;padding:13px 24px;border-bottom:1px solid #1d2530">
-        <span class="mono" style="width:150px;color:#8b949e;font-size:14px;text-transform:uppercase;letter-spacing:.07em">Tools</span>
-        <span style="font-size:16px">Read · Write · Edit · Bash</span>
-      </div>
-      <div style="display:flex;padding:13px 24px;border-bottom:1px solid #1d2530">
-        <span class="mono" style="width:150px;color:#8b949e;font-size:14px;text-transform:uppercase;letter-spacing:.07em">Skills</span>
-        <span style="font-size:16px">/code-review · /verify · /simplify</span>
-      </div>
-      <div style="display:flex;padding:13px 24px;border-bottom:1px solid #1d2530">
-        <span class="mono" style="width:150px;color:#8b949e;font-size:14px;text-transform:uppercase;letter-spacing:.07em">Connectors</span>
-        <span style="font-size:16px">sentry · postgres · linear</span>
-      </div>
-  </div>
-  <div class="sub" style="top:588px">Its own prompt, its own model, and exactly which tools it can touch.</div>
+  <div class="headline" style="top:88px">They work as a team.</div>
+  <svg><defs>
+  <marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 10 5 L 0 9 z" fill="#60a5fa"/>
+  </marker>
+  <marker id="g" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 10 5 L 0 9 z" fill="#4ade80"/>
+  </marker>
+  <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M 0 1 L 10 5 L 0 9 z" fill="#fbbf24"/>
+  </marker></defs>
+    <path class="wire live" marker-end="url(#a)"
+      d="M 448 268 C 528 268, 592 268, 672 268"/>
+    <path class="wire dash" marker-end="url(#g)"
+      d="M 672 372 C 592 372, 528 372, 448 372"/>
+  </svg>
+  <div class="box lit" style="left:240px;top:278px;--accent:#a78bfa">
+     <b>Lead</b></div>
+  <div class="box lit" style="left:672px;top:278px;--accent:#fbbf24">
+     <b>Engineer</b></div>
+  <div class="mono" style="position:absolute;left:0;right:0;text-align:center;top:222px;font-size:15px;color:#fbbf24">
+    hands the work over</div>
+  <div class="mono" style="position:absolute;left:0;right:0;text-align:center;top:396px;font-size:15px;color:#4ade80">
+    reports back, or asks a question</div>
+  <div class="sub" style="top:544px">Delegating, handing off, and pushing back on each other.</div>
 </div></body></html>

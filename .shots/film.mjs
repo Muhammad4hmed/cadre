@@ -119,6 +119,8 @@ card(opener.team(1), "a team — wired");
 card(opener.team(2), "a team — lit");
 card(opener.describe("Read incoming support tickets, work out which are real bugs,"), "describe (typing)");
 card(opener.describe("Read incoming support tickets, work out which are real bugs, reproduce them against our repo, and draft a reply for each one."), "describe (full)");
+card(opener.shape(), "shape an agent");
+card(opener.coordinate(), "they coordinate");
 card(opener.end(), "end card");
 
 // 1. The home screen: what you come back to.

@@ -156,14 +156,66 @@ export const describe = (typed) => shell(`
   <div class="sub" style="top:508px">Claude designs the agents, their tools, and how they connect.</div>
 `);
 
+/**
+ * What an agent is made of. The real inspector is narrow and dense; this is the
+ * same idea at a size a phone can read.
+ */
+export const shape = () => shell(`
+  <div class="headline" style="top:70px">Shape every agent yourself.</div>
+  <div style="position:absolute;left:200px;top:186px;width:880px;
+              border:1px solid ${EDGE};border-radius:14px;background:${PANEL};
+              box-shadow:0 16px 40px rgba(0,0,0,.45);overflow:hidden">
+    <div style="padding:16px 24px;border-bottom:1px solid ${EDGE};display:flex;align-items:center;gap:12px">
+      <span style="width:4px;height:26px;border-radius:3px;background:${AMBER};display:inline-block"></span>
+      <b style="font-size:20px">Implementer</b>
+      <span style="color:${DIM};font-size:14px">Writes the change</span>
+    </div>
+    ${[
+      ["Prompt", "What good work looks like in this role"],
+      ["Model", "Fable · Opus · Sonnet · Haiku"],
+      ["Tools", "Read · Write · Edit · Bash"],
+      ["Skills", "/code-review · /verify · /simplify"],
+      ["Connectors", "sentry · postgres · linear"],
+    ].map(([k, v]) => `
+      <div style="display:flex;padding:13px 24px;border-bottom:1px solid #1d2530">
+        <span class="mono" style="width:150px;color:${DIM};font-size:14px;text-transform:uppercase;letter-spacing:.07em">${k}</span>
+        <span style="font-size:16px">${v}</span>
+      </div>`).join("")}
+  </div>
+  <div class="sub" style="top:588px">Its own prompt, its own model, and exactly which tools it can touch.</div>
+`);
+
+/** They are a team, not a queue — that is the part people miss. */
+export const coordinate = () => shell(`
+  <div class="headline" style="top:88px">They work as a team.</div>
+  <svg>${DEFS}
+    <path class="wire live" marker-end="url(#a)"
+      d="M 448 268 C 528 268, 592 268, 672 268"/>
+    <path class="wire dash" marker-end="url(#g)"
+      d="M 672 372 C 592 372, 528 372, 448 372"/>
+  </svg>
+  ${box(240, 278, "Lead", "", VIOLET, "lit")}
+  ${box(672, 278, "Engineer", "", AMBER, "lit")}
+  <div class="mono" style="position:absolute;left:0;right:0;text-align:center;top:222px;font-size:15px;color:${AMBER}">
+    hands the work over</div>
+  <div class="mono" style="position:absolute;left:0;right:0;text-align:center;top:396px;font-size:15px;color:${GREEN}">
+    reports back, or asks a question</div>
+  <div class="sub" style="top:544px">Delegating, handing off, and pushing back on each other.</div>
+`);
+
 /** The close. */
 export const end = () => shell(`
   <div class="brand" style="top:212px">CADRE</div>
   <div class="rule" style="top:318px"></div>
   <div class="sub" style="top:352px;font-size:25px;color:${INK}">
     Build a team of AI agents. Watch them work.</div>
-  <div class="sub mono" style="top:432px;font-size:17px">
+  <div style="position:absolute;left:50%;transform:translateX(-50%);top:412px;
+              border:1px solid ${EDGE};border-radius:10px;background:${PANEL};padding:14px 26px">
+    <span class="mono" style="font-size:17px;color:${DIM}">VS Code → Extensions → </span>
+    <span class="mono" style="font-size:17px;color:${INK}">Cadre</span>
+  </div>
+  <div class="sub mono" style="top:502px;font-size:16px">
     Open source &nbsp;·&nbsp; MIT &nbsp;·&nbsp; runs on your Claude Code subscription</div>
-  <div class="sub mono" style="top:480px;font-size:18px;color:${BLUE}">
+  <div class="sub mono" style="top:546px;font-size:16px;color:${BLUE}">
     github.com/Muhammad4hmed/cadre</div>
 `);
