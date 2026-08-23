@@ -1254,7 +1254,7 @@ export class TeamController implements vscode.Disposable {
 
     // A repository can ship .vscode/settings.json. Anything in it that would
     // widen permissions or start a process is clamped until explicitly allowed.
-    const vetted = this.trust.vet(cfg);
+    const vetted = this.trust.vet(cfg, cwd);
     for (const warning of vetted.warnings) {
       if (this.shownWarnings.has(warning)) continue;
       this.shownWarnings.add(warning);
@@ -1305,7 +1305,7 @@ export class TeamController implements vscode.Disposable {
 
   /** What is actually in force, which may differ from the raw setting. */
   effectiveAutonomy(): string {
-    const vetted = this.trust.vet(this.configForActiveFolder());
+    const vetted = this.trust.vet(this.configForActiveFolder(), this.activeFolder()?.uri.fsPath);
     const raw = this.configForActiveFolder().get<string>("autonomy") ?? "standard";
     return vetted.autonomy === raw ? raw : `${vetted.autonomy}  (${raw} not allowed from this folder)`;
   }

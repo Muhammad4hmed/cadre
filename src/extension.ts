@@ -244,8 +244,11 @@ async function chooseAutonomy(controller: TeamController): Promise<void> {
     .getConfiguration("cadre")
     .update("autonomy", picked.value, vscode.ConfigurationTarget.Global);
 
-  // Belt and braces for a folder that already carries this value.
-  await controller.trust.approve("autonomy", picked.value);
+  // Deliberately not recorded as an approval. A folder already carrying this
+  // value is not clamped anyway — the clamp only fires when a repository asks
+  // for *more* than the user chose, and this is the user choosing. Recording it
+  // did nothing here and left behind a note that any repository could later
+  // walk through, in any folder, once the user had moved back down.
   controller.forgetShownWarnings();
   await controller.refreshSendability();
 }
@@ -281,7 +284,9 @@ async function reviewWorkspaceSettings(controller: TeamController): Promise<void
       "Skip",
     );
     if (choice === "Allow for this workspace") {
-      await controller.trust.approve(setting, value);
+      // For this workspace, as the button says: an approval belongs to the
+      // folder it was given in.
+      await controller.trust.approve(setting, value, controller.activeFolder()?.uri.fsPath);
     }
   }
   controller.forgetShownWarnings();
@@ -405,8 +410,9 @@ async function applyProfile(controller: TeamController): Promise<void> {
       // WorkspaceFolder scope writes into that folder's .vscode/settings.json,
       // so the profile travels with the project rather than the machine.
       await cfg.update(key, value, vscode.ConfigurationTarget.WorkspaceFolder);
-      // Chosen here, so approved here — otherwise the trust layer clamps it back.
-      if (key === "autonomy") await controller.trust.approve("autonomy", value);
+      // Chosen here, so approved here — otherwise the trust layer clamps it
+      // back. Scoped to this folder, because that is where it was chosen.
+      if (key === "autonomy") await controller.trust.approve("autonomy", value, folder.uri.fsPath);
     } catch (err) {
       // One setting that will not take must not silently cost the user the
       // rest of the profile — a spend cap that was never written is worse than

@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.14.0 — trying autonomous once let any repository demand it forever
+
+An approval was keyed on the value alone. It recorded "autonomous is allowed",
+full stop — nothing about who asked for it, or where, or when.
+
+So: choose Autonomous yourself, read the modal, agree to it. Change your mind a
+week later and go back to Standard. Clone a repository whose
+`.vscode/settings.json` asks for autonomous. The clamp that exists to refuse
+exactly that looks up the approval, finds the one *you* gave, and lets it
+through — silently, with no warning, because as far as the record was concerned
+the question had already been answered.
+
+Applying the Sandbox profile in one project had the same effect for every other
+project on the machine.
+
+An approval now belongs to the folder it was given in. Allowing a repo's
+connector in one project says nothing about another, which is what the button
+("Allow for this workspace") always claimed.
+
+The approval recorded when you *choose* autonomy is gone entirely. It was never
+needed — a folder already carrying your own value is not clamped, because the
+clamp only fires when a repository asks for more than you chose. It did nothing
+except leave the note that made this possible.
+
+Existing approvals stop applying, and a repository that asks again will ask
+again. That is the safe direction.
+
+1173 checks.
+
 ## 0.13.6 — Rewind Files said "No live session" and left you to work out why
 
 Rewind Files puts the workspace back to before a turn. The checkpoints it

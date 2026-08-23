@@ -74,23 +74,33 @@ const fingerprint = (value: unknown): string =>
 export class SettingsTrust {
   constructor(private readonly memento: vscode.Memento) {}
 
-  private approvalKey(setting: string, value: unknown): string {
-    return `cadre.trust.${setting}.${fingerprint(value)}`;
+  /**
+   * An approval belongs to the folder it was given in.
+   *
+   * Keyed on the value alone it said "this value is allowed", full stop, with
+   * nothing about who asked or where. So approving `autonomous` once — by
+   * choosing it, or by applying a profile in one project — left a record that
+   * any repository could later walk through, in any folder, even after the
+   * user had moved back to a safer level. Which is the one thing the clamp
+   * exists to prevent.
+   */
+  private approvalKey(setting: string, value: unknown, scope: string | undefined): string {
+    return `cadre.trust.${setting}.${fingerprint([scope ?? "", value])}`;
   }
 
-  private approved(setting: string, value: unknown): boolean {
-    return this.memento.get<boolean>(this.approvalKey(setting, value)) === true;
+  private approved(setting: string, value: unknown, scope: string | undefined): boolean {
+    return this.memento.get<boolean>(this.approvalKey(setting, value, scope)) === true;
   }
 
-  async approve(setting: string, value: unknown): Promise<void> {
-    await this.memento.update(this.approvalKey(setting, value), true);
+  async approve(setting: string, value: unknown, scope?: string): Promise<void> {
+    await this.memento.update(this.approvalKey(setting, value, scope), true);
   }
 
   /**
    * Reads the three dangerous settings, clamping or withholding anything the
    * repository supplied that the user has not explicitly approved.
    */
-  vet(cfg: vscode.WorkspaceConfiguration): VettedSettings {
+  vet(cfg: vscode.WorkspaceConfiguration, scope?: string): VettedSettings {
     const warnings: string[] = [];
     // `inspect` is the only way to tell a repo-supplied value from the user's
     // own. Without it we cannot make that distinction, so refuse to guess.
@@ -109,7 +119,7 @@ export class SettingsTrust {
       // Only clamp when the repo wants MORE rope than the user chose. A repo
       // asking for a *safer* level is fine — let it.
       riskOrder(autonomyFromRepo) > riskOrder(autonomyFromUser) &&
-      !this.approved("autonomy", autonomyFromRepo)
+      !this.approved("autonomy", autonomyFromRepo, scope)
     ) {
       autonomy = autonomyFromUser;
       warnings.push(
@@ -124,7 +134,7 @@ export class SettingsTrust {
     if (
       connectorsFromRepo &&
       Object.keys(connectorsFromRepo).length &&
-      !this.approved("connectors", connectorsFromRepo)
+      !this.approved("connectors", connectorsFromRepo, scope)
     ) {
       connectors = userValue(connectorsInfo) ?? {};
       warnings.push(
@@ -135,7 +145,7 @@ export class SettingsTrust {
     const pluginsInfo = inspect<string[]>("plugins");
     let plugins = cfg.get<string[]>("plugins") ?? [];
     const pluginsFromRepo = repoValue(pluginsInfo);
-    if (pluginsFromRepo?.length && !this.approved("plugins", pluginsFromRepo)) {
+    if (pluginsFromRepo?.length && !this.approved("plugins", pluginsFromRepo, scope)) {
       plugins = userValue(pluginsInfo) ?? [];
       warnings.push(
         `This folder's settings load ${pluginsFromRepo.length} local plugin(s), which can ship hooks that run commands. Not loaded — run “Cadre: Review Workspace Settings” to inspect and allow them.`,
@@ -150,7 +160,7 @@ export class SettingsTrust {
     const extraInfo = inspect<string[]>("additionalDirectories");
     let additionalDirectories = cfg.get<string[]>("additionalDirectories") ?? [];
     const extraFromRepo = repoValue(extraInfo);
-    if (extraFromRepo?.length && !this.approved("additionalDirectories", extraFromRepo)) {
+    if (extraFromRepo?.length && !this.approved("additionalDirectories", extraFromRepo, scope)) {
       additionalDirectories = userValue(extraInfo) ?? [];
       warnings.push(
         `This folder's settings grant the agents access to ${extraFromRepo.length} directory (or directories) outside the workspace. Ignored — run “Cadre: Review Workspace Settings” to inspect and allow them.`,
@@ -196,7 +206,7 @@ export class SettingsTrust {
       const current = (cfg.get<T>(key) ?? fallback) as T;
       if (fromRepo === undefined || fromRepo === fromUser) return current;
       if (!loosens(fromRepo, fromUser)) return current;
-      if (this.approved(key, fromRepo)) return current;
+      if (this.approved(key, fromRepo, scope)) return current;
       warnings.push(why(fromRepo, fromUser));
       return fromUser;
     };
@@ -242,7 +252,7 @@ export class SettingsTrust {
   }
 
   /** What a repo is asking for, so the review command can show it. */
-  pending(cfg: vscode.WorkspaceConfiguration): { setting: string; value: unknown }[] {
+  pending(cfg: vscode.WorkspaceConfiguration, scope?: string): { setting: string; value: unknown }[] {
     const out: { setting: string; value: unknown }[] = [];
     for (const setting of ["autonomy", "connectors", "plugins"] as const) {
       const info =
@@ -252,7 +262,7 @@ export class SettingsTrust {
         value === undefined ||
         (Array.isArray(value) && !value.length) ||
         (typeof value === "object" && value !== null && !Array.isArray(value) && !Object.keys(value).length);
-      if (!empty && !this.approved(setting, value)) out.push({ setting, value });
+      if (!empty && !this.approved(setting, value, scope)) out.push({ setting, value });
     }
     return out;
   }

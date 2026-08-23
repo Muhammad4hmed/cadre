@@ -257,6 +257,47 @@ for (const fine of ["docs", "documentation/public", "notes"]) {
   check("...without being warned about their own choices", mine.warnings.length === 0);
 }
 
+// ---- an approval is not a standing permission ------------------------------
+// Choosing "autonomous" yourself records an approval, so that a folder already
+// carrying that value does not then warn about it. The approval is keyed on the
+// value alone — so it says "autonomous is allowed", full stop, with nothing
+// about who asked for it or when.
+//
+// Move back to a safer level afterwards and that record is still there. A repo
+// asking for autonomous then walks straight through the clamp that exists to
+// stop exactly that.
+{
+  const store2 = new Map();
+  const memento2 = { get: (k, d) => (store2.has(k) ? store2.get(k) : d), update: async (k, v) => { store2.set(k, v); } };
+  const trust2 = new SettingsTrust(memento2);
+
+  // The user tried autonomous once, in one project.
+  await trust2.approve("autonomy", "autonomous", "/projects/sandbox");
+  // ...and has since moved back to standard. A different project now asks.
+  const later = trust2.vet(config({
+    autonomy: { globalValue: "standard", workspaceFolderValue: "autonomous" },
+  }), "/projects/someone-elses-repo");
+  check("an old approval does not let a repo demand autonomous later",
+    later.autonomy === "standard");
+  check("...and the user is told the repo asked",
+    later.warnings.some((w) => /autonom/i.test(w)));
+
+  // Where the user's own level is autonomous, a repo agreeing with them is not
+  // an escalation and must not be warned about.
+  const agreeing = trust2.vet(config({
+    autonomy: { globalValue: "autonomous", workspaceFolderValue: "autonomous" },
+  }), "/projects/someone-elses-repo");
+
+  // And an approval given for one folder still holds in that folder.
+  const sameFolder = trust2.vet(config({
+    autonomy: { globalValue: "standard", workspaceFolderValue: "autonomous" },
+  }), "/projects/sandbox");
+  check("an approval given for a folder still holds in that folder",
+    sameFolder.autonomy === "autonomous");
+  check("a repo matching the user's own level is left alone",
+    agreeing.autonomy === "autonomous" && agreeing.warnings.length === 0);
+}
+
 console.log("=== workspace settings trust ===");
 let failed = false;
 for (const [label, ok] of checks) {
