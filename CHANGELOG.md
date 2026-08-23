@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.11.8 — asking the CLI what it supports could hang forever
+
+The model list is read from the installed Claude Code, because the identifiers
+are its own and they change per release. That is a handshake with no tools and
+no session: it is fast, or it is broken. Nothing bounded it.
+
+**Cadre: Settings → Default model** awaits that handshake before it shows
+anything. Against a wedged CLI the command therefore did nothing at all: no
+picker, no error, no sign the click had registered. There has always been a
+fallback list for when discovery fails, and a hang never reached it.
+
+Twenty seconds now, after which the fallback is used and the reason is logged.
+The same handshake feeds the builder's model picker, which was leaking a promise
+that never settled every time it ran.
+
+The timeout promise also swallows its own rejection. It exists only to lose a
+race, and if it is ever left out of one an unhandled rejection would take the
+extension host down — a far worse failure than the hang it prevents. Removing it
+from the race is now a clean test failure rather than a crash.
+
+984 checks. The fake CLI can now refuse to answer, which is how this was found.
+
 ## 0.11.7 — every download included a manual for a different product
 
 `docs/operating-model.md` is 563 lines describing the original three-agent

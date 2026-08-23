@@ -149,6 +149,13 @@ await esbuild.build({
 });
 const fake = await import("./fake-sdk.mjs");
 
+const modelsOut = path.join(path.dirname(outfile), "models.cjs");
+await esbuild.build({
+  ...baseOptions({ entry: "src/models.ts", outfile: modelsOut }),
+  alias: { "@anthropic-ai/claude-agent-sdk": path.resolve("scripts/fake-sdk.mjs") },
+  logLevel: "warning",
+});
+
 const require = createRequire(import.meta.url);
 const ext = require(outfile);
 const workspaceState = new Map();
@@ -985,6 +992,44 @@ if (serializer) {
   controller.dispose();
   check("shutting down stops the builder's work too",
     second?.options.abortController?.signal.aborted === true);
+}
+
+// ---- discovering what the CLI supports cannot hang ------------------------
+// The model list comes from the installed CLI, because the identifiers are its
+// and they change per release. It is a handshake with no tools and no session,
+// so it is fast or it is broken — but nothing bounded it, and the caller behind
+// `Cadre: Settings -> Default model` awaits it before showing anything. A
+// wedged CLI meant clicking that did nothing at all: no picker, no error, no
+// sign the click had registered. There has always been a fallback list for when
+// discovery fails; a hang never reached it.
+{
+  const models = require(modelsOut);
+  const opts = { executablePath: fakeCli, cwd: process.cwd(), timeoutMs: 150 };
+
+  fake.__registry.hangDiscovery = false;
+  models.clearModelCache?.();
+  const found = await models.discoverModels(opts);
+  check("discovery returns what the CLI reports", found.some((m) => m.value === "claude-opus-5"));
+  check("...including which effort levels it takes",
+    found.find((m) => m.value === "claude-opus-5")?.efforts.includes("high") === true);
+  check("...and that a model taking none is reported as taking none",
+    found.find((m) => m.value === "claude-haiku-4-5")?.efforts.length === 0);
+
+  // The case that used to hang.
+  fake.__registry.hangDiscovery = true;
+  models.clearModelCache?.();
+  const started = Date.now();
+  const settled = await Promise.race([
+    models.discoverModels(opts),
+    new Promise((resolve) => setTimeout(() => resolve("HUNG"), 4000)),
+  ]);
+  check("a CLI that never answers does not hang the caller", settled !== "HUNG");
+  check("...it falls back to a usable list instead",
+    Array.isArray(settled) && settled.length > 0 && settled.every((m) => m.value));
+  check("...and gives up quickly rather than after a minute",
+    Date.now() - started < 3000);
+
+  fake.__registry.hangDiscovery = false;
 }
 
 console.log("=== ui ===");

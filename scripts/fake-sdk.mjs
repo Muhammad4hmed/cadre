@@ -61,6 +61,29 @@ export function query({ prompt, options }) {
     }
   })();
 
+  /**
+   * The capability handshake. Discovery asks these two and nothing else.
+   * `registry.hangDiscovery` makes them never answer, which is what a wedged
+   * CLI looks like and is the case that used to hang the caller forever.
+   */
+  stream.supportedModels = async () => {
+    if (registry.hangDiscovery) return new Promise(() => {});
+    // The real ModelInfo shape: `value` is the identifier, and the effort list
+    // is supportedEffortLevels. Getting this wrong makes the test pass against
+    // a mapping that would drop every model in production.
+    return registry.models ?? [
+      {
+        value: "claude-opus-5", displayName: "Opus 5",
+        supportedEffortLevels: ["low", "medium", "high"], resolvedModel: "claude-opus-5-20260101",
+      },
+      { value: "claude-haiku-4-5", displayName: "Haiku 4.5", supportsEffort: false },
+    ];
+  };
+  stream.supportedCommands = async () => {
+    if (registry.hangDiscovery) return new Promise(() => {});
+    return registry.commands ?? [{ name: "loop", description: "repeat a task" }];
+  };
+
   stream.interrupt = async () => { control.interrupts += 1; };
   stream.close = () => { control.closed = true; ended = true; nudge(); };
   stream.setPermissionMode = async () => {};

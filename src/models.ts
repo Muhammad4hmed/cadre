@@ -87,6 +87,7 @@ export async function discoverModels(opts: {
   cwd: string;
   env?: Record<string, string | undefined>;
   log?: (message: string) => void;
+  timeoutMs?: number;
 }): Promise<ModelChoice[]> {
   return (await discover(opts)).models;
 }
@@ -96,6 +97,7 @@ export async function discoverSkills(opts: {
   cwd: string;
   env?: Record<string, string | undefined>;
   log?: (message: string) => void;
+  timeoutMs?: number;
 }): Promise<SkillChoice[]> {
   return (await discover(opts)).skills;
 }
@@ -106,11 +108,25 @@ export async function discoverSkills(opts: {
  * Models and skills both come from the same place and cost the same subprocess,
  * so asking twice would double the only expensive part for no reason.
  */
+/**
+ * How long to wait for the CLI to say what it supports.
+ *
+ * This is a handshake with no tools and no session, so it is fast or it is
+ * broken. Without a ceiling a wedged CLI never answers, and the caller in
+ * `Cadre: Settings -> Default model` awaits it before showing anything: the
+ * command would simply do nothing, with no picker, no error and no way to tell
+ * whether it had registered the click. There is already a fallback list for
+ * when discovery fails; this makes a hang count as failing.
+ */
+const DISCOVERY_TIMEOUT_MS = 20_000;
+
 async function discover(opts: {
   executablePath: string;
   cwd: string;
   env?: Record<string, string | undefined>;
   log?: (message: string) => void;
+  /** Overridable so a test does not have to wait twenty seconds. */
+  timeoutMs?: number;
 }): Promise<{ models: ModelChoice[]; skills: SkillChoice[] }> {
   if (cache && Date.now() - cache.at < TTL) return cache;
 
@@ -135,12 +151,35 @@ async function discover(opts: {
       },
     });
 
-    const [foundModels, foundSkills] = await Promise.all([
-      running.supportedModels() as Promise<ModelInfo[]>,
-      // Skills are a bonus: a CLI too old to report them should still give us
-      // the model list rather than falling back on both.
-      running.supportedCommands().catch(() => [] as SlashCommand[]),
-    ]);
+    let expire: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      expire = setTimeout(
+        () => reject(new Error("the CLI did not answer in time")),
+        opts.timeoutMs ?? DISCOVERY_TIMEOUT_MS,
+      );
+      // Nothing should be kept alive just to time this out.
+      (expire as unknown as { unref?: () => void }).unref?.();
+    });
+    // This promise exists only to lose a race. If it is ever left out of one,
+    // its rejection would be unhandled and would take the host down with it,
+    // which is a far worse failure than the hang it is here to prevent.
+    timeout.catch(() => {});
+
+    let foundModels: ModelInfo[];
+    let foundSkills: SlashCommand[];
+    try {
+      [foundModels, foundSkills] = await Promise.race([
+        Promise.all([
+          running.supportedModels() as Promise<ModelInfo[]>,
+          // Skills are a bonus: a CLI too old to report them should still give
+          // us the model list rather than falling back on both.
+          running.supportedCommands().catch(() => [] as SlashCommand[]),
+        ]),
+        timeout,
+      ]);
+    } finally {
+      clearTimeout(expire);
+    }
 
     const models = foundModels.map(toChoice).filter((m) => m.value);
     const skills = foundSkills
