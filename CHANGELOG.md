@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.1 — a repository cannot widen what the agents can reach
+
+Two settings granted access beyond the workspace, and both are `resource`-scoped, which
+means a cloned repository can set them in `.vscode/settings.json`. Neither was clamped.
+
+**`cadre.docsPath` could point outside the workspace.** It is the one place an agent with
+no editor is nonetheless allowed to write — the narrow exception that makes the read-only
+preset usable. Set to `../../.ssh` or `/etc`, that exception became a write anywhere on the
+machine. Demonstrated, not theorised: a read-only agent's write to
+`~/.ssh/authorized_keys` passed the confinement check and went to the permission prompt,
+and on `autonomous` there is no prompt.
+
+Fixed in two places, because one of them should not be load-bearing on its own. The runner
+now refuses any docs root that resolves outside the workspace, whatever the configuration
+says; and the trust layer clamps the setting back to `docs` and tells the user why, rather
+than silently dropping what they configured.
+
+**`cadre.additionalDirectories` is now clamped too.** It hands the CLI folders the agents
+may read and edit; a repository setting `["/home/you"]` would have granted every agent the
+user's home directory — a larger grant than anything else the trust layer already guards.
+A repo-supplied value is ignored with a warning; the user's own is kept without one.
+
+831 checks. Removing the trust clamp turns 12 red; removing the runner guard makes
+`/etc/passwd` writable again, which is its own test.
+
 ## 0.10.0 — whole departments
 
 Three more ready-to-run templates, and none of them touch code. The general model is the

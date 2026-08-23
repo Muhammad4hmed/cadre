@@ -20,10 +20,26 @@ import type { Autonomy } from "../policy";
  * re-open it.
  */
 
+/**
+ * True for anything that would not stay under the workspace root: an absolute
+ * path, or one that climbs out with `..`. Checked on the string rather than by
+ * resolving against a folder, so it holds whichever folder it is applied to.
+ */
+function escapesWorkspace(candidate: string): boolean {
+  if (!candidate) return false;
+  const normalised = candidate.replace(/\\/g, "/");
+  if (normalised.startsWith("/") || /^[A-Za-z]:/.test(normalised)) return true;
+  return normalised.split("/").some((part) => part === "..");
+}
+
 export interface VettedSettings {
   autonomy: Autonomy;
   connectors: Record<string, unknown>;
   plugins: string[];
+  /** Extra folders the agents may read and edit, outside the workspace. */
+  additionalDirectories: string[];
+  /** Workspace-relative docs root, guaranteed to stay inside the workspace. */
+  docsPath: string;
   /** Anything clamped or withheld, for the user to see. */
   warnings: string[];
 }
@@ -118,7 +134,37 @@ export class SettingsTrust {
       );
     }
 
-    return { autonomy, connectors, plugins, warnings };
+    // --- extra directories: a grant of access outside the workspace ---------
+    //
+    // These go straight to the CLI as folders the agents may read and edit.
+    // A cloned repository setting `["/home/you"]` would hand every agent the
+    // user's home directory, which is a larger grant than anything else here.
+    const extraInfo = inspect<string[]>("additionalDirectories");
+    let additionalDirectories = cfg.get<string[]>("additionalDirectories") ?? [];
+    const extraFromRepo = repoValue(extraInfo);
+    if (extraFromRepo?.length && !this.approved("additionalDirectories", extraFromRepo)) {
+      additionalDirectories = userValue(extraInfo) ?? [];
+      warnings.push(
+        `This folder's settings grant the agents access to ${extraFromRepo.length} directory (or directories) outside the workspace. Ignored — run “Cadre: Review Workspace Settings” to inspect and allow them.`,
+      );
+    }
+
+    // --- the docs root: it widens where a read-only agent may write ----------
+    //
+    // `docsPath` is where agents with no editor are nonetheless allowed to
+    // write. Pointed outside the workspace — `../../.ssh`, `/etc` — it turns
+    // that narrow exception into a write anywhere on the machine. The runner
+    // refuses such a root outright; this is so the user is told why their
+    // setting is being ignored rather than silently losing it.
+    let docsPath = cfg.get<string>("docsPath") || "docs";
+    if (escapesWorkspace(docsPath)) {
+      warnings.push(
+        `cadre.docsPath (“${docsPath}”) points outside the workspace. Ignored — it is the one place agents without an editor may write, so it has to stay inside the project.`,
+      );
+      docsPath = "docs";
+    }
+
+    return { autonomy, connectors, plugins, additionalDirectories, docsPath, warnings };
   }
 
   /** What a repo is asking for, so the review command can show it. */

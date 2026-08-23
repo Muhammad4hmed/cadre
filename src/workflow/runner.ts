@@ -1226,13 +1226,27 @@ export class WorkflowSession implements vscode.Disposable {
     if (this.config.documentation !== "off" && this.config.docsPath) {
       roots.push(this.config.docsPath);
     }
+
+    const workspace = path.resolve(this.config.cwd);
+    const inside = (candidate: string): boolean =>
+      candidate === workspace || candidate.startsWith(workspace + path.sep);
+
     const allowed = roots.some((root) => {
       const base = path.resolve(this.config.cwd, root);
+      // A docs root outside the workspace is not a root. `cadre.docsPath` is a
+      // resource-scoped setting, so a cloned repository can ship one — and
+      // `../../.ssh` or `/etc` would otherwise hand an agent that is supposed
+      // to have no editor a write anywhere on the machine, with no prompt at
+      // all on `autonomous`.
+      if (!inside(base)) return false;
       return resolved === base || resolved.startsWith(base + path.sep);
     });
     if (allowed) return undefined;
 
-    const writable = roots.map((r) => `${r}/`).join(" and ");
+    const writable = roots
+      .filter((root) => inside(path.resolve(this.config.cwd, root)))
+      .map((r) => `${r}/`)
+      .join(" and ");
     // Name who can actually do it: a refusal that leaves the agent guessing
     // costs another turn and usually ends in it trying a different path.
     const hands = this.config.workflow.edges

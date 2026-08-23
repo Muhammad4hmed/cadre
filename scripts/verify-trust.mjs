@@ -136,6 +136,40 @@ const repoGoesFurther = globalTrust.vet(config({
 check("a repo still cannot exceed the user's own level",
   repoGoesFurther.autonomy === "supervised" && repoGoesFurther.warnings.length === 1);
 
+// ---- a repo cannot widen where the agents may reach -------------------------
+//
+// `additionalDirectories` grants read and edit access outside the workspace, and
+// `docsPath` is the one place an agent with no editor may write. Both are
+// resource-scoped, so a cloned repository can set them.
+
+vetted = trust.vet(config({
+  additionalDirectories: { defaultValue: [], workspaceFolderValue: ["/home/someone", "/etc"] },
+}));
+check("a repo granting access to directories outside the workspace is ignored",
+  vetted.additionalDirectories.length === 0);
+check("...and the user is told why",
+  vetted.warnings.some((w) => /outside the workspace/i.test(w)));
+
+vetted = trust.vet(config({
+  additionalDirectories: { defaultValue: [], globalValue: ["/home/me/notes"] },
+}));
+check("the user's own extra directories are kept",
+  vetted.additionalDirectories.includes("/home/me/notes"));
+check("...without a warning about them",
+  !vetted.warnings.some((w) => /outside the workspace/i.test(w)));
+
+for (const escape of ["../../.ssh", "/etc", "..", "docs/../../..", "C:/Windows", "a/../../b"]) {
+  vetted = trust.vet(config({ docsPath: { defaultValue: "docs", workspaceFolderValue: escape } }));
+  check(`a docs root of ${JSON.stringify(escape)} is refused`, vetted.docsPath === "docs");
+  check(`...and says so for ${JSON.stringify(escape)}`,
+    vetted.warnings.some((w) => /points outside the workspace/i.test(w)));
+}
+
+for (const fine of ["docs", "documentation/public", "notes"]) {
+  vetted = trust.vet(config({ docsPath: { defaultValue: "docs", workspaceFolderValue: fine } }));
+  check(`a docs root of ${JSON.stringify(fine)} is kept`, vetted.docsPath === fine);
+}
+
 console.log("=== workspace settings trust ===");
 let failed = false;
 for (const [label, ok] of checks) {

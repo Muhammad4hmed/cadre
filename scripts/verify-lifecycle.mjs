@@ -956,6 +956,49 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- F6. the docs root cannot be pointed outside the workspace -------------
+// `cadre.docsPath` is where an agent with no editor may nonetheless write, and
+// it is resource-scoped — a cloned repository can set it. Pointed at ../../.ssh
+// or /etc it would turn that narrow exception into a write anywhere on the
+// machine, with no prompt at all on `autonomous`. The trust layer clamps it;
+// this is the guarantee underneath, for anything that reaches the runner
+// without being vetted.
+for (const hostile of ["../../.ssh", "/etc", "..", "docs/../.."]) {
+  fake.__instances.length = 0;
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo", docsPath: hostile });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  for (const target of ["/home/someone/.ssh/authorized_keys", "/etc/passwd", "/repo/../outside.txt"]) {
+    const result = await gate("Write", { file_path: target }, ctx);
+    check(`docsPath ${JSON.stringify(hostile)} does not permit writing ${target}`,
+      result.behavior === "deny" && /only write inside/i.test(result.message ?? ""));
+  }
+  // And the refusal must not advertise the bogus root as somewhere writable.
+  const shown = await gate("Write", { file_path: "/repo/src/app.ts" }, ctx);
+  check(`docsPath ${JSON.stringify(hostile)} is not offered as a writable place`,
+    !new RegExp(hostile.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).test(shown.message ?? ""));
+  session.dispose();
+}
+
+// A legitimate docs root still works, or the guard has broken the feature.
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo", docsPath: "documentation" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  answers.permission = "Allow once";
+  const inside = await gate("Write", { file_path: "/repo/documentation/notes.md" }, ctx);
+  check("F6b a docs root inside the workspace is still writable", inside.behavior === "allow");
+  session.dispose();
+}
+
 // ---- S. the spend cap is per session, not per query ------------------------
 fake.__instances.length = 0;
 {

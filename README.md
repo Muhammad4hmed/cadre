@@ -188,6 +188,11 @@ leaks a file just as surely as reading it does.
 Permission prompts offer a narrowly scoped grant — *Always allow `pytest`* — rather than
 handing over the whole tool.
 
+A cloned repository cannot widen any of this. `.vscode/settings.json` can lower autonomy
+but never raise it, and its connectors, local plugins and extra directories are ignored
+until you inspect them. The docs root — the one place an agent with no editor may write —
+is refused if it points outside the workspace, by the runner as well as by that check.
+
 ## Images, long sessions, papers
 
 Attach a screenshot with **＋**, a paste, or a drop on the composer. Oversized images are
@@ -239,7 +244,7 @@ changing.
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 795 checks, no API calls
+npm run verify:fast    # 831 checks, no API calls
 npm run verify:team    # a live run; costs tokens
 ```
 
