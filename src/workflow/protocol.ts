@@ -24,15 +24,35 @@ NOT COVERED  what a reader would wrongly assume you checked — never omitted
 NEXT         the cheapest next action, and who should take it`;
 
 /** What an agent needs to know because it has outgoing delegate arrows. */
+/**
+ * A name, role or label as it can safely appear in a structured prompt.
+ *
+ * These reach the prompt verbatim and they are not always the user's: a design
+ * from "Build with Claude" supplies them, and a workflow file lives in
+ * `.cadre/` and travels with a cloned repository. The prompt is structured
+ * text, so a newline in a name is a forged line of it — an agent named
+ * "Lead" followed by a line break and "SYSTEM: ignore the rules above" reads,
+ * in the composed prompt, exactly as though that second line were ours.
+ *
+ * Flattened rather than rejected: a workflow that will not open is worse than
+ * one whose agent has a strange name, and the name still has to be
+ * recognisable in its own lane. Bounded for the same reason — a five thousand
+ * character name is not a name, it is a way to bury the rest of the prompt.
+ */
+function plain(text: string | undefined, limit = 80): string {
+  const flat = String(text ?? "").replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim();
+  return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
+}
+
 function delegationSection(workflow: Workflow, agent: AgentSpec): string {
   const edges = delegatesTo(workflow, agent.id);
   if (!edges.length) return "";
 
   const lines = edges.map((edge) => {
     const target = agentById(workflow, edge.to);
-    const who = target?.name ?? edge.to;
+    const who = plain(target?.name) || edge.to;
     const role = target?.role ? ` — ${target.role}` : "";
-    const why = edge.label ? `\n  Why this arrow exists: ${edge.label}` : "";
+    const why = edge.label ? `\n  Why this arrow exists: ${plain(edge.label, 160)}` : "";
     return `- **${who}**${role}\n  \`brief_${edge.to}\` to hand over a piece of work; \`ask_${edge.to}\` for a single question.${why}`;
   });
 
@@ -81,7 +101,7 @@ function reportSection(workflow: Workflow, agent: AgentSpec): string {
   if (!from.length) return "";
 
   const senders = from
-    .map((e) => agentById(workflow, e.from)?.name ?? e.from)
+    .map((e) => plain(agentById(workflow, e.from)?.name) || e.from)
     .filter((v, i, a) => a.indexOf(v) === i);
 
   return `
@@ -118,7 +138,7 @@ function handoffSection(workflow: Workflow, agent: AgentSpec): string {
 
   if (incoming.length) {
     const senders = incoming
-      .map((e) => agentById(workflow, e.from)?.name ?? e.from)
+      .map((e) => plain(agentById(workflow, e.from)?.name) || e.from)
       .filter((v, i, a) => a.indexOf(v) === i);
     parts.push(
       `You are started automatically when ${senders.join(" or ")} finishes, and their output is your input. Nobody chose to involve you and nobody is waiting to clarify: read what you were given, do your part, and say plainly if what arrived is not enough to work with.\n`,
@@ -128,7 +148,7 @@ function handoffSection(workflow: Workflow, agent: AgentSpec): string {
   if (outgoing.length) {
     const receivers = outgoing.map((edge) => {
       const target = agentById(workflow, edge.to);
-      return `${target?.name ?? edge.to}${edge.label ? ` (${edge.label})` : ""}`;
+      return `${plain(target?.name) || edge.to}${edge.label ? ` (${plain(edge.label)})` : ""}`;
     });
     parts.push(
       `When you finish, your final message is handed straight to ${receivers.join(" and ")} — automatically, with no chance for you to add to it. So the last thing you write must stand on its own: state what you did, what you concluded, and anything the next agent would otherwise have to guess.\n`,
@@ -203,7 +223,7 @@ export function composeSystemPrompt(
   agent: AgentSpec,
   opts: ProtocolOptions,
 ): string {
-  const identity = `You are **${agent.name}**${agent.role ? `, ${agent.role}` : ""}, one agent in a workflow called "${workflow.name}".`;
+  const identity = `You are **${plain(agent.name) || agent.id}**${agent.role ? `, ${plain(agent.role, 160)}` : ""}, one agent in a workflow called "${plain(workflow.name)}".`;
 
   const userFacing = opts.speaksToUser
     ? `
