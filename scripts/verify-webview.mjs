@@ -1062,6 +1062,42 @@ results.push(["the attachment checks ran at all", false]);
   finish();
 })();
 
+// ---- project paths on someone else's machine ------------------------------
+// Each card on the project picker shows where the project is, shortened to the
+// tail because that is the part that identifies it. The shortener matched
+// /home/<user> and /Users/<user> literally and split on "/" alone, so a Windows
+// path matched neither and contained no separator it recognised: the card
+// showed the whole path, and the CSS truncation then cut off the end, which is
+// the only part worth reading.
+send({ kind: "screen", screen: "projects" });
+send({ kind: "projects", roots: [], active: "", items: [
+  // Deep enough to survive the home substitution and still need shortening,
+  // which is the only way the join is exercised at all.
+  { path: "C:\\Users\\someone\\code\\deep\\nested\\pipeline", name: "pipeline", open: true, known: true, stack: [], lastTouched: 0 },
+  { path: "D:\\work\\a\\b\\c\\rig", name: "rig", open: false, known: true, stack: [], lastTouched: 0 },
+  { path: "/srv/work/clients/acme/pipeline", name: "acme", open: false, known: true, stack: [], lastTouched: 0 },
+  { path: "/opt/app", name: "app", open: false, known: false, stack: [], lastTouched: 0 },
+] });
+{
+  const shown = [...document.querySelectorAll(".path")].map((n) => n.textContent);
+  check("a project path is rendered on the card", shown.length === 4);
+  check("a Windows home directory is written with a tilde, like a unix one",
+    shown[0] !== undefined && shown[0].startsWith("~"));
+  check("...and the path is shortened rather than shown whole",
+    shown[0] !== undefined && shown[0].includes("…"));
+  check("...and keeps the end, which is what names the project",
+    shown[0] !== undefined && /pipeline$/.test(shown[0]));
+  check("a Windows path outside home is shortened too",
+    shown[1] !== undefined && shown[1].includes("…") && /rig$/.test(shown[1]));
+  check("...and is not rebuilt as a mix of both separators",
+    shown[1] !== undefined && !shown[1].includes("/"));
+  check("a deep unix path is still shortened",
+    shown[2] !== undefined && shown[2].includes("…") && /pipeline$/.test(shown[2]));
+  check("...and still uses forward slashes",
+    shown[2] !== undefined && !shown[2].includes("\\"));
+  check("a short path is left alone", shown[3] === "/opt/app");
+}
+
 document.title = "done";
 window.__results = results;
 `;

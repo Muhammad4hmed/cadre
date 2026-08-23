@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.15 — the same Windows bug again, in the project picker
+
+Each card on the project picker shows where the project is, shortened to its
+tail because that is the part naming it. The shortener matched `/home/<user>`
+and `/Users/<user>` literally and split on `/` alone. A Windows path matched
+neither pattern and contained no separator it recognised, so the card showed the
+whole path and the truncation cut off the end.
+
+Windows home directories get a tilde now, both separators are recognised, and a
+shortened path is rebuilt with the separator it actually uses rather than coming
+back as `D:/…/c/rig`.
+
+This is the second copy of the same idea to be broken the same way, after the
+workspace chip in 0.11.14. They live in different processes and cannot share
+code, so they are two implementations that both assumed a unix path.
+
+1022 checks.
+
 ## 0.11.14 — the workspace chip was unreadable on Windows
 
 The chip in the header shows which project you are in, shortened to its last two

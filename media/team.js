@@ -903,12 +903,25 @@
     el.connectors.title = connectors.map((c) => `${c.ok ? "✓" : "✕"} ${c.name} (${c.status})`).join("\n");
   }
 
-  /** Keeps the tail of a long path, which is the part that identifies it. */
+  /**
+   * Keeps the tail of a long path, which is the part that identifies it.
+   *
+   * The home patterns are listed rather than assumed: there is no single shape
+   * for a home directory across the three platforms, and matching only the two
+   * unix ones meant a Windows path was never shortened at all. Splitting on
+   * "/" alone had the same effect for the same reason — a Windows path has none
+   * — so the card showed the whole thing and the truncation cut off the end,
+   * which is the only part worth reading.
+   */
   function shortenPath(full) {
-    const home = /^\/home\/[^/]+|^\/Users\/[^/]+/.exec(full);
+    const home = /^\/home\/[^/]+|^\/Users\/[^/]+|^[A-Za-z]:[\\/]Users[\\/][^\\/]+/.exec(full);
     const tidy = home ? "~" + full.slice(home[0].length) : full;
-    const parts = tidy.split("/");
-    return parts.length > 4 ? parts[0] + "/…/" + parts.slice(-2).join("/") : tidy;
+    const parts = tidy.split(/[\\/]/);
+    if (parts.length <= 4) return tidy;
+    // Rebuilt with the separator the path actually uses, so a Windows path does
+    // not come back as a mix of both.
+    const sep = tidy.includes("\\") && !tidy.includes("/") ? "\\" : "/";
+    return parts[0] + sep + "…" + sep + parts.slice(-2).join(sep);
   }
 
   function fillChannel() {
