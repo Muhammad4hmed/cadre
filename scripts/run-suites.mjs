@@ -6,6 +6,22 @@
  */
 import { spawnSync } from "node:child_process";
 
+// TypeScript first, because esbuild strips types without checking them: the
+// bundle builds and every suite passes while the code does not compile. Six
+// releases went out that way — green here, red in CI, and the only difference
+// was that CI ran `tsc` and this did not.
+{
+  const tsc = spawnSync("npm", ["run", "typecheck"], { encoding: "utf8", timeout: 180_000 });
+  if (tsc.status !== 0) {
+    const out = ((tsc.stdout ?? "") + (tsc.stderr ?? "")).split("\n");
+    console.log("  typecheck         FAILED");
+    for (const line of out.filter((l) => /error TS/.test(l)).slice(0, 8)) console.log(`      ${line.trim()}`);
+    console.log("\n  The suites were not run: nothing they report means anything if this is red.");
+    process.exit(1);
+  }
+  console.log("  typecheck          ok");
+}
+
 const suites = ["verify-workflow", "verify-ui", "verify-lifecycle", "verify-auth", "verify-trust", "verify-tools", "verify-mcp", "verify-webview", "verify-package"];
 let total = 0;
 let failed = false;

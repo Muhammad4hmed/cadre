@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.14.1 — six releases went out that did not compile
+
+`src/workflow/store.ts` has not typechecked since 0.13.2. A duplicate import of
+`uniqueSlug` — it was already imported on the next line — and a spread that
+narrowed an edge's type until `kind` and `label` were no longer on it.
+
+The bundle built and all 1173 checks passed the whole time, because esbuild
+strips types without checking them. CI runs `tsc` first and had been red for six
+releases, and I did not look.
+
+Both errors are fixed, and `verify:fast` now runs `tsc` before anything else and
+refuses to run the suites if it fails. A green suite while the code does not
+compile is worse than a red one: it is a signal that says the opposite of the
+truth.
+
+Nothing shipped was broken by this — the emitted JavaScript was always valid,
+which is exactly why it went unnoticed. What was broken was the repository:
+anyone cloning it got errors, and the one check that would have said so was in a
+place I had stopped reading.
+
 ## 0.14.0 — trying autonomous once let any repository demand it forever
 
 An approval was keyed on the value alone. It recorded "autonomous is allowed",

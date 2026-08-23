@@ -1,7 +1,7 @@
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { slug, uniqueSlug } from "./model";
+import { slug } from "./model";
 import type { Scope, Workflow } from "./model";
 import { emptyWorkflow, uniqueSlug, validate } from "./model";
 
@@ -195,11 +195,15 @@ function normalise(parsed: unknown, id: string, scope: Scope): Workflow | undefi
   const known = new Set(agents.map((a) => a.id));
   const edges = (Array.isArray(raw.edges) ? raw.edges : [])
     .filter((e): e is Record<string, unknown> => Boolean(e) && typeof e === "object" && !Array.isArray(e))
-    .map((e) => ({ ...e, from: rename(String(e.from)), to: rename(String(e.to)) }))
-    .filter((e) => known.has(e.from) && known.has(e.to))
+    .map((e): Record<string, unknown> => ({
+      ...e,
+      from: rename(String(e.from)),
+      to: rename(String(e.to)),
+    }))
+    .filter((e) => known.has(String(e.from)) && known.has(String(e.to)))
     .map((e) => ({
-      from: e.from,
-      to: e.to,
+      from: String(e.from),
+      to: String(e.to),
       kind: e.kind === "then" ? ("then" as const) : ("delegate" as const),
       ...(typeof e.label === "string" && e.label ? { label: e.label } : {}),
     }));
