@@ -244,8 +244,8 @@ changing.
   install. An older CLI exposes fewer tools.
 - Every agent is a real model run, and a wide workflow is several at once. Set
   `cadre.maxSpendUsd`.
-- The canvas has no pan or zoom yet. A very large workflow is workable but not
-  comfortable.
+- The canvas has no pan or zoom yet. It scrolls, so nothing is unreachable even in a
+  narrow sidebar, but a very large workflow is workable rather than comfortable.
 - `hooks` and sandboxing are not wired up.
 
 ## Development

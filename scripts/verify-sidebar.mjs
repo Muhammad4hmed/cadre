@@ -93,6 +93,58 @@ check("a delegation card appears in the merged lane", text().includes("look into
 send({ kind: "deliver", id: "d", outcome: "delivered", summary: "found it" });
 check("...and its report lands on the same card", text().includes("delivered: found it"));
 
+// ---- the builder, in a 380px panel ----------------------------------------
+// The canvas has no pan and no zoom. A workflow laid out for a full tab puts
+// agents at x=600 and beyond, which at this width is off the side of the panel
+// with nothing to scroll. Either the canvas scrolls, or the user cannot reach
+// half their own workflow from the surface they use most.
+// The screen and the draft arrive as two events, the way the host sends them.
+// Sending only the draft leaves the builder off-screen, and everything measured
+// inside it reads as zero — which looks exactly like a layout bug.
+send({ kind: "screen", screen: "builder" });
+send({ kind: "editing", authoritative: true, workflow: {
+  id: "w", name: "Team", entry: "lead",
+  agents: [
+    { id: "lead", name: "Lead", role: "decides", prompt: "p", preset: "readonly", x: 40, y: 40 },
+    { id: "far", name: "Far", role: "off to the right", prompt: "p", preset: "build", x: 900, y: 60 },
+  ],
+  edges: [{ from: "lead", to: "far", kind: "delegate" }],
+}, problems: [] });
+
+const canvasEl = document.getElementById("canvas");
+const wrap = document.getElementById("canvas-wrap");
+check("the builder opens in a narrow panel at all", canvasEl !== null);
+const drawn = canvasEl ? canvasEl.querySelectorAll(".agent-node").length : 0;
+check("both agents are drawn", drawn === 2);
+
+if (wrap && canvasEl) {
+  const reachable = wrap.scrollWidth > wrap.clientWidth
+    ? getComputedStyle(wrap).overflowX === "auto" || getComputedStyle(wrap).overflowX === "scroll"
+    : true;
+  check("the canvas really is wider than the panel, or this checks nothing",
+    wrap.scrollWidth > wrap.clientWidth);
+  check("an agent laid out past the panel edge can still be reached", reachable);
+}
+
+// And the inspector, which is the only way to edit an agent, has to fit.
+const nodes = canvasEl ? [...canvasEl.querySelectorAll(".agent-node")] : [];
+if (nodes.length) {
+  nodes[0].dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 50, clientY: 50 }));
+  window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 50, clientY: 50 }));
+  const inspector = document.getElementById("inspector");
+  check("selecting an agent opens the inspector", inspector !== null && inspector.hidden === false);
+  check("...and it fits inside the panel",
+    inspector === null || inspector.getBoundingClientRect().right <= document.body.clientWidth + 1);
+  check("...and the inspector has real width, not a hidden screen's zero",
+    inspector !== null && inspector.offsetWidth > 150);
+  const promptBox = inspector ? inspector.querySelector("textarea") : null;
+  check("...with a usable box to write the prompt in",
+    promptBox !== null && promptBox.offsetWidth > 120);
+}
+
+check("the builder does not scroll the whole page sideways",
+  document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
+
 document.body.setAttribute("data-results", JSON.stringify(results));
 document.body.setAttribute("data-noise", JSON.stringify(window.__noise || []));
 `;
