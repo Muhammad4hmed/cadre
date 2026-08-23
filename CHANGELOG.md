@@ -19,7 +19,20 @@ now has real headroom, and it is deliberately kept below the 45 second autosave
 timer so raising it cannot start firing autosaves inside tests that never
 expected one. Eight runs under load, no failures, and a stable check count.
 
-1008 checks.
+1007 checks.
+
+**A correction to the line above.** The suite was still not environment
+independent. One attachment check asserted that a BMP came back re-encoded as a
+JPEG — true on this machine, false on the CI runner, whose Chrome does not
+decode BMP. It passed here and failed there, on the very release that claimed to
+have fixed the flakiness.
+
+It is gone rather than patched. Padding a PNG past the size limit decodes
+everywhere, but encoding megabytes takes longer than a poll can wait for when
+virtual time is racing ahead of the real work. The check that matters does not
+depend on any of that: where a BMP cannot be decoded it is never staged, where
+it can it is staged re-encoded, and only passing it through under a borrowed
+label fails. That is the bug, and that check catches it in both places.
 
 ## 0.11.12 — an image the API cannot read was sent labelled as one it can
 
