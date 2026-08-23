@@ -49,48 +49,55 @@ narration is there for anyone who unmutes.
 
 ### The launch post
 
-> Today I'm open-sourcing Cadre — one of my weekend projects, and the one I kept
-> going back to.
+Plain words, short lines, no dashes. Written to be read by someone who does not
+code, on a phone, while scrolling.
+
+> I spent my weekends building this. Today I'm giving it away for free.
 >
-> **You draw a team of AI agents on a canvas in VS Code, wire them together with
-> arrows, and watch all of them work at once.**
+> Most people use AI like a single assistant. You ask, it answers. One brain, one
+> chat window.
 >
-> Not one assistant doing everything. However many you need, each with its own
-> job, its own prompt, and its own idea of what it's allowed to touch.
+> I wanted a team instead.
 >
-> Two kinds of arrow, and the distinction is the whole design:
-> → **delegate** — A hands work to B and waits for a report. Loops are allowed, so
->   two agents can genuinely argue before either commits.
-> ⇥ **then** — B starts the moment A finishes, with A's output as its input.
+> So I built Cadre. You open VS Code, drop a few boxes on a canvas, and draw
+> arrows between them. Each box is an AI agent with a job. The arrows decide who
+> hands work to whom.
 >
-> The part I didn't expect to matter most: **what an agent can do is enforced, not
-> requested.** A read-only agent physically cannot write a file — it isn't asked
-> nicely to avoid it. Give a coordinator a shell and it stops coordinating and
-> just does the work itself, and then its teammates are decoration.
+> Then you hit launch and watch all of them work at once, side by side.
 >
-> **And it isn't really about code.** The templates that took longest to write were
-> a hiring team, a marketing team and a cold-outreach team. Six agents each. The
-> outreach one has a compliance agent whose job is to say no.
+> Here is the one that gets people:
 >
-> **How is this different from n8n or Zapier?**
-> Those wire up steps. You decide every branch in advance, and the flow does
-> exactly what you drew — which is what you want for "when a row is added, send a
-> Slack message."
+> A hiring team. Six agents.
+> One decides whether the role should exist at all.
+> One goes and finds candidates.
+> One screens them against a written bar.
+> One designs an interview that actually tests the job.
+> One checks what can be checked.
+> One plans the first ninety days.
 >
-> Cadre wires up *colleagues*. You don't specify the steps; you specify who's on
-> the team, what each of them is for, and what each is allowed to reach. Then they
-> decide — they push back on the brief, delegate, disagree, and hand work on. The
-> unit isn't a node, it's someone with a job and a boundary.
+> You describe the role once. They do the rest. And they argue with each other on
+> the way, which is the whole point.
 >
-> The other practical difference: no API keys, for anything. It runs on the Claude
-> Code subscription you already have. Log in once in VS Code and start — there's
-> no key to paste, no billing to set up, nothing to leak.
+> There is a marketing team. An outreach team where one agent's only job is to say
+> no to anything that would embarrass you. Fourteen ready made teams in total, or
+> you build your own in about two minutes.
 >
-> **MIT licensed, free, and open to contributions.** Install it from the Extensions
-> tab in VS Code and it's running in about thirty seconds.
+> The part I am proudest of is the boring part.
 >
-> I'd genuinely like to know what teams people build with it. Repo in the first
-> comment.
+> Every agent only gets the access you give it. If you say an agent can read but
+> not write, it cannot write. Not "please don't". It genuinely cannot. Because the
+> second one agent can do everything, it stops asking anyone else, and your team
+> turns into decoration.
+>
+> No API keys. No billing setup. Nothing to paste anywhere. If you already pay for
+> Claude, you log in once and it just runs.
+>
+> Free forever. Open source, MIT. Install it from the Extensions tab in VS Code and
+> you are running in under a minute.
+>
+> Tell me one thing: what team would you hire?
+>
+> Repo in the comments.
 
 ### Draft A — short, built around the one surprising fact
 
