@@ -4151,7 +4151,7 @@ button.chip.account[data-state="out"] {
 </script>
 <script>
   const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
-  const script = [{"kind":"screen","screen":"home"},{"kind":"workflows","project":"checkout","items":[{"id":"ship","name":"Ship a feature","scope":"local","description":"Design, build, review, prove, document.","agents":6,"edges":7,"updatedAt":1787486506791,"sessions":12,"agentNames":["Product","Architect","Research","Implementer","Reviewer","Test engineer"],"problems":0},{"id":"sec","name":"Security review","scope":"global","description":"Four lenses, and one agent that tries to exploit what they find.","agents":6,"edges":7,"updatedAt":1787405506791,"sessions":3,"agentNames":["Security lead","Code auditor","Dependency auditor","Config auditor","Exploit prover","Report"],"problems":0}],"templates":[]}];
+  const script = [{"kind":"screen","screen":"home"},{"kind":"workflows","project":"checkout","items":[{"id":"ship","name":"Ship a feature","scope":"local","description":"Design, build, review, prove, document.","agents":6,"edges":7,"updatedAt":1787487451864,"sessions":12,"agentNames":["Product","Architect","Research","Implementer","Reviewer","Test engineer"],"problems":0},{"id":"sec","name":"Security review","scope":"global","description":"Four lenses, and one agent that tries to exploit what they find.","agents":6,"edges":7,"updatedAt":1787406451864,"sessions":3,"agentNames":["Security lead","Code auditor","Dependency auditor","Config auditor","Exploit prover","Report"],"problems":0}],"templates":[]}];
   // Deltas are delivered in one pass; the streaming path is the same code.
   for (const e of script) send(e);
   const live = document.getElementById("livemap");

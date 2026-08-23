@@ -3,7 +3,7 @@ import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { TeamController } from "./team/controller";
 import { describeAuth, logout, readAuthStatus } from "./auth";
 import { buildPaper, detectToolchain, installToolchain, toolchainHome } from "./paper";
-import { resolveClaudeExecutable } from "./cli";
+import { clearExecutableCache, resolveClaudeExecutable } from "./cli";
 import { cachedModels, discoverModels } from "./models";
 import type { Autonomy } from "./policy";
 import type { BillingMode } from "./billing";
@@ -72,6 +72,9 @@ export function activate(context: vscode.ExtensionContext): void {
       void controller.refreshSendability();
     }),
     vscode.workspace.onDidChangeConfiguration((e) => {
+      // The resolved executable is cached; pointing the setting somewhere else
+      // has to invalidate it or the change appears to do nothing.
+      if (e.affectsConfiguration("cadre.claudeExecutablePath")) clearExecutableCache();
       if (e.affectsConfiguration("cadre")) void controller.refreshSendability();
     }),
   );

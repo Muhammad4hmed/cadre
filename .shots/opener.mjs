@@ -126,19 +126,42 @@ export const one = () => shell(`
 export const team = (stage = 2) => {
   const wires = stage >= 1;
   const lit = stage >= 2;
-  const P = { lead: { x: 92, y: 300 }, res: { x: 470, y: 178 }, eng: { x: 470, y: 420 }, rev: { x: 848, y: 300 } };
+  // Six agents and eight arrows, including a pair that point back at each
+  // other. Four boxes in a row understates it: the interesting thing about a
+  // workflow is that it is a graph, and a graph needs to look like one.
+  const P = {
+    product:  { x: 44,  y: 296, name: "Product",   role: "Decides what ships", c: VIOLET },
+    architect:{ x: 356, y: 150, name: "Architect", role: "Designs the change", c: BLUE },
+    research: { x: 356, y: 440, name: "Research",  role: "Finds the answer",   c: CYAN },
+    builder:  { x: 668, y: 296, name: "Implementer", role: "Writes it",        c: AMBER },
+    reviewer: { x: 980, y: 150, name: "Reviewer",  role: "Reads the diff",     c: PINK },
+    tester:   { x: 980, y: 440, name: "Tests",     role: "Proves it runs",     c: GREEN },
+  };
+  const out = (k) => ({ x: P[k].x + 208, y: P[k].y + 42 });
+  const into = (k) => ({ x: P[k].x, y: P[k].y + 42 });
+  const back = (k) => ({ x: P[k].x, y: P[k].y + 62 });
+  const outLow = (k) => ({ x: P[k].x + 208, y: P[k].y + 62 });
+  const w = (a, b, kind, marker, bow) =>
+    wires ? curve(a, b, `${kind}${lit ? "" : " faint"}`, marker, bow) : "";
+
   return shell(`
-    <div class="headline" style="top:74px">Cadre is a team you draw.</div>
+    <div class="headline" style="top:58px">Cadre is a team you draw.</div>
     <svg>${DEFS}
-      ${wires ? curve({ x: P.lead.x + 208, y: P.lead.y + 42 }, { x: P.res.x, y: P.res.y + 42 }, lit ? "solid" : "solid faint", "b") : ""}
-      ${wires ? curve({ x: P.lead.x + 208, y: P.lead.y + 42 }, { x: P.eng.x, y: P.eng.y + 42 }, lit ? "solid" : "solid faint", "b") : ""}
-      ${wires ? curve({ x: P.eng.x + 208, y: P.eng.y + 42 }, { x: P.rev.x, y: P.rev.y + 42 }, lit ? "dash" : "dash faint", "g") : ""}
+      ${w(out("product"), into("architect"), "solid", "b", 70)}
+      ${w(out("product"), into("research"), "solid", "b", 70)}
+      ${w(out("product"), into("builder"), "solid", "b", 130)}
+      ${w(out("architect"), into("builder"), "solid", "b", 60)}
+      ${w(out("builder"), into("reviewer"), "solid", "b", 60)}
+      ${w(out("builder"), into("tester"), "dash", "g", 60)}
+      ${/* pointing back: the reviewer returns defects, the builder asks again */ ""}
+      ${w(back("reviewer"), outLow("builder"), "solid", "b", -70)}
+      ${w(back("builder"), outLow("research"), "solid", "b", -70)}
     </svg>
-    ${box(P.lead.x, P.lead.y, "Lead", "Decides and delegates", VIOLET, lit ? "lit" : "")}
-    ${box(P.res.x, P.res.y, "Researcher", "Reads the outside world", CYAN, stage >= 1 ? (lit ? "lit" : "") : "dim")}
-    ${box(P.eng.x, P.eng.y, "Engineer", "Writes and proves it", AMBER, stage >= 1 ? (lit ? "lit" : "") : "dim")}
-    ${box(P.rev.x, P.rev.y, "Reviewer", "Reads the diff", PINK, stage >= 1 ? (lit ? "lit" : "") : "dim")}
-    <div class="sub" style="top:572px">Each with its own prompt, its own tools, its own lane.</div>
+    ${Object.entries(P).map(([k, a], i) =>
+      box(a.x, a.y, a.name, a.role, a.c,
+        stage >= 1 ? (lit ? "lit" : "") : (i === 0 ? "" : "dim"))).join("")}
+    <div class="sub" style="top:596px">
+      Each with its own prompt, its own tools, its own lane — and they answer each other.</div>
   `);
 };
 
@@ -185,22 +208,37 @@ export const shape = () => shell(`
   <div class="sub" style="top:588px">Its own prompt, its own model, and exactly which tools it can touch.</div>
 `);
 
-/** They are a team, not a queue — that is the part people miss. */
+/**
+ * They are a team, not a queue — the part people miss.
+ *
+ * Shown as several exchanges happening at once rather than one pair swapping
+ * messages: two agents passing a note looks like a pipeline, which is exactly
+ * the wrong impression.
+ */
 export const coordinate = () => shell(`
-  <div class="headline" style="top:88px">They work as a team.</div>
+  <div class="headline" style="top:56px">They work as a team.</div>
   <svg>${DEFS}
-    <path class="wire live" marker-end="url(#a)"
-      d="M 448 268 C 528 268, 592 268, 672 268"/>
-    <path class="wire dash" marker-end="url(#g)"
-      d="M 672 372 C 592 372, 528 372, 448 372"/>
+    <path class="wire live" marker-end="url(#a)" d="M 292 236 C 372 236, 404 178, 484 178"/>
+    <path class="wire live" marker-end="url(#a)" d="M 292 256 C 372 256, 404 330, 484 330"/>
+    <path class="wire dash" marker-end="url(#g)" d="M 692 178 C 772 178, 804 236, 884 236"/>
+    <path class="wire solid" marker-end="url(#b)" d="M 692 350 C 772 350, 804 420, 884 420"/>
+    <path class="wire solid" marker-end="url(#b)" d="M 484 400 C 424 400, 404 300, 484 300"/>
+    <path class="wire dash" marker-end="url(#g)" d="M 884 460 C 804 460, 772 396, 692 396"/>
   </svg>
-  ${box(240, 278, "Lead", "", VIOLET, "lit")}
-  ${box(672, 278, "Engineer", "", AMBER, "lit")}
-  <div class="mono" style="position:absolute;left:0;right:0;text-align:center;top:222px;font-size:15px;color:${AMBER}">
-    hands the work over</div>
-  <div class="mono" style="position:absolute;left:0;right:0;text-align:center;top:396px;font-size:15px;color:${GREEN}">
-    reports back, or asks a question</div>
-  <div class="sub" style="top:544px">Delegating, handing off, and pushing back on each other.</div>
+  ${box(84, 204, "Lead", "", VIOLET, "lit")}
+  ${box(484, 136, "Architect", "", BLUE, "lit")}
+  ${box(484, 288, "Research", "", CYAN, "lit")}
+  ${box(484, 400, "Implementer", "", AMBER, "lit")}
+  ${box(884, 194, "Reviewer", "", PINK)}
+  ${box(884, 378, "Tests", "", GREEN)}
+  <div class="mono" style="position:absolute;left:300px;top:120px;font-size:14px;color:${AMBER}">
+    hands work over</div>
+  <div class="mono" style="position:absolute;left:706px;top:126px;font-size:14px;color:${GREEN}">
+    reports back</div>
+  <div class="mono" style="position:absolute;left:330px;top:492px;font-size:14px;color:${BLUE}">
+    asks a question, mid-task</div>
+  <div class="sub" style="top:600px">
+    Delegating, handing off, and pushing back — several at once, not one after another.</div>
 `);
 
 /** The close. */

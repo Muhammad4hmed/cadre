@@ -37,7 +37,11 @@ const vscodeStub = {
   Disposable: class { constructor(fn) { this.dispose = fn || (() => {}); } },
   window: {
     createOutputChannel: () => ({
-      info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, show: () => {}, dispose: () => {},
+      // Captured, because some behaviour is only observable in the log — the
+      // executable resolver, for one, reports what it found and why.
+      info: (m) => logged.push(String(m)), warn: (m) => logged.push(String(m)),
+      error: (m) => logged.push(String(m)), debug: () => {},
+      show: () => {}, dispose: () => {},
     }),
     registerWebviewViewProvider: (_id, provider) => { vscodeStub.__provider = provider; return { dispose() {} }; },
     createWebviewPanel: () => ({
@@ -87,7 +91,25 @@ const vscodeStub = {
 };
 
 const originalLoad = Module._load;
-Module._load = (r, p, m) => (r === "vscode" ? vscodeStub : originalLoad.call(Module, r, p, m));
+const spawns = { count: 0 };
+const logged = [];
+Module._load = (request, parent, isMain) => {
+  if (request === "vscode") return vscodeStub;
+  // Finding the executable on PATH means a *synchronous* subprocess on the
+  // extension host thread. Counting them is the only way to notice one
+  // creeping back into a hot path.
+  if (request === "node:child_process" || request === "child_process") {
+    const real = originalLoad.call(Module, request, parent, isMain);
+    return new Proxy(real, {
+      get(target, prop) {
+        const value = Reflect.get(target, prop);
+        if (prop !== "execFileSync") return value;
+        return (...args) => { spawns.count += 1; (spawns.what ??= []).push(String(args[0])); return value(...args); };
+      },
+    });
+  }
+  return originalLoad.call(Module, request, parent, isMain);
+};
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-ui-")), "extension.cjs");
 // Alias the SDK out: listSessions would otherwise read the real session store,
@@ -623,6 +645,42 @@ receive({ kind: "saveWorkflow", workflow: withDefaults });
 await settle();
 check("workflow defaults are persisted",
   JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8")).defaults.model === "sonnet");
+
+// ---- resolving the executable must not spawn a process every time -----------
+// It is a synchronous subprocess on the extension host thread, and it used to
+// run on every readiness check — so every settings change and folder change
+// blocked the UI on it.
+delete settings["cadre.claudeExecutablePath"];
+posted.length = 0;
+spawns.count = 0;
+// A change to some *other* Cadre setting. Real VS Code answers
+// affectsConfiguration per section, so a blanket `true` would be claiming the
+// executable path changed — which legitimately invalidates the cache.
+for (let i = 0; i < 12; i += 1) {
+  vscodeStub.__onConfig({ affectsConfiguration: (k) => k === "cadre" });
+  await settle();
+}
+const repeated = spawns.count;
+if (repeated > 2) console.log("SPAWNED:", JSON.stringify((spawns.what || []).slice(0, 4)));
+check(`twelve unrelated setting changes resolve the executable once, not twelve times (${repeated})`,
+  repeated <= 2);
+
+settings["cadre.claudeExecutablePath"] = fakeCli;
+vscodeStub.__onConfig({ affectsConfiguration: (k) => k.includes("claudeExecutablePath") });
+await settle();
+const settled = spawns.count;
+for (let i = 0; i < 5; i += 1) {
+  vscodeStub.__onConfig({ affectsConfiguration: (k) => k === "cadre" });
+  await settle();
+}
+check("a configured path needs no PATH search at all", spawns.count === settled);
+
+// Changing the path must invalidate the cache, or the setting appears inert.
+// Asserted on the wiring: the effect is not observable from here, because the
+// resolver finds the SDK's bundled binary before it ever reaches PATH.
+const wiring = fs.readFileSync("src/extension.ts", "utf8");
+check("changing cadre.claudeExecutablePath clears the cached resolution",
+  /affectsConfiguration\("cadre\.claudeExecutablePath"\)\)\s*clearExecutableCache\(\)/.test(wiring));
 
 // ---- a long session must not grow without bound ------------------------------
 // Streamed prose arrives one delta at a time. Every delta used to be kept, so a

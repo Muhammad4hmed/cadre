@@ -11,8 +11,41 @@ import { execFileSync } from "node:child_process";
  * `pathToClaudeCodeExecutable`. That also keeps us working when the extension
  * is bundled and `require.resolve` can't see into the SDK's package layout.
  */
+/**
+ * Resolution is cached, because it is not cheap and it is called constantly.
+ *
+ * Finding the binary on PATH means `execFileSync("which")` — a synchronous
+ * subprocess on the extension host thread — and the Marketplace build has no
+ * bundled binary to short-circuit it. That ran on every readiness check, so
+ * every configuration change, folder change and screen publish blocked the UI
+ * on a process spawn.
+ *
+ * Keyed on the configured path so changing the setting re-resolves, and the
+ * cached path is re-checked for existence, which is a stat rather than a spawn.
+ */
+let cached: { configured: string; resolved: string | undefined } | undefined;
+
+/** Called when the setting changes, or when a run fails to launch. */
+export function clearExecutableCache(): void {
+  cached = undefined;
+}
+
 export function resolveClaudeExecutable(log: vscode.LogOutputChannel): string | undefined {
-  const configured = vscode.workspace.getConfiguration("cadre").get<string>("claudeExecutablePath");
+  const configured = vscode.workspace.getConfiguration("cadre").get<string>("claudeExecutablePath") ?? "";
+
+  if (cached && cached.configured === configured) {
+    // Still there? A stat is cheap; a stale path that was uninstalled under us
+    // would otherwise fail much later, as an unexplained spawn error.
+    if (!cached.resolved || fs.existsSync(cached.resolved)) return cached.resolved;
+    cached = undefined;
+  }
+
+  const found = locate(log, configured);
+  cached = { configured, resolved: found };
+  return found;
+}
+
+function locate(log: vscode.LogOutputChannel, configured: string): string | undefined {
   if (configured) {
     if (fs.existsSync(configured)) {
       log.info(`claude executable: ${configured} (from settings)`);
