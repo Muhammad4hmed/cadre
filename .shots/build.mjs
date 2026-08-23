@@ -250,7 +250,11 @@ const shots = [
   { name: "projects", events: PROJECTS, width: 420 },
   { name: "signed-out", events: AUTH, width: 420 },
   { name: "resumed", events: RESUMED, width: 1180 },
-  { name: "home", events: HOME, width: 1180 },
+  // Tall on purpose: the home screen is the one shot whose content has an
+  // intrinsic height rather than filling the viewport, and at the default it
+  // cut the last row of templates in half. build.mjs renders it long and the
+  // capture step trims the empty tail — see README.
+  { name: "home", events: HOME, width: 1180, height: 2600 },
   { name: "builder", events: BUILDER, width: 1180 },
   { name: "many", events: MANY, width: 1180 },
   { name: "detail", events: DETAIL, width: 1180 },

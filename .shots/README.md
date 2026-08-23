@@ -18,4 +18,17 @@ google-chrome --headless=new --disable-gpu --hide-scrollbars \
   --screenshot=media/screenshots/team-floor.png "file://$PWD/.shots/team-floor.html"
 ```
 
+The home screen is the exception to the fixed window size. Every other view fills
+whatever viewport it is given; the home screen is a list, so its height is whatever
+the templates add up to — at 760px it cut the last row of cards in half, which is
+what the Marketplace hero image showed. It renders at 2600px and the capture trims
+the empty tail:
+
+```sh
+google-chrome --headless=new --disable-gpu --hide-scrollbars \
+  --force-device-scale-factor=2 --window-size=1180,2600 \
+  --screenshot=/tmp/home-tall.png "file://$PWD/.shots/home.html"
+node .shots/trim.mjs /tmp/home-tall.png media/screenshots/home.png
+```
+
 `scripts/make-diagram.py` regenerates `media/screenshots/flow.png`.

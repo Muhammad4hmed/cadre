@@ -1775,6 +1775,26 @@ button.chip.account[data-state="out"] {
 
   const atBottom = (c) => c.scrollHeight - c.scrollTop - c.clientHeight < 48;
 
+  /**
+   * The lane a session-wide event belongs in: the entry agent's, because that
+   * is who the user is talking to. This used to be hardcoded as "lead" from
+   * the fixed roster this started as — and place() fails silently, so once
+   * workflows could be any shape those events were simply dropped.
+   */
+  /**
+   * A token count, for reading at a glance: 190000 -> "190K". Only ever shown
+   * to convey scale, so the rounding is deliberate.
+   */
+  function fmtTokens(n) {
+    const value = Number(n);
+    if (!Number.isFinite(value) || value <= 0) return "0";
+    return value >= 1000 ? Math.round(value / 1000) + "K" : String(Math.round(value));
+  }
+
+  function mainLane() {
+    return state.runGraph?.entry || [...state.members.keys()][0] || "";
+  }
+
   function place(who, element) {
     const container = laneContainers()[who];
     if (!container) return;
@@ -1812,8 +1832,21 @@ button.chip.account[data-state="out"] {
     return out + blocks(tail);
   }
 
+  /**
+   * Quotes are escaped as well as angle brackets, because a link's href and
+   * title are built as attributes out of this text. Without it a URL
+   * containing a double quote — which the link pattern happily matches —
+   * closes the attribute and everything after it becomes markup:
+   *
+   *   [x](https://a/"onmouseover="…)  ->  <a href="https://a/" onmouseover="…">
+   *
+   * The content security policy refuses to run an inline handler, so that is
+   * not a live script injection today. It is one CSP change away from being
+   * one, and it is malformed markup either way.
+   */
   const escapeHtml = (s) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   /**
    * Block structure: headings, lists, quotes, rules and tables.
@@ -2188,20 +2221,24 @@ button.chip.account[data-state="out"] {
       }
 
       case "notice":
-        place(e.who || "lead", node("div", "notice " + e.level, e.text));
+        place(e.who || mainLane(), node("div", "notice " + e.level, e.text));
         return;
 
       case "compacted": {
         const shrunk = e.after ? ` — ${fmtTokens(e.before)} → ${fmtTokens(e.after)}` : "";
-        place("lead", node("div", "notice compacted",
+        place(mainLane(), node("div", "notice compacted",
           `Context was full, so the history was summarised${shrunk}. The team keeps going; older detail is gone.`));
         return;
       }
 
       case "spend": {
-        state.spendUsd = e.usd;
+        // The header is a session total — the spend cap is measured against
+        // the session, and a teammate's cost counts towards it. The card below
+        // is what this one run cost.
+        state.spendUsd = typeof e.totalUsd === "number" ? e.totalUsd : e.usd;
         const seconds = (e.durationMs / 1000).toFixed(1);
-        place("lead", node("div", "spend", e.turns + " turns · " + seconds + "s · $" + e.usd.toFixed(4)));
+        place(e.who || mainLane(),
+          node("div", "spend", e.turns + " turns · " + seconds + "s · $" + e.usd.toFixed(4)));
         el.spend.textContent = "$" + state.spendUsd.toFixed(4);
         return;
       }
@@ -2218,18 +2255,44 @@ button.chip.account[data-state="out"] {
     state.assignments.clear();
     state.asks.clear();
     if (!state.log.length) { showEmpty(); return; }
-    for (const e of state.log) renderEvent(e);
+    for (const e of state.log) {
+      // A live event that throws costs one message; the same event replayed
+      // here would abort the loop and leave every later event unrendered — the
+      // board would go blank from that point on. Report it and carry on.
+      try {
+        renderEvent(e);
+      } catch (err) {
+        console.error("Cadre: could not render a " + e.kind + " event", err);
+      }
+    }
   }
 
+  /**
+   * The placeholder shown before anything has happened.
+   *
+   * It was pinned to a lane called "lead" and named the Researcher and the
+   * Engineer — the fixed roster this started as. Two of fourteen templates have
+   * an agent slugged "lead", so everywhere else this was placed into a lane
+   * that does not exist and silently dropped: an empty board with nothing to
+   * explain it.
+   */
   function showEmpty() {
-    const container = laneContainers().lead;
+    const who = mainLane();
+    const container = laneContainers()[who];
     if (!container) return;
+    const entry = state.members.get(who);
+    const others = [...state.members.values()].filter((m) => m.id !== who);
     const empty = node("div", "empty");
     empty.appendChild(node("span", "glyph", "◈"));
-    empty.appendChild(node("div", null, "Describe your project to the Lead."));
-    empty.appendChild(
-      node("div", null, "They'll question the brief, then put the Researcher and Engineer to work."),
-    );
+    empty.appendChild(node("div", null,
+      entry ? "Describe the work to " + (entry.name || entry.id) + "." : "Describe the work to start."));
+    if (others.length) {
+      const names = others.map((m) => m.name || m.id);
+      const listed = names.length > 2
+        ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]
+        : names.join(" and ");
+      empty.appendChild(node("div", null, "They can put " + listed + " to work."));
+    }
     container.appendChild(empty);
   }
 
@@ -4140,6 +4203,12 @@ button.chip.account[data-state="out"] {
     const node = el[id] ?? document.getElementById(id);
     if (node && (node.textContent || "").trim() === "—") node.hidden = true;
   }
+  // Decide the layout before the first paint rather than waiting for the
+  // observer's first callback. It arrives quickly in a real webview, so this
+  // only ever showed as a flicker — but it meant the board was built once in
+  // the wrong shape and immediately rebuilt, and it left the per-agent lanes
+  // unreachable to anything that reads the page synchronously.
+  applyLayout();
   el.body.dataset.layout = state.layout;
   showScreen("loading");
   buildFloor();
@@ -4151,7 +4220,7 @@ button.chip.account[data-state="out"] {
 </script>
 <script>
   const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
-  const script = [{"kind":"auth","signedIn":true,"detail":"you@example.com · max","billing":"Claude subscription","usingApiKey":false},{"kind":"screen","screen":"projects"},{"kind":"projects","roots":["/home/you/code"],"active":"/home/you/code/pipeline","items":[{"path":"/home/you/code/pipeline","name":"pipeline","open":true,"known":true,"stack":["Python","Docker"],"lastTouched":0},{"path":"/home/you/code/web-console","name":"web-console","open":true,"known":false,"stack":["Node","TypeScript"],"lastTouched":0},{"path":"/home/you/code/infra","name":"infra","open":false,"known":true,"stack":["Docker"],"lastTouched":0},{"path":"/home/you/code/label-tool","name":"label-tool","open":false,"known":false,"stack":["Python"],"lastTouched":0}]},{"kind":"sessions","project":"pipeline","items":[{"id":"1","title":"Urdu TTS under 10 MB — feasibility","when":1787484812042},{"id":"2","title":"fix the decoder dropping the final word","when":1787402012042},{"id":"3","title":"set up CI and the release workflow","when":1787150012042}]}];
+  const script = [{"kind":"auth","signedIn":true,"detail":"you@example.com · max","billing":"Claude subscription","usingApiKey":false},{"kind":"screen","screen":"projects"},{"kind":"projects","roots":["/home/you/code"],"active":"/home/you/code/pipeline","items":[{"path":"/home/you/code/pipeline","name":"pipeline","open":true,"known":true,"stack":["Python","Docker"],"lastTouched":0},{"path":"/home/you/code/web-console","name":"web-console","open":true,"known":false,"stack":["Node","TypeScript"],"lastTouched":0},{"path":"/home/you/code/infra","name":"infra","open":false,"known":true,"stack":["Docker"],"lastTouched":0},{"path":"/home/you/code/label-tool","name":"label-tool","open":false,"known":false,"stack":["Python"],"lastTouched":0}]},{"kind":"sessions","project":"pipeline","items":[{"id":"1","title":"Urdu TTS under 10 MB — feasibility","when":1787490842191},{"id":"2","title":"fix the decoder dropping the final word","when":1787408042191},{"id":"3","title":"set up CI and the release workflow","when":1787156042191}]}];
   // Deltas are delivered in one pass; the streaming path is the same code.
   for (const e of script) send(e);
   const live = document.getElementById("livemap");
