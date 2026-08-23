@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.14.2 — a claim nobody checked was reported as supported
+
+`paper check` is the one thing in Cadre that makes a verification claim: every
+`\claim{}` in the paper is declared in `claims.json`, and the quoted evidence
+really is in the file it names.
+
+There was a floor: a quote under eight characters was not looked for, because a
+handful of characters matches almost any file and finding one proves nothing.
+The floor was right. What it did was wrong — it skipped the check and then
+recorded the claim as **"supported by evidence.txt"**. So `"quote": "the"`
+passed, and so did every claim in a ledger written that way.
+
+A quote too short to check now fails, and says that is why. The floor still
+exists for the reason it always did; it just no longer certifies what it
+declined to examine.
+
+Found while probing with compiler flags the project does not enable —
+`noUncheckedIndexedAccess` pointed at that line for an unrelated reason, and the
+bug was two lines further on.
+
+1178 checks.
+
 ## 0.14.1 — six releases went out that did not compile
 
 `src/workflow/store.ts` has not typechecked since 0.13.2. A duplicate import of

@@ -186,6 +186,9 @@ export interface ClaimVerdict {
  * reader. It exists so that the reader is never handed a claim with nothing
  * behind it in the first place.
  */
+/** Below this a quote matches too much to be evidence of anything. */
+const MIN_QUOTE = 8;
+
 export function checkClaims(paperDir: string, projectRoot: string): {
   ok: boolean;
   verdicts: ClaimVerdict[];
@@ -237,8 +240,16 @@ export function checkClaims(paperDir: string, projectRoot: string): {
       continue;
     }
     const body = safeRead(resolved);
-    const needle = claim.quote.trim().split("\n")[0].trim();
-    if (needle.length >= 8 && !body.includes(needle)) {
+    const needle = claim.quote.trim().split("\n")[0]?.trim() ?? "";
+    // A handful of characters matches almost any file, so finding one proves
+    // nothing — which is why there is a floor. What the floor must not do is
+    // let the claim through: it used to skip the check and then record the
+    // claim as supported, which is the one outcome worse than not checking.
+    if (needle.length < MIN_QUOTE) {
+      fail(`the quoted evidence is too short to check — quote a whole line, not ${JSON.stringify(needle)}`);
+      continue;
+    }
+    if (!body.includes(needle)) {
       fail(`the quoted evidence is not in ${claim.source}`);
       continue;
     }

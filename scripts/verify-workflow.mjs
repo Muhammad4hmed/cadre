@@ -24,7 +24,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 const wf = createRequire(import.meta.url)(outfile);
-const { model, presets, protocol, store, templates, generate, models, replay, describe, policy, project } = wf;
+const { model, presets, protocol, store, templates, generate, models, replay, describe, policy, project, paper } = wf;
 
 
 /**
@@ -323,6 +323,49 @@ check("re-recording a session updates rather than duplicates",
 const second = store.createWorkflow(root, "My Team");
 check("a second workflow with the same name gets its own id", second.id !== created.id);
 check("one workflow does not see another's sessions", store.listSessions(root, second.id).length === 0);
+
+/* --------------------------------------------------- checking a paper's claims */
+
+// `paper check` is the one thing in here that makes a verification claim: every
+// \claim{} in the paper is declared, and the quoted evidence really is in the
+// file it names. That is a floor, and the floor has to hold — a claim reported
+// as supported when nothing was checked is worse than no checker at all.
+{
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-paper-"));
+  const paperDir = path.join(home, "docs", "paper");
+  fs.mkdirSync(paperDir, { recursive: true });
+  fs.writeFileSync(path.join(home, "evidence.txt"),
+    "The decoder truncates the final token when the encoder output is padded.\n");
+
+  const ledger = (claims) => fs.writeFileSync(path.join(paperDir, "claims.json"), JSON.stringify(claims));
+  const tex = (ids) => fs.writeFileSync(path.join(paperDir, "main.tex"),
+    ids.map((i) => `We found \\claim{${i}} to hold.`).join("\n"));
+
+  tex(["c1"]);
+  ledger([{ id: "c1", source: "evidence.txt", when: "2026-01-01",
+    quote: "The decoder truncates the final token" }]);
+  let out = paper.checkClaims(paperDir, home);
+  check("a quote that is really in the evidence passes", out.ok === true);
+
+  ledger([{ id: "c1", source: "evidence.txt", when: "2026-01-01",
+    quote: "The decoder rewrites the final token" }]);
+  out = paper.checkClaims(paperDir, home);
+  check("a quote that is not in the evidence fails",
+    out.ok === false && /not in evidence.txt/.test(out.verdicts[0].reason));
+
+  // The hole: too short to look for, so it was not looked for — and then
+  // reported as supported anyway.
+  ledger([{ id: "c1", source: "evidence.txt", when: "2026-01-01", quote: "zzz" }]);
+  out = paper.checkClaims(paperDir, home);
+  check("a quote too short to check does not pass as supported", out.ok === false);
+  check("...and says that is why, rather than that it was verified",
+    /too short/i.test(out.verdicts[0].reason ?? ""));
+
+  // The reason the floor exists at all: a short string matches anything.
+  ledger([{ id: "c1", source: "evidence.txt", when: "2026-01-01", quote: "the" }]);
+  out = paper.checkClaims(paperDir, home);
+  check("a quote that would match almost any file is not evidence", out.ok === false);
+}
 
 /* ------------------------------------ what the project itself puts in the prompt */
 
