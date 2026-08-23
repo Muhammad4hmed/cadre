@@ -226,6 +226,40 @@ check("status still reports what changed", /app\.ts/.test(await view("status")))
 
 fs.rmSync(repo, { recursive: true, force: true });
 
+// ---- the paper tool must stay inside the workspace ------------------------
+// It takes a directory, so it is the one team tool that can be pointed
+// somewhere. The confinement was a bare prefix test, which a sibling directory
+// sharing the workspace's name passes: with the workspace at /home/me/proj,
+// "../proj-evil/paper" resolves to /home/me/proj-evil/paper and starts with
+// /home/me/proj. `paper check` reports whether a quoted line is present in a
+// file, so escaping is a read of somewhere it should not reach, not only a
+// write.
+{
+  const confined = createWorkflowServer({
+    cwd: "/home/me/proj",
+    signal: new AbortController().signal,
+    workflow: WORKFLOW,
+    runAgent: async () => "VERDICT: DONE",
+  }, "lead");
+  const paper = Object.fromEntries(confined.tools.map((t) => [t.name, t])).paper;
+  const refused = async (dir) => {
+    const out = await paper.handler({ action: "check", dir }, {});
+    return /inside the workspace/i.test(out.content[0].text);
+  };
+
+  check("a sibling directory sharing the workspace name is refused",
+    await refused("../proj-evil/paper"));
+  check("...and one reached by climbing out and back in", await refused("../proj-x/../proj-evil"));
+  check("an absolute path elsewhere is refused", await refused("/etc/paper"));
+  check("climbing above the workspace is refused", await refused("../../etc/paper"));
+  check("the workspace's own parent is refused", await refused(".."));
+
+  // And the ordinary case still works: refused only means "not inside".
+  const normal = await paper.handler({ action: "check", dir: "docs/paper" }, {});
+  check("a directory inside the workspace is not refused as outside it",
+    !/inside the workspace/i.test(normal.content[0].text));
+}
+
 console.log("=== tool schemas ===");
 let failed = false;
 for (const [label, ok] of checks) {

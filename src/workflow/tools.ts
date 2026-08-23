@@ -293,7 +293,15 @@ export function createWorkflowServer(
       },
       async (args) => {
         const dir = path.resolve(ctx.cwd, String(args.dir ?? "docs/paper"));
-        if (!dir.startsWith(ctx.cwd)) return text("The paper must live inside the workspace.");
+        // Not a bare prefix test: with the workspace at /home/me/proj, the
+        // sibling /home/me/proj-evil starts with it and would have passed. This
+        // tool takes a directory, so it is the one place a team tool can be
+        // aimed somewhere, and `check` reports whether a quoted line is present
+        // in a file — escaping reads, not only writes.
+        const root = path.resolve(ctx.cwd);
+        if (dir !== root && !dir.startsWith(root + path.sep)) {
+          return text("The paper must live inside the workspace.");
+        }
 
         if (args.action === "check") {
           const result = checkClaims(dir, ctx.cwd);

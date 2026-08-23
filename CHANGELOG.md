@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.1 — a directory next door counted as inside the workspace
+
+The `paper` tool takes a directory, which makes it the one team tool that can be
+aimed somewhere. It checked confinement with a bare prefix test, and a sibling
+directory sharing the workspace's name passes one: with the workspace at
+`/home/me/proj`, `../proj-evil/paper` resolves to `/home/me/proj-evil/paper`,
+which starts with `/home/me/proj`.
+
+`paper check` reports whether a quoted line is present in a file, so this was a
+read of somewhere it should not reach as much as a write. Climbing further out
+was already refused; it was only the near miss that got through.
+
+The same mistake was fixed in the runner's confinement several releases ago, in
+a place I had checked. This one I had not. A sweep of the codebase finds no
+third: it was the only remaining bare prefix test against a directory.
+
+1069 checks.
+
 ## 0.12.0 — the Read tool could read credentials the rest of the extension refused
 
 Three lists guard credential files, and they have to agree: one binds the Read
