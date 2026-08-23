@@ -63,6 +63,10 @@ narration is there for anyone who unmutes.
 > requested.** A read-only agent physically cannot write a file. An agent that can
 > quietly do the work itself will — and then its teammates are decoration.
 >
+> And it is not really about code. The templates that took longest to write were a
+> hiring team, a marketing team and a cold-outreach team — six agents each, and the
+> outreach one has a compliance agent that is allowed to say no.
+>
 > It runs on the Claude Code subscription you already have. No API key.
 >
 > Open source, MIT. Link in the comments.
@@ -87,10 +91,18 @@ narration is there for anyone who unmutes.
 > edit anything before it runs.
 >
 > **3. Tests pass for the wrong reasons, constantly.**
-> 968 hermetic checks. Along the way I found that `git_view show .env` printed a
-> live secret straight past the deny list, that a workflow id from the UI could
-> write outside the project, and that Stop did not reach a chain of agents. Every
-> one of those was found by attacking it, not by using it.
+> 968 hermetic checks — and the ones I trust are the ones I broke on purpose to
+> watch them go red. Along the way: `git_view show .env` printed a live secret
+> straight past the deny list; a cloned repo could point the docs folder at
+> `~/.ssh` and get a read-only agent writing there; an interrupted write left the
+> workflow you had drawn unreadable, in 7 of 12 attempts. Every one of those was
+> found by attacking it, not by using it.
+>
+> The one that stung: reopening a conversation showed an empty board for twelve of
+> the fourteen templates, for a year-old reason — the code still addressed a lane
+> called "lead" from the fixed three-agent roster it started as. Placing into a
+> lane that does not exist fails silently. The test suite only ever exercised the
+> one template where that guess happened to be right.
 >
 > Open source, MIT, runs on your existing Claude Code subscription.
 
