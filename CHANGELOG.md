@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.9 — the one blocking call left, and it had no ceiling
+
+Finding the `claude` binary can fall through to `execFileSync("which")`. That is
+synchronous and it runs on the extension host thread, which the code already
+said in a comment: an earlier fix cached the result because it "blocked the UI on
+a process spawn" on every readiness check. Caching made it rare. Nothing made it
+finite.
+
+A PATH lookup that does not return does not freeze Cadre, it freezes the window
+and every extension in it. On Windows `where` walks every entry on PATH, which
+routinely includes network drives that are no longer there. Three seconds now,
+after which it throws and a missing executable is reported the way a missing
+executable always was. Its stderr is no longer inherited either.
+
+That is the last unbounded subprocess call in the extension. The other five
+paths that shell out — auth status, auth logout, the Tectonic download, the
+archive extraction and the LaTeX build — were already bounded, and `git_view`
+has had a twenty second ceiling for a while.
+
+988 checks. This one is asserted against the source, not by running it: on any
+machine with the SDK's bundled binary present, resolution finds that first and
+never reaches PATH, so a behavioural test would have passed without executing
+the line it claimed to cover.
+
 ## 0.11.8 — asking the CLI what it supports could hang forever
 
 The model list is read from the installed Claude Code, because the identifiers

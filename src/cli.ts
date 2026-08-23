@@ -103,7 +103,20 @@ function bundledBinary(): string | undefined {
 function onPath(): string | undefined {
   try {
     const finder = process.platform === "win32" ? "where" : "which";
-    const found = execFileSync(finder, ["claude"], { encoding: "utf8" })
+    const found = execFileSync(finder, ["claude"], {
+      encoding: "utf8",
+      // This is synchronous and it runs on the extension host thread, so a
+      // lookup that does not return freezes the whole editor, every extension
+      // in it, not only this one. `where` walks every PATH entry on Windows,
+      // which includes network drives that may be gone. Three seconds is a
+      // long time for a PATH lookup and no time at all to be frozen for; on
+      // expiry this throws, and a missing executable is already handled.
+      timeout: 3_000,
+      windowsHide: true,
+      // Otherwise the child's stderr is inherited and a noisy `which` prints
+      // into the host's output.
+      stdio: ["ignore", "pipe", "ignore"],
+    })
       .split(/\r?\n/)[0]
       .trim();
     return found || undefined;

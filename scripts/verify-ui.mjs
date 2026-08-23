@@ -132,7 +132,15 @@ Module._load = (request, parent, isMain) => {
       get(target, prop) {
         const value = Reflect.get(target, prop);
         if (prop !== "execFileSync") return value;
-        return (...args) => { spawns.count += 1; (spawns.what ??= []).push(String(args[0])); return value(...args); };
+        return (...args) => {
+          spawns.count += 1;
+          (spawns.what ??= []).push(String(args[0]));
+          // Recorded so the suite can assert this call is bounded. It is
+          // synchronous and runs on the extension host thread: a lookup that
+          // never returns freezes the editor and every extension in it.
+          (spawns.options ??= []).push(args[2] ?? {});
+          return value(...args);
+        };
       },
     });
   }
@@ -935,6 +943,30 @@ if (serializer) {
     folderSettings[folderPath]?.["cadre.autonomy"] === "supervised");
 
   vscodeStub.__pick = undefined;
+}
+
+// ---- the synchronous PATH lookup is bounded -------------------------------
+// Finding the claude binary can fall through to execFileSync("which"), which
+// blocks the extension host thread. Unbounded it could not merely be slow, it
+// could be permanent, and it would freeze every extension in the window, not
+// just this one. On Windows `where` walks every PATH entry, network drives
+// included.
+//
+// Asserted against the source rather than by running it: on any machine with
+// the SDK's bundled binary present, resolution finds that first and never
+// reaches PATH, so a behavioural test here would pass without executing the
+// line it claims to cover.
+{
+  const cli = fs.readFileSync("src/cli.ts", "utf8");
+  const call = /execFileSync\(\s*finder\s*,\s*\["claude"\]\s*,\s*\{([\s\S]*?)\}\s*\)/.exec(cli);
+  check("the PATH lookup is still a single execFileSync call", call !== null);
+  const opts = call?.[1] ?? "";
+  const timeout = /timeout:\s*([\d_]+)/.exec(opts);
+  check("...and it is given a timeout", timeout !== null);
+  check("...that is short enough to not read as a freeze",
+    timeout !== null && Number(timeout[1].replace(/_/g, "")) <= 10_000);
+  check("...and it does not inherit stderr into the host's output",
+    /stdio:/.test(opts));
 }
 
 // ---- the builder's own model runs can be stopped ---------------------------
