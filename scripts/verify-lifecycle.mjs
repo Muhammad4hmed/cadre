@@ -33,25 +33,67 @@ const originalLoad = Module._load;
 Module._load = (r, p, m) => (r === "vscode" ? vscodeStub : originalLoad.call(Module, r, p, m));
 
 const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-life-"));
-const outfile = path.join(dir, "orchestrator.cjs");
+const outfile = path.join(dir, "runner.cjs");
 await esbuild.build({
-  ...baseOptions({ entry: "src/team/orchestrator.ts", outfile }),
+  ...baseOptions({ entry: "src/workflow/runner.ts", outfile }),
   alias: { "@anthropic-ai/claude-agent-sdk": path.resolve("scripts/fake-sdk.mjs") },
   logLevel: "warning",
 });
 
 const require = createRequire(import.meta.url);
-const { TeamSession } = require(outfile);
+const { WorkflowSession } = require(outfile);
+const TeamSession = WorkflowSession;
 const fake = await import("./fake-sdk.mjs");
 
 const checks = [];
 const check = (label, ok) => checks.push([label, ok]);
 const tick = () => new Promise((r) => setTimeout(r, 25));
+/**
+ * Awaits a run that should already be finished.
+ *
+ * A regression here does not produce a wrong value, it produces a promise that
+ * never settles — the chain starts an agent nobody drives and waits forever. A
+ * bare `await` turns that into a hung suite, which reads as "no failures".
+ */
+async function settled(promise, label) {
+  const timeout = Symbol("timeout");
+  const result = await Promise.race([
+    promise,
+    new Promise((r) => setTimeout(() => r(timeout), 1500)),
+  ]);
+  if (result === timeout) {
+    check(`${label} (it never finished — something is still running)`, false);
+    return "";
+  }
+  return typeof result === "string" ? result : JSON.stringify(result);
+}
+
+/** A three-agent graph, so delegation and lanes have something to be about. */
+const agent = (id, name, preset) => ({
+  id, name, role: "", prompt: `You are ${name}.`, preset, x: 0, y: 0,
+});
+const WORKFLOW = {
+  id: "w", name: "Test workflow", entry: "lead",
+  agents: [agent("lead", "Lead", "readonly"), agent("researcher", "Researcher", "research"), agent("engineer", "Engineer", "build")],
+  edges: [
+    { from: "lead", to: "researcher", kind: "delegate" },
+    { from: "lead", to: "engineer", kind: "delegate" },
+  ],
+  createdAt: 0, updatedAt: 0, revision: 1,
+};
+
+/** The shipped software template, whose prompts carry the docs markers. */
+const TEMPLATE = {
+  ...require(outfile).__templates.templateById("software-team").build(0),
+  id: "tpl", createdAt: 0, updatedAt: 0, revision: 1,
+};
 
 const CONFIG = {
+  workflow: WORKFLOW,
+  maxContinues: 0,
   cwd: "/tmp", executablePath: "/fake/claude", autonomy: "standard",
-  inheritGlobalConfig: false, directLine: false,
-  models: {}, efforts: {}, skills: undefined, connectors: {},
+  inheritGlobalConfig: false, model: "opus", maxDepth: 3,
+  skills: undefined, connectors: {},
   thinking: "adaptive", fallbackModel: "", maxSpendUsd: 0, checkpoints: true,
   additionalDirectories: [], plugins: [], exclusiveConnectors: false,
   persistSessions: true, documentation: "substantial", docsPath: "docs",
@@ -266,7 +308,9 @@ fake.__instances.length = 0;
 
   const leadOutside = await gate("Edit", { file_path: "/repo/src/app.ts" }, ctx);
   check("F1 the Lead cannot edit production code",
-    leadOutside.behavior === "deny" && /no editor outside/i.test(leadOutside.message));
+    leadOutside.behavior === "deny" && /only write inside/i.test(leadOutside.message));
+  check("F1b and the refusal names who can",
+    /brief Engineer/i.test(leadOutside.message));
 
   const leadRelative = await gate("Write", { file_path: "src/app.ts" }, ctx);
   check("F2 a relative path does not slip past the gate", leadRelative.behavior === "deny");
@@ -378,7 +422,7 @@ fake.__instances.length = 0;
 // ---- K. documentation duty -------------------------------------------------
 fake.__instances.length = 0;
 {
-  const { session } = makeSession({ ...CONFIG, cwd: "/repo", docsPath: "documentation" });
+  const { session } = makeSession({ ...CONFIG, workflow: TEMPLATE, cwd: "/repo", docsPath: "documentation" });
   await session.prepare();
   session.send("x");
   await tick();
@@ -405,7 +449,7 @@ fake.__instances.length = 0;
 // ---- L. documentation off --------------------------------------------------
 fake.__instances.length = 0;
 {
-  const { session } = makeSession({ ...CONFIG, cwd: "/repo", documentation: "off" });
+  const { session } = makeSession({ ...CONFIG, workflow: TEMPLATE, cwd: "/repo", documentation: "off" });
   await session.prepare();
   session.send("x");
   await tick();
@@ -572,9 +616,21 @@ fake.__instances.length = 0;
   });
   await tick();
 
-  // The teammate hits its turn cap and produces no report.
-  fake.__instances[1].emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
-  fake.__instances[1].end();
+  // It does real work first — writes a file, runs a command, narrates — and
+  // only then runs out of turns. Everything it wrote is still on disk, so the
+  // report has to say so or the Lead re-briefs the identical work.
+  const worker = fake.__instances[1];
+  worker.emit(fake.initMessage());
+  worker.emit(fake.messageStart());
+  worker.emit(fake.textDelta("Scaffolded the exporter and started training."));
+  worker.emit(fake.assistantMessage([
+    { type: "tool_use", id: "u1", name: "Write", input: { file_path: "/repo/export.py" } },
+    { type: "tool_use", id: "u2", name: "Bash", input: { command: "python export.py --quantize" } },
+    { type: "tool_use", id: "u3", name: "Read", input: { file_path: "/repo/train.log" } },
+  ]));
+  await tick();
+  worker.emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+  worker.end();
   const report = await running;
   await tick();
 
@@ -582,9 +638,321 @@ fake.__instances.length = 0;
   check("R1 a truncated run reports BLOCKED, not an empty success", /BLOCKED/.test(text));
   check("R2 it says why in terms the Lead can act on", /turn limit/i.test(text));
   check("R3 the user is told the teammate stopped",
-    of("notice").some((n) => n.level === "error" && /Engineer stopped/.test(n.text)));
+    of("notice").some((n) => n.level === "error" && /turn limit/.test(n.text)));
   check("R4 the assignment is not marked delivered",
     of("deliver").at(-1)?.outcome === "blocked");
+
+  check("R5 the report says which files were already written", /wrote \/repo\/export\.py/.test(text));
+  check("R6 ...and which commands already ran", /ran: python export\.py --quantize/.test(text));
+  check("R7 ...but not every file it merely read", !/train\.log/.test(text));
+  check("R8 it carries the agent's own account of where it got to",
+    /Scaffolded the exporter/.test(text));
+  check("R9 it tells the Lead to re-brief only what is left",
+    /re-brief only what is left/i.test(text));
+  check("R10 and is explicit that the changes are on disk", /on disk/i.test(text));
+  session.dispose();
+}
+
+// ---- R2. a truncated run that did nothing must not pretend otherwise -------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "job", done_when: "done", decide_yourself: ["x"], authority: "EXPLORE",
+  });
+  await tick();
+  fake.__instances[1].emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+  fake.__instances[1].end();
+  const result = await running;
+  const text = typeof result === "string" ? result : JSON.stringify(result);
+  check("R11 a run that achieved nothing says so plainly", /nothing was accomplished/i.test(text));
+  check("R12 ...and does not invent a list of work already done", !/ALREADY DONE/.test(text));
+  session.dispose();
+}
+
+// ---- R3. running out of turns continues rather than giving up --------------
+// The context window is Claude Code's problem and it summarises and carries on.
+// The turn limit is ours: the run just stops. So we hand the agent its own
+// account of what it did and let it finish, in the same lane.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession({ ...CONFIG, maxContinues: 2 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "long job", done_when: "done", decide_yourself: ["x"], authority: "BUILD",
+  });
+  await tick();
+
+  // First attempt: does work, narrates, runs out of turns.
+  const first = fake.__instances[1];
+  first.emit(fake.initMessage());
+  first.emit(fake.messageStart("a"));
+  first.emit(fake.textDelta("Wrote the exporter, training is running."));
+  first.emit(fake.assistantMessage([
+    { type: "tool_use", id: "t1", name: "Write", input: { file_path: "/repo/export.py" } },
+  ]));
+  await tick();
+  first.emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+  first.end();
+  await tick();
+
+  check("C1 a second run is started rather than the work being abandoned",
+    fake.__instances.length === 3);
+  check("C2 the user is told it is carrying on, and how many attempts remain",
+    of("notice").some((n) => /carrying on \(1 of 2\)/.test(n.text)));
+
+  // Guarded: if continuation regresses there is no second run, and a stack
+  // trace here would hide which assertion actually broke.
+  const second = fake.__instances[2];
+  const carried = second ? String(second.prompt ?? "") : "";
+  check("C3 the continuation is given the original brief", /long job/.test(carried));
+  check("C4 ...and what it already wrote", /wrote \/repo\/export\.py/.test(carried));
+  check("C5 ...and its own last words, not a paraphrase",
+    /Wrote the exporter, training is running\./.test(carried));
+  check("C6 ...and is told the work on disk is real",
+    /on disk/i.test(carried) && /rather than repeating/i.test(carried));
+
+  // It finishes this time.
+  second?.emit(fake.initMessage());
+  second?.emit(fake.resultMessage({ result: "VERDICT: DONE\nHEADLINE: exporter shipped" }));
+  second?.end();
+  if (!second) { first.end(); }
+  const report = await running;
+  const text = typeof report === "string" ? report : JSON.stringify(report);
+  check("C7 the finished report is what comes back, not the truncation notice",
+    /VERDICT: DONE/.test(text) && !/BLOCKED/.test(text));
+  check("C8 the whole thing reads as one delegation, not two",
+    of("assign").filter((a) => a.assignment.to === "engineer").length === 1);
+  check("C9 ...and is delivered once", of("deliver").at(-1)?.outcome === "delivered");
+  session.dispose();
+}
+
+// ---- R4. continuing is bounded ---------------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, maxContinues: 1 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  const brief = fake.__instances[0].options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "endless", done_when: "done", decide_yourself: ["x"], authority: "BUILD",
+  });
+  await tick();
+
+  // Every attempt runs out of turns.
+  for (let i = 1; i <= 2; i += 1) {
+    const run = fake.__instances[i];
+    if (!run) break;
+    run.emit(fake.initMessage());
+    run.emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+    run.end();
+    await tick();
+  }
+  const result = await running;
+  const text = typeof result === "string" ? result : JSON.stringify(result);
+  check("C10 an agent that never finishes is not continued forever",
+    fake.__instances.length === 3);
+  check("C11 ...and reports BLOCKED at the limit rather than hanging", /BLOCKED/.test(text));
+  session.dispose();
+}
+
+// ---- R5. the context window filling is visible, in every lane --------------
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_researcher");
+  const running = brief.handler({ objective: "read a lot", done_when: "done", decide_yourself: ["x"] });
+  await tick();
+
+  const worker = fake.__instances[1];
+  worker.emit(fake.initMessage());
+  worker.emit(fake.compactBoundary("auto"));
+  await tick();
+  check("C12 a nested agent filling its window is reported, not silent",
+    of("compacted").length === 1);
+  check("C13 ...and explained in the lane it happened in",
+    of("notice").some((n) => n.who === "researcher" && /summarised/i.test(n.text)));
+  check("C14 ...saying detail was condensed rather than lost",
+    of("notice").some((n) => /condensed, not lost/i.test(n.text)));
+
+  worker.emit(fake.resultMessage({ result: "VERDICT: DONE" }));
+  worker.end();
+  await running;
+  check("C15 the run carries on in the same conversation afterwards",
+    of("compacted").length === 1);
+  session.dispose();
+}
+
+// ---- R6. Stop must stop work that chains or continues ----------------------
+// A handoff chain and a turn-limit continuation both start new runs after one
+// finishes. Neither used to notice an interrupt, so Stop aborted the run in
+// flight and the next one started anyway — spending money after the user
+// pressed the button that means "no more".
+fake.__instances.length = 0;
+{
+  const chained = {
+    ...WORKFLOW,
+    edges: [
+      { from: "lead", to: "researcher", kind: "delegate" },
+      { from: "researcher", to: "engineer", kind: "then" },
+    ],
+  };
+  const { session, of } = makeSession({ ...CONFIG, workflow: chained });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_researcher");
+  const running = brief.handler({ objective: "x", done_when: "y", decide_yourself: ["z"] });
+  await tick();
+
+  const worker = fake.__instances[1];
+  worker.emit(fake.initMessage());
+  await session.interrupt();
+  worker.emit(fake.resultMessage({ result: "VERDICT: DONE" }));
+  worker.end();
+  await running;
+  await tick();
+
+  check("X1 an interrupt stops the handoff chain instead of starting the next agent",
+    fake.__instances.length === 2);
+  check("X1b ...and the session knows it is stopping, not merely that a query threw",
+    session["stopping"] === true);
+  check("X2 ...and says the run was interrupted",
+    of("notice").some((n) => /Interrupted/i.test(n.text)));
+  session.dispose();
+}
+
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, maxContinues: 3 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  const brief = fake.__instances[0].options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "long", done_when: "y", decide_yourself: ["z"], authority: "BUILD",
+  });
+  await tick();
+
+  const first = fake.__instances[1];
+  first.emit(fake.initMessage());
+  await session.interrupt();
+  first.emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+  first.end();
+  const result = await running;
+  await tick();
+
+  check("X3 an interrupt stops a run being continued after its turn limit",
+    fake.__instances.length === 2);
+  check("X4 ...and the caller still gets an answer rather than hanging",
+    typeof result === "object" || typeof result === "string");
+  session.dispose();
+}
+
+// ---- R6b. the guard itself, not the accident -------------------------------
+// The tests above pass even without the guard, because aborting the query makes
+// the run throw and the chain never reaches its next node. That is the accident
+// the guard replaces, so it has to be exercised directly: a node that completes
+// CLEANLY after Stop was pressed must not start the next one. `stopping` is set
+// here rather than by interrupt() precisely to separate the two.
+fake.__instances.length = 0;
+{
+  const chained = {
+    ...WORKFLOW,
+    edges: [
+      { from: "lead", to: "researcher", kind: "delegate" },
+      { from: "researcher", to: "engineer", kind: "then" },
+    ],
+  };
+  const { session } = makeSession({ ...CONFIG, workflow: chained });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  const brief = fake.__instances[0].options.mcpServers.team.tools.find((t) => t.name === "brief_researcher");
+  const running = brief.handler({ objective: "x", done_when: "y", decide_yourself: ["z"] });
+  await tick();
+
+  session["stopping"] = true;
+  const worker = fake.__instances[1];
+  worker.emit(fake.initMessage());
+  worker.emit(fake.resultMessage({ result: "VERDICT: DONE" }));
+  worker.end();
+  await settled(running, "X7 the run finishes rather than waiting on an agent Stop should have prevented");
+  await tick();
+
+  check("X7 a node finishing cleanly after Stop does not start the next one",
+    fake.__instances.length === 2);
+  session.dispose();
+}
+
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, maxContinues: 3 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  const brief = fake.__instances[0].options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "long", done_when: "y", decide_yourself: ["z"], authority: "BUILD",
+  });
+  await tick();
+
+  session["stopping"] = true;
+  const first = fake.__instances[1];
+  first.emit(fake.initMessage());
+  first.emit(fake.resultMessage({ subtype: "error_max_turns", is_error: true, result: undefined }));
+  first.end();
+  const text = await settled(running, "X8 the continuation stops rather than hanging");
+  check("X8 a run out of turns after Stop is not continued", fake.__instances.length === 2);
+  check("X9 ...and still reports rather than hanging", /BLOCKED/.test(text));
+  session.dispose();
+}
+
+// ---- R7. sending again after Stop works ------------------------------------
+fake.__instances.length = 0;
+{
+  const { session } = makeSession();
+  await session.prepare();
+  session.send("first");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  await session.interrupt();
+  session.send("second");
+  await tick();
+  const brief = fake.__instances[0].options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "after stop", done_when: "y", decide_yourself: ["z"], authority: "BUILD",
+  });
+  await tick();
+  check("X5 an interrupt does not wedge the session — delegation works again",
+    fake.__instances.length >= 2);
+  check("X6 ...because sending again clears the stop", session["stopping"] === false);
+  fake.__instances.at(-1).emit(fake.resultMessage({ result: "VERDICT: DONE" }));
+  fake.__instances.at(-1).end();
+  await running;
   session.dispose();
 }
 

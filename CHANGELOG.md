@@ -1,5 +1,442 @@
 # Changelog
 
+## 0.9.1
+
+**Stop now stops work that chains or continues.** A handoff chain and a turn-limit
+continuation each start a *new* run once the previous one ends, and neither is inside the
+query an interrupt aborts. They only stopped at all because aborting happened to make the
+run throw — true today, and not something correctness should rest on: a node completing
+cleanly a moment before Stop landed would have started the next one anyway, spending money
+after the button that means "no more". Both now check explicitly, and sending again clears
+it.
+
+**Skills come from your Claude Code, not from a setting you had to type.** The builder
+listed whatever was in `cadre.playbooks`, which for almost everyone was nothing — so the
+Skills panel said "none configured" while the CLI had 45. It now asks the CLI in the same
+handshake that fetches the model list, and shows each skill with what it does:
+`/code-review`, `/verify`, `/simplify`, `/deep-research`, `/loop`, `/schedule` and the
+rest. `cadre.playbooks` still narrows the list when you set it.
+
+And it says which ones cannot work here, up front rather than halfway through a run:
+anything that schedules work for later or fans it out — `/loop`, `/schedule`, `/batch`,
+`/deep-research` — needs `Workflow`, `Agent`, `Cron` or `ScheduleWakeup`, and those are
+denied to every agent at every autonomy level. An arrow is the only fan-out a workflow
+has, by design.
+
+722 checks.
+
+**A note on the testing.** Two of the new Stop assertions passed *without* the fix, because
+the accident they were replacing produced the same observable result. Removing the guard
+now makes the suite die rather than print a failure, which `run-suites` catches by exit
+code — that is exactly why it judges exit codes instead of grepping for the word FAIL.
+
+## 0.9.0 — templates worth running
+
+The eight templates were shapes, not systems: three or four agents, a couple of arrows,
+prompts written to demonstrate the idea. Three new ones are workflows you could actually
+use today, and the home screen now separates **Ready to run** from **Starting points** so
+the difference is visible rather than something you discover after launching.
+
+**Ship a feature** — seven agents and nine arrows. Product decides scope and can say no;
+an Architect designs before anyone writes and records the alternative it rejected; the
+Implementer can ask the Architect when the design does not cover something, and ask
+Research when a library's behaviour is the question; a Reviewer reads the diff assuming it
+is wrong and sends real defects back; a Test engineer proves it as soon as it is written,
+and Docs writes it up. Four of those arrows point backwards — the agents argue.
+
+**Security review** — six agents. A lead who establishes the trust boundary first, three
+specialists reading source, dependencies and deployment, and an Exploit prover that
+actually tries to reproduce what they find, because a finding nobody could reproduce is
+the biggest source of wasted effort in security work. Findings are ranked by what they
+would really cost, and the report keeps the refutations too.
+
+**Bid response** — six agents, no code anywhere. A bid manager whose most valuable output
+is deciding *not* to bid, a requirements analyst who reads the annexes and the contract
+terms where requirements hide, an evidence gatherer who grades what can actually be
+proved, honest costing, a writer, and a compliance checker who assumes the response is
+non-compliant until shown otherwise.
+
+The label has to be earned. A template calling itself ready to run is asserted to have at
+least five agents, more arrows than agents, every arrow labelled, every agent given a
+150–600 word prompt and a stated role, at most two agents with hands, an entry agent that
+cannot do the work itself, and no prompt that re-explains the protocol the arrows already
+inject. At least one has to let peers push back on each other, and at least one has to be
+about something other than code.
+
+708 checks, up from 662.
+
+## 0.8.1 — nothing is lost when a run is cut off
+
+**An agent that runs out of turns now carries on instead of giving up.** It is handed its
+own account of what it did — the files it wrote, the commands it ran, and its own last
+words verbatim — and continues in the same lane, so from the outside it is one run.
+Bounded by `cadre.maxContinuations` (default 2), because "keep going" without a limit is
+how a stuck agent spends a whole budget achieving nothing. Set it to 0 for the old
+behaviour.
+
+Its own words rather than a summary we write: it knows what it was in the middle of, and
+paraphrasing that is how a continuation ends up redoing the first half.
+
+**And when it genuinely cannot continue, the report says what happened.** A truncated run
+used to hand back boilerplate — *"Nothing here was verified"* — which was true and
+useless: files had been written, things had been learned, and none of it reached the
+delegator, so the delegator re-briefed the identical work and paid for all of it twice.
+The report now lists what already ran and what is already on disk, carries the agent's own
+last words, and tells the delegator to re-brief only what is left. A run that truly
+achieved nothing still says so plainly rather than inventing a list.
+
+**The context window filling is now visible in every lane.** Claude Code already
+summarises the history and carries on in the same conversation — that part worked — but it
+was only reported for the agent you were talking to. A nested agent's window filling was
+silent, which is how a report ends up quietly missing what happened at the start. Every
+lane now says so, and says detail was condensed rather than lost.
+
+662 checks. Disabling continuation turns 8 red; disabling the compaction notice turns 2
+red. One of those tests crashed rather than failing legibly when it regressed, which is
+fixed too — a stack trace hides which assertion actually broke.
+
+## 0.8.0 — hardening
+
+Three real defects, found by attacking the extension rather than using it.
+
+**A credential file could be read straight past the deny list.** `git_view show .env`
+printed a live secret. The CLI's deny rules bind the Read tool; git reaches files another
+way, so it has to check for itself — which it did not. The README's claim that these reads
+are "denied at every level, including autonomous" was simply untrue as written.
+
+Now refused by shape, so a file that is not on disk yet or exists only in history is still
+protected: `.env` and `.env.*`, `.ssh/`, `.aws/credentials`, `.claude/.credentials.json`,
+`id_rsa`, `id_ed25519`, `*.pem`, `.netrc`, `.npmrc`, `.pypirc`. A **diff leaks a file just
+as surely as reading it**, so those paths are excluded from the pathspec rather than
+trusted not to have changed. Ordinary use is untouched — diffs, scoped diffs, status and
+`show` on any other file all work exactly as before, and that is asserted.
+
+**A workflow id could escape the project.** Ids arrive from webview messages and become
+filenames; `../` in one wrote a file outside the workspace. Proven, not theoretical. Every
+id is minted as a slug, so anything that is not one is refused rather than sanitised —
+quietly rewriting a malformed id would let one workflow overwrite another. Reads, deletes
+and session lookups fail quietly; writes report.
+
+**A long session grew without bound.** Streamed prose arrives one delta at a time and
+every delta was kept — in the host's replay log and again in each webview — so one agent
+turn pushed thousands of objects into each, and a layout change re-rendered all of them.
+Consecutive deltas of the same turn are now merged losslessly: what a surface joining late
+replays is identical, at a fraction of the size. Both logs are capped as a backstop, and
+dropping history says so rather than showing a conversation that begins mid-sentence.
+
+639 checks, up from 596. Each fix was mutation-tested: removing the credential guard turns
+12 checks red, removing the id guard turns 15 red, removing the delta merge turns 2 red.
+
+## 0.7.4
+
+**Markdown renders.** Agents write headed sections, bullets, tables and links; only bold
+and inline code were being rendered, so everything else arrived as literal punctuation —
+`### Why it was not posted` showed its hashes, and bulleted lists showed their dashes.
+
+Now handled: headings (clamped, because an h1 in a chat lane reads as a bug), bulleted and
+numbered lists, italics, strikethrough, blockquotes, horizontal rules, pipe tables in their
+own scrolling box, links, and bare URLs — agents cite by pasting them. An unterminated
+fence mid-stream renders as code rather than letting the rest of the message reflow as
+prose on every delta.
+
+Two correctness points. Everything is still escaped before any of it runs, so a message
+containing HTML is shown, never executed. And code spans are now pulled out before the
+emphasis passes and put back after: `` `a**b**c` `` used to come out with a bold `b`
+inside it, which is code and has to survive verbatim.
+
+**Fixed in the test harness — the reason none of this was caught.** The webview driver is
+JavaScript inside a template literal, so every backslash in a regex was eaten before the
+browser saw it: `/a\.b/` silently became `/a.b/`, which still matches, so the assertion
+passed and proved nothing. The driver is a `String.raw` template now, and its patterns mean
+what they say.
+
+596 checks.
+
+## 0.7.3
+
+**Resting is grey; only work in motion has colour.** Every node and arrow used to be
+coloured all the time, which says the same thing as colouring none of them. Now an agent
+that is not working recedes — dimmed, grey accent — and one that is glows with a pulse,
+its current activity in place of its job title. Arrows carrying work animate along their
+length; the rest are grey. Solid versus dashed still distinguishes a delegate arrow from a
+handoff, so nothing is lost by dropping the colour.
+
+An arrow is also treated as live when it leads *into* a working agent, not only when the
+runner names it. That is what a person reading the picture expects, and it covers the
+cases the runner cannot see.
+
+**The map and the board are resizable.** A separator between them takes a drag, arrow keys
+(Shift for bigger steps), and a double-click to reset. It will not shrink the map to
+nothing or grow it past 60% of the window, and it remembers where you left it.
+
+**Fixed: every handoff was drawn twice.** The chain emitted an assignment card and then the
+run emitted another for the same handoff.
+
+**Fixed: handoffs were attributed to the wrong agent.** In a chain A→B→C, C's card read
+"from A" because the chain is walked breadth-first from whoever triggered it. It now names
+the agent that actually handed the work over — and C is given B's output, which is what it
+was already being given but not what the card claimed.
+
+583 checks.
+
+## 0.7.2
+
+**"Talking to" works.** It was disabled for the whole of a run — exactly when you want to
+see who else is on the workflow — and its enabled state was never recomputed when the
+roster arrived, so it stayed greyed out even after the agents appeared. It is now live
+whenever there is more than one agent to choose from.
+
+Switching mid-run still costs you the run, because each agent has its own prompt and its
+own tools and the main thread has to restart. So it asks first, says plainly what is lost,
+and snaps back if you decline — rather than being greyed out on your behalf.
+
+**"Floor" is now "⛶ Full view."** The old label was internal jargon; nobody who had not
+read the source could tell it opened the workflow in a full editor tab with room for every
+lane. The tab itself is "Cadre — Full view", and the command is **Cadre: Open Full View**.
+
+568 checks.
+
+## 0.7.1
+
+**Fixed: opening a workflow showed an empty board.** The run view built its lanes from a
+live session's handshake, so until you spent a turn there were no lanes, the "talking to"
+dropdown was empty, and **Edit did nothing** because the view had no workflow id yet. The
+lanes, the map and the controls are all properties of the graph and now come from it
+directly; the CLI's roster replaces that one when it arrives, carrying what only the CLI
+knows.
+
+**Fixed: Launch appeared dead, and could loop.** Launching a workflow whose prompts were
+already written — every template — re-refined all of them first: three paid round trips
+with nothing on screen, which is why it took several clicks to get anywhere. Refinement
+now only expands prompts short enough to be a jotted-down line, and templates and
+generated workflows are left alone.
+
+Worse, underneath it: a refinement that *failed* never marked the agent as attempted, so
+the launch picked the same agent again on every pass — an unbounded loop of real model
+calls. Attempts are now recorded, a failure moves on, and clicking Launch while a launch
+is in flight no longer starts a second one racing the first to save.
+
+**The live map is findable.** It was a hairline strip that did not look clickable, so the
+whole thing went unnoticed. It is now open by default, with a chevron, the workflow's
+name, "2 of 3 working", and a Show/Hide control — and it remembers whether you want it.
+
+558 checks.
+
+## 0.7.0
+
+**Every model your CLI has, asked for rather than hardcoded.** The picker was a
+hand-written list of three aliases, which was wrong in three ways at once: Fable was
+missing, the identifiers are the CLI's rather than the API's, and not every model accepts
+an effort level. Cadre now asks the installed Claude Code what it supports — a handshake
+that sends no prompt and costs nothing — and builds the picker from the answer.
+
+On this machine that turns up **Fable** as `claude-fable-5[1m]`, Opus, Sonnet, Haiku and
+Default, with `opus` currently resolving to `claude-opus-4-8[1m]`. A hardcoded list would
+have got the Fable identifier wrong and gone stale on the next release.
+
+The list also carries which effort levels each model takes. **Haiku takes none**, so
+choosing it removes the effort control and says why, rather than sending a parameter the
+model rejects. A model you picked before it disappeared from the list is still shown,
+marked unavailable, instead of being silently reset to something else.
+
+**Build with Claude.** Describe the pipeline in prose — "read incoming tickets, work out
+which are real bugs, reproduce them against our repo, draft a reply" — and Claude designs
+the whole workflow: the agents, their capabilities, real 200–500 word prompts, and the
+arrows between them. It lands in the builder, never launched, with anything that needs
+fixing flagged. The blank canvas is the hardest part of this product; this is the shortcut
+past it, not a way to skip reading what you are about to run.
+
+The design comes back through a JSON schema the CLI enforces, and then through a
+defensive assembly pass, because the schema constrains the shape and not the sense:
+colliding ids are renamed (and their arrows renamed with them), arrows to agents that do
+not exist are dropped, a self-arrow is dropped, duplicates collapse, an unknown preset
+falls back to the safest one, and an entry pointing at nothing falls back to the first
+agent. Twelve tests cover exactly those cases — a generated workflow that fails to open
+would be far worse than one that opens with a warning on it.
+
+538 checks. `npm run probe:models` prints what your CLI offers; `npm run probe:generate`
+runs the designer end to end.
+
+## 0.6.0
+
+**Workflows can be global or local.** A local workflow lives in `.cadre/workflows/` and
+travels with the repository. A global one lives in `~/.cadre/workflows/` and is available
+in every project you open. *Globalise* and *Localise* move one either way, and the home
+screen groups them under **This project** and **Everywhere**.
+
+Conversations stay with the project even for a global workflow. The same workflow used in
+three repositories has three separate histories, and merging them into one list would be
+actively misleading. A local workflow also shadows a global one of the same id, so a
+project can pin its own version of something shared.
+
+**Workflow-level defaults.** Model, effort, turn limit, skills and connectors can be set
+once for a whole workflow, in the builder panel you get when no agent is selected. Three
+tiers now, narrowest wins: the agent's Advanced settings, then the workflow's defaults,
+then the workspace setting. This tier exists because a workflow is the unit people share —
+"this one runs on sonnet" belongs with the graph, not in one person's editor config.
+
+**Opening a workflow shows its page, not a chat.** Its description, everything that would
+stop it running, a picture of the graph, and every conversation you have had under it.
+Most of the time you are coming back to something rather than starting fresh, and the
+thing you want is yesterday's conversation.
+
+**Conversations get named.** Claude already writes a summary of each one; that name is now
+recorded against the workflow and shown in the list, replacing the provisional "first
+thing you said" as soon as the CLI has written it. No extra model call — it was being
+generated already.
+
+**A live map above the board.** The graph you drew, with the agents currently working
+highlighted, a pulse on each, their current activity in place of their job title, and the
+arrow carrying work animated along its length. It uses the positions you laid out, so the
+map and the builder are recognisably the same picture. Collapsed by default; the lanes are
+what you are reading.
+
+**Picking a template no longer asks for a name.** It opens the builder with the template
+loaded, where you can change anything — including the name, which is the second field on
+screen — and then launch.
+
+493 checks. The DOM suite grew to cover the new screens: the home grouping, the workflow
+page, and the live map's highlighting, all driven in a real browser against the real code.
+
+## 0.5.1
+
+**Undo works.** Ctrl+Z / Cmd+Z steps back through anything you did on the canvas — moving
+a box, drawing or deleting an arrow, renaming an agent, changing a preset — and
+Ctrl+Shift+Z or Ctrl+Y goes forward again. A drag is one step, not forty. Inside a text
+box it is left alone, because there Ctrl+Z belongs to the text.
+
+History is recorded by comparing snapshots rather than by every mutation announcing
+itself: a dozen call sites that each have to remember to commit first is a dozen chances
+to forget, and what that produces is an undo that silently skips a step.
+
+**Workflows autosave.** 45 seconds after you stop changing something, and never more than
+3 minutes with unsaved work however continuously you edit. Leaving the builder or hiding
+the view flushes immediately. A small marker in the bar reads `unsaved` or `saved 14:22`.
+
+An autosave deliberately does *not* reset a running session, where an explicit Save still
+does — firing every 45 seconds while you nudge a box, and killing your conversation each
+time, would be worse than the session being briefly out of date.
+
+**The Advanced panel stays open.** Every edit re-renders the inspector, so ticking
+anything inside Advanced snapped it shut — which made picking more than one tool a
+fight.
+
+**Fixed alongside: unsaved edits could be silently discarded.** A background event — a
+settings change, a screen refresh — sent the builder the host's copy of the workflow, and
+the builder adopted it over whatever you had just typed. Those events are now marked
+non-authoritative and the builder keeps its own draft.
+
+**Five more templates**, and deliberately not all about code: **Review board** (three
+lenses on one change), **Incident review** (triage, a reproducer and a historian in
+parallel, then a postmortem), **Content pipeline** (outline → draft → edit → fact-check as
+a chain of handoffs), **Contract review** (nothing to do with software), and **Data
+analysis**. Eight in all. Every one is asserted runnable, warning-free, and to give each
+agent a real prompt.
+
+New in the test suite: `verify-webview` runs the actual builder in headless Chrome and
+drives it — undo, the Advanced panel, the autosave timer, the draft-clobbering rule. None
+of that was reachable before, because `verify-ui` drives the extension host and never
+executes the webview. It skips loudly rather than failing where there is no browser.
+396 checks.
+
+## 0.5.0 — workflows
+
+**Cadre is no longer a fixed team of three.** A Lead, a Researcher and an Engineer only
+ever described one kind of work, and the roster was hardcoded down to the tool names. It
+is now a workflow builder: any number of agents, each named and prompted by you, wired
+together with arrows you draw.
+
+**Two kinds of arrow**, chosen by which port you drag from. A *delegate* arrow makes B a
+tool on A — a brief goes out, one report comes back. Cycles are allowed there, because an
+agent asking a peer back is a real thing to want, so recursion is bounded by a depth
+counter rather than by forbidding the shape. A *then* arrow starts B automatically when A
+finishes, with A's output as its input; those must be acyclic and the builder will not
+save a loop.
+
+**You do not have to know the protocol.** Write "you review contracts" and the rest of the
+system prompt is generated from the arrows you drew: what a brief is, that the other agent
+starts with an empty context, what a report looks like, where the output is about to be
+handed. An agent is told about the arrows it has and nothing about the arrows it does not.
+Turn on **Refine prompts** (on by default) and a one-line description becomes a real
+prompt — with the failure modes of that role named — which you can read, edit, or revert.
+
+**Capabilities are four presets with everything underneath.** Read-only, Research, Build,
+Everything; then per-agent model, effort, individual tools, skills, connectors and turn
+limit. An explicit choice beats the preset, and nothing beats the never-available list —
+ticking `Agent` or `Workflow` in the advanced panel does not grant them.
+
+**One lane per agent**, however many there are, with the board scrolling sideways past the
+point where lanes would stop being readable. Lane colours are assigned by position, since
+agent names are now yours to choose.
+
+**Workflows live in the project**, at `.cadre/workflows/*.json` — reviewable in a diff and
+shareable by committing. Each keeps its own list of conversations, so two workflows in one
+folder no longer show each other's history.
+
+The old three-agent team ships as the **Software team** template, with its prompts intact
+minus the sections the arrows now generate. Two more templates come with it.
+
+Notes on upgrading: `cadre.directLine` is gone — you can always address any agent, and the
+runner tells you what switching costs. `cadre.lead.model` and its siblings are gone too;
+per-agent settings live on the agent now, with `cadre.model` and `cadre.effort` as the
+workspace defaults. `cadre.maxDelegationDepth` is new.
+
+362 hermetic checks, up from 258. The new `verify-workflow` suite covers the graph rules,
+capability resolution and the injected protocol; it caught a real one while being written —
+an explicit tool override could re-enable a never-available tool, because the rule that
+lets an explicit allow beat a preset deny was also letting it beat the hard deny.
+
+## 0.4.3
+
+**Fixed: briefs were still being rejected.** 0.4.1 fixed one schema fault and there was a
+second one underneath it. The Lead sends array arguments as strings — sometimes
+JSON-encoded (`"[\"a\",\"b\"]"`), sometimes plain prose — and the server rejected every one
+with *expected array, received string*. The schema was correct and unambiguous; the model
+does it anyway, and it cannot see the rejection until the turn is already spent. So
+`context`, `boundaries`, `decide_yourself` and `paths` now accept either shape and
+normalise it: JSON arrays are parsed, bulleted or numbered prose is split per line, and a
+single sentence stays one item instead of being shredded on its commas.
+
+Verified against every call a real Lead made that the server rejected — eight of them,
+lifted verbatim out of the stored sessions into `scripts/fixtures/` and replayed through
+the **real** MCP server in the new `verify-mcp` suite. The previous suite built the tools
+against the fake SDK, which is why it passed while the product did not.
+
+That suite immediately found a second defect: `.describe()` applied before `.optional()`
+on a union field is **silently dropped** from the JSON Schema, so three fields had stopped
+telling the model what they were for. The call still validates; the model just stops being
+told. Every field of every tool is now asserted to reach the model described, and the two
+enums that never had a description have one.
+
+**A failed tool call now says why on screen.** The reason was only ever in a tooltip, so
+eight identical red chips gave no clue what was wrong. The error is rendered under the
+chip.
+
+The Lead is also now told outright that those four fields are lists, one item per point.
+
+## 0.4.2
+
+**Fixed: resuming a session showed an empty screen.** Reopening a past conversation
+restored the model's memory but not yours — the lanes were cleared and replaced with a
+notice saying the transcript would not be replayed. It now is: your messages, the Lead's
+replies, its tool calls with the results they returned, and each delegation with the
+verdict its report came back with.
+
+What the replay does *not* invent matters as much. Each teammate ran in its own stored
+session, so above the resume line you see the brief and the report, not the teammate
+working — and the boundary marker says so rather than leaving three empty lanes to imply
+the teammates did nothing. Reasoning is not replayed because the store does not keep it;
+the CLI writes the signature and drops the text.
+
+Two things only a real transcript revealed, both fixed: `[Request interrupted by user]`
+is written into the user role by the CLI and was being replayed as a chat bubble you
+never typed, and a delegation you declined came back labelled with the permission
+system's boilerplate instead of "you declined this delegation".
+
+The composer stays locked while history loads, so a reply cannot land above the
+conversation it answers. The conversion is a pure function in `src/team/replay.ts` and
+`npm run probe:replay -- <project>` runs it against your own stored sessions.
+
 ## 0.4.1
 
 **Fixed: the Lead could not brief anyone.** Every `brief_researcher` and `brief_engineer`

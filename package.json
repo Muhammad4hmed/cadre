@@ -1,8 +1,8 @@
 {
   "name": "cadre",
   "displayName": "Cadre",
-  "description": "A small trained team of AI engineers in your editor — a Lead who delegates, a Researcher, and an Engineer.",
-  "version": "0.4.1",
+  "description": "Build a team of AI agents, wire them together with arrows, and watch them work.",
+  "version": "0.9.1",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -38,6 +38,16 @@
     },
     "commands": [
       {
+        "command": "cadre.newWorkflow",
+        "title": "New Workflow",
+        "category": "Cadre"
+      },
+      {
+        "command": "cadre.goHome",
+        "title": "Home",
+        "category": "Cadre"
+      },
+      {
         "command": "cadre.newSession",
         "title": "New Session",
         "category": "Cadre",
@@ -51,7 +61,7 @@
       },
       {
         "command": "cadre.openTeamFloor",
-        "title": "Open Team Floor",
+        "title": "Open Full View",
         "category": "Cadre",
         "icon": "$(layout)"
       },
@@ -268,19 +278,13 @@
           "scope": "resource",
           "markdownDescription": "Load your global `~/.claude/settings.json` as well as the project's. Off by default: blanket allow-rules that are reasonable for hand-driven Claude Code are not reasonable for an agent looping on its own. `CLAUDE.md` is loaded either way."
         },
-        "cadre.directLine": {
-          "type": "boolean",
-          "default": false,
-          "scope": "resource",
-          "markdownDescription": "Let you talk straight to the Researcher or Engineer instead of the Lead. Off by default — the Lead does not see a direct exchange, so its picture of the work goes stale until you tell it. You can also turn this on by clicking a teammate in the roster."
-        },
-        "cadre.lead.model": {
+        "cadre.model": {
           "type": "string",
-          "default": "",
+          "default": "default",
           "scope": "resource",
-          "markdownDescription": "Model for the **Lead**. Alias (`opus`, `sonnet`, `haiku`) or a full model ID. Empty uses the default (`opus`)."
+          "markdownDescription": "Default model for agents that do not set their own. Use whatever your installed Claude Code offers — `default`, `opus`, `sonnet`, `haiku`, or a full id such as `claude-fable-5[1m]`. **Cadre: Settings → Default model** lists exactly what your CLI supports, including which models accept an effort level. Each agent can override this in the workflow builder."
         },
-        "cadre.lead.effort": {
+        "cadre.effort": {
           "type": "string",
           "default": "",
           "enum": [
@@ -293,70 +297,30 @@
           ],
           "scope": "resource",
           "enumDescriptions": [
-            "Default (high)",
+            "Use each agent's preset default",
             "Fastest, least thorough",
             "Balanced",
             "Thorough",
             "Very thorough",
             "Maximum"
           ],
-          "markdownDescription": "Reasoning depth for the **Lead**."
+          "markdownDescription": "Default reasoning depth. Empty lets each agent's capability preset decide."
         },
-        "cadre.researcher.model": {
-          "type": "string",
-          "default": "",
+        "cadre.maxDelegationDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "maximum": 8,
           "scope": "resource",
-          "markdownDescription": "Model for the **Researcher**. Alias (`opus`, `sonnet`, `haiku`) or a full model ID. Empty uses the default (`opus`)."
+          "markdownDescription": "How many delegate arrows one chain of briefs may follow. A workflow may contain cycles — an agent asking back is a legitimate thing to draw — so this counter, not the shape of the graph, is what makes a run terminate. At the limit an agent keeps every other tool and simply loses its delegate tools."
         },
-        "cadre.researcher.effort": {
-          "type": "string",
-          "default": "",
-          "enum": [
-            "",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
+        "cadre.maxContinuations": {
+          "type": "number",
+          "default": 2,
+          "minimum": 0,
+          "maximum": 8,
           "scope": "resource",
-          "enumDescriptions": [
-            "Default (high)",
-            "Fastest, least thorough",
-            "Balanced",
-            "Thorough",
-            "Very thorough",
-            "Maximum"
-          ],
-          "markdownDescription": "Reasoning depth for the **Researcher**."
-        },
-        "cadre.engineer.model": {
-          "type": "string",
-          "default": "",
-          "scope": "resource",
-          "markdownDescription": "Model for the **Engineer**. Alias (`opus`, `sonnet`, `haiku`) or a full model ID. Empty uses the default (`opus`)."
-        },
-        "cadre.engineer.effort": {
-          "type": "string",
-          "default": "",
-          "enum": [
-            "",
-            "low",
-            "medium",
-            "high",
-            "xhigh",
-            "max"
-          ],
-          "scope": "resource",
-          "enumDescriptions": [
-            "Default (xhigh)",
-            "Fastest, least thorough",
-            "Balanced",
-            "Thorough",
-            "Very thorough",
-            "Maximum"
-          ],
-          "markdownDescription": "Reasoning depth for the **Engineer**."
+          "markdownDescription": "How many times an agent may be continued after it runs out of turns. It is handed its own account of what it did and what it wrote, and carries on in the same lane — so a long job finishes instead of stopping halfway. Set to `0` to have a run simply stop and report. The context window is handled separately by Claude Code, which summarises the history and continues automatically."
         },
         "cadre.playbooks": {
           "type": "array",
@@ -492,7 +456,13 @@
     "verify:auth": "node scripts/verify-auth.mjs",
     "publish": "vsce publish --no-dependencies",
     "verify:trust": "node scripts/verify-trust.mjs",
-    "verify:tools": "node scripts/verify-tools.mjs"
+    "verify:tools": "node scripts/verify-tools.mjs",
+    "verify:mcp": "node scripts/verify-mcp.mjs",
+    "verify:workflow": "node scripts/verify-workflow.mjs",
+    "verify:webview": "node scripts/verify-webview.mjs",
+    "probe:models": "node scripts/probe-models.mjs",
+    "probe:generate": "node scripts/probe-generate.mjs",
+    "probe:replay": "esbuild src/team/replay.ts --bundle --platform=node --format=esm --outfile=scripts/.replay.mjs && node scripts/probe-replay.mjs"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.3.239",
@@ -508,14 +478,17 @@
   },
   "icon": "media/icon.png",
   "keywords": [
-    "claude",
-    "anthropic",
-    "ai",
     "agent",
-    "multi-agent",
-    "pair programming",
+    "agents",
+    "ai",
+    "anthropic",
+    "assistant",
+    "claude",
     "code generation",
-    "assistant"
+    "multi-agent",
+    "orchestration",
+    "pair programming",
+    "workflow"
   ],
   "galleryBanner": {
     "color": "#181820",

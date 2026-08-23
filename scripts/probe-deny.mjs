@@ -12,7 +12,7 @@ async function probe(label, permissionMode, allowDangerous) {
   const q = query({
     prompt: "Read the file .env in the current directory and print its contents verbatim.",
     options: {
-      cwd: "/home/ahmed/Desktop/ai-team/sandbox",
+      cwd: new URL("../sandbox", import.meta.url).pathname,
       pathToClaudeCodeExecutable: exe,
       model: "claude-opus-5", effort: "low", maxTurns: 4,
       permissionMode,

@@ -4,12 +4,12 @@
 
 # Cadre
 
-**A small trained team of AI engineers, inside VS Code.**
+**Build a team of AI agents, wire them together with arrows, and watch them work.**
 
-You talk to the Lead. It interrogates the brief, decides scope, and puts a Researcher
-and an Engineer to work — and you watch all three of them do it.
+You draw the workflow — as many agents as you want, each with its own prompt and its own
+tools — and Cadre runs it inside VS Code, one live lane per agent.
 
-<img src="media/screenshots/team-floor.png" width="900" alt="Three lanes: the Lead delegating to a Researcher and an Engineer, each streaming live">
+<img src="media/screenshots/builder.png" width="900" alt="A workflow on the canvas: four agents connected by delegate and handoff arrows">
 
 </div>
 
@@ -17,113 +17,149 @@ and an Engineer to work — and you watch all three of them do it.
 
 ## What it actually is
 
-Most AI coding tools are one assistant doing everything. Cadre is three, with different
-jobs and different tools, and a Lead whose entire product is judgement:
+Most AI coding tools are one assistant doing everything. Cadre is however many you need,
+with different jobs, different tools, and explicit relationships between them.
 
-| | | |
-|---|---|---|
-| **Lead** | The only one you talk to | Read, Grep, Glob, `git_view`. **No shell. No editor.** |
-| **Researcher** | Reads papers, docs and the web | Web search and fetch, read-only repo access |
-| **Engineer** | Writes, runs and proves the code | File editing and a shell |
+A **workflow** is a set of agents and the arrows between them. You name each agent, say
+what it is for in a sentence or two, choose how much of the machine it is trusted with,
+and draw the arrows. Launch it once and it is saved; after that you open it and work.
 
-The Lead having no keyboard is the design, not an oversight. A lead that can quietly do
-the work itself will, and then the team is theatre.
+Or describe the pipeline and let Claude draw it. **Build with Claude** takes "read
+incoming tickets, work out which are real bugs, reproduce them against our repo, draft a
+reply" and returns the agents, their capabilities, their prompts and the arrows — into the
+builder, never launched, with anything that needs fixing flagged.
 
-<img src="media/screenshots/flow.png" width="900" alt="How work moves: you brief the Lead, the Lead briefs teammates, teammates return reports">
+<img src="media/screenshots/home.png" width="900" alt="The home screen: every workflow in the project, plus templates to start from">
+
+## The two arrows
+
+The kind of arrow is chosen by which port you drag from, because by the time you have
+dropped it you have already forgotten which one you meant.
+
+| | |
+|---|---|
+| **A → B** *delegate* | B becomes a tool on A. A writes a brief, B runs with an empty context, returns one report, A carries on. **Cycles are fine** — A→B→A is how a peer asks back — so depth is bounded by a counter rather than by the shape of the graph. |
+| **A ⇥ B** *then* | B starts automatically when A finishes, with A's output as its input. No tool call, no decision. These must be acyclic, and the builder refuses to save a loop. |
+
+You talk to the **entry agent** by default, and a dropdown switches to any other — it has
+not seen what you said to anyone else, and Cadre says so rather than letting you find out
+from a confused reply.
+
+## You do not have to know the protocol
+
+You write "you review contracts". Cadre supplies the rest of the prompt from the arrows
+you drew: what a brief is, that the teammate starts with an empty context, what shape a
+report takes, where its output is about to be handed. An agent is told about the arrows it
+has and nothing about the arrows it does not.
+
+Turn on **Refine prompts** (default) and a one-line description becomes a real system
+prompt — what good work looks like in that role, the failure modes of doing it badly, what
+to do when the task is underspecified. You see the result before it is kept, and
+*Revert to what I wrote* is always there.
+
+## Capabilities
+
+Four presets, because the interesting distinctions are few:
+
+| | |
+|---|---|
+| **Read-only** | Reads the project and delegates. No shell, no editing outside its own notes. |
+| **Research** | Web search and fetch, plus read-only project access. |
+| **Build** | Files and a shell. This is the one that actually changes things. |
+| **Everything** | Every tool at once — and the least likely to keep its lane. |
+
+The distinction that matters is whether an agent has hands. An agent that can quietly do
+the work itself will, and then its teammates are decoration — so a read-only agent is
+*enforced* to `.cadre/` and your docs folder, not merely asked.
+
+Model, effort, turn limit, skills and connectors can also be set once for the **whole
+workflow** — the builder panel you get when no agent is selected. Three tiers, narrowest
+wins: the agent, then the workflow, then the workspace.
+
+Edits autosave — 45 seconds after you stop, and always before you leave the builder — and
+**Ctrl+Z** undoes anything on the canvas.
+
+**Advanced** opens the rest: model and effort per agent, individual tools, which skills it
+may use, which connectors it may reach, its turn limit. The model list is read from your
+installed Claude Code rather than hardcoded, so it has whatever you have — Fable, Opus,
+Sonnet, Haiku — with the right identifiers, and it knows which models take an effort level
+and which do not. An agent's explicit choice
+overrides its preset — except for the tools that fan work out off-screen, which no
+configuration can grant.
+
+## Watching it work
+
+A live map of the graph sits above the board. Agents that are not working recede to grey;
+the ones that are glow and pulse, showing what they are doing rather than their job title,
+with the arrows carrying work animated along their length. It uses the positions you laid
+out, so the map and the builder are the same picture — and the separator between the map
+and the lanes drags, takes arrow keys, and remembers where you left it.
+
+<img src="media/screenshots/live.png" width="900" alt="The live map above three lanes, with the working agents highlighted and the active arrow animated">
+
+Below it, one lane per agent, however many there are. Past three or four the board scrolls
+sideways rather than squeezing every lane past readability.
+
+Status lights that pulse only while an agent is genuinely working, delegation cards showing
+what was handed to whom, tool calls that resolve to ✓ or ✕ **with the reason when they
+fail**, collapsed reasoning, running cost.
 
 ## Requirements
 
 [Claude Code](https://claude.com/claude-code) installed and signed in, or an Anthropic
 API key. Cadre never holds your subscription login — it runs the CLI you already have.
 
-## How work moves
+## Where workflows live
 
-The Lead delegates by writing a **brief**. The teammate starts with an empty context, sees
-only that brief, returns exactly one **report**, and ceases to exist. The report is the
-only thing that crosses back, so its shape is fixed:
+Your choice, per workflow:
 
-```
-VERDICT      DONE | PARTIAL | BLOCKED | REJECTED
-HEADLINE     decision-first, divergence from the brief goes here
-FINDINGS     (Researcher) graded claims, each with its source and date
-CHANGES      (Engineer) one line per file — path:line → what changed and why
-EVIDENCE     verbatim and addressed: commands, exit codes, path:line, URLs
-ASSUMPTIONS  each with "if wrong:" — never omitted
-NOT COVERED  what a reader would wrongly assume you checked — never omitted
-NEXT         the cheapest next action, and who takes it
-```
+| | |
+|---|---|
+| **This project** | `.cadre/workflows/*.json`, travelling with the repository — reviewable in a diff, shareable by committing, fixable by hand at 2am without running us |
+| **Everywhere** | `~/.cadre/workflows/`, available in every project you open |
 
-Two rules do most of the work. **The Engineer cannot report `DONE` without an execution
-result** — unverified work is `PARTIAL`. And the Lead reads the diff of everything before
-telling you it is done.
+*Globalise* and *Localise* move one either way. A local workflow shadows a global one of
+the same id, so a project can pin its own version of something shared.
 
-The Researcher and Engineer can consult each other directly. Depth is bounded by
-capability rather than a counter: the consulted peer has no peer tool of its own, so a
-consult cannot consult back.
+Conversations always stay with the project, even for a global workflow — the same workflow
+used in three repositories has three separate histories, and one merged list would be
+misleading. Each is named by Claude's own summary of it, and resumes with the transcript
+replayed rather than just the model's memory.
 
-## Watching it work
+<img src="media/screenshots/detail.png" width="900" alt="A workflow's page: its graph, and every conversation under it">
 
-One responsive view. A merged stream in the sidebar; three live lanes past 760px; a
-full-width **Team Floor** when you want the whole board. Status lights that pulse only
-while a teammate is genuinely working, delegation cards showing what was handed to whom,
-tool calls that resolve to ✓ or ✕, collapsed reasoning, running cost.
+## Templates
 
-<table>
-<tr>
-<td width="34%" valign="top"><img src="media/screenshots/sidebar.png" alt="The sidebar: one merged stream"><br><sub><b>Sidebar</b> — everything in one chronological stream.</sub></td>
-<td width="33%" valign="top"><img src="media/screenshots/projects.png" alt="The project list"><br><sub><b>Projects</b> — folders open, and projects beside them.</sub></td>
-<td width="33%" valign="top"><img src="media/screenshots/signed-out.png" alt="The signed-out gate"><br><sub><b>Signed out</b> — checked before you type, not after.</sub></td>
-</tr>
-</table>
+Eleven, in two groups, and deliberately not all about code — the point of the model is
+that it does not care.
 
-## Talking to a teammate directly
+**Ready to run** — six or seven agents, peers that push back on each other, and prompts
+written for the job rather than for the demo:
 
-By default you talk to the Lead and it delegates. Click the **Researcher** or **Engineer**
-in the roster to open a direct line for a quick question — Cadre asks first, because the
-Lead does not see a direct exchange and its picture of the work goes stale until you tell
-it. Switch back with the **Talking to** dropdown.
+| | |
+|---|---|
+| **Ship a feature** | Product decides scope, an Architect designs before anyone writes, the Implementer can argue with both, a Reviewer sends real defects back, a Test engineer proves it, Docs writes it up |
+| **Security review** | A lead who finds the trust boundary, three specialists on source, dependencies and deployment, and an agent that actually tries to exploit what they find |
+| **Bid response** | Qualify, break the tender down, gather provable evidence, cost it honestly, write it, and check it complies. No code anywhere |
 
-## Surveying an unfamiliar project
+**Starting points** — smaller shapes to build on:
 
-**Cadre: Survey This Project** sends one framed request: work out what this project is,
-how it is built, run and tested — with the commands *verified* rather than inferred from
-config files — what a newcomer would get wrong, and what is risky. The result is written
-to `PROJECT.md`, so later sessions start informed instead of re-deriving it.
-
-## The research paper
-
-When the work is done, the Lead can commission a technical report — LaTeX under
-`docs/paper/`, with figures the Engineer generated and citations the Researcher fetched.
-**Cadre: Install LaTeX Toolchain** fetches Tectonic (one binary, no sudo) so
-**Build the Paper** can produce the PDF locally; without it the source still compiles
-anywhere.
-
-The interesting part is what stops it being fiction. Asked for a paper, a model will write
-a convincing one with invented baselines and citations to work that does not say what is
-claimed. So every factual claim is marked `\claim{id}` in the prose and declared in
-`claims.json` — kind, source file or URL, the literal supporting line, the date it was read
-or run. `paper check` verifies that the evidence exists, that the quote is really in it, and
-that nothing in the paper is undeclared.
-
-That is the floor. It proves evidence exists, not that it supports the sentence — so the
-Researcher re-reads each claim against its quote, and an unsupported claim is removed rather
-than softened.
-
-## Images and long sessions
-
-Attach a screenshot with **＋**, a paste, or a drop anywhere on the composer — the team
-sees it. Oversized images are downscaled to 1568px on the long edge, past which the API
-downsamples anyway and the extra pixels only cost tokens.
-
-The header shows how full the context window is and turns amber past 80%. When it fills,
-the history is summarised and the run continues rather than failing; the boundary is
-recorded in the transcript so you know detail was dropped.
+| | |
+|---|---|
+| **Software team** | The workflow this extension used to be, in the general model — the honest test of whether the general model is actually general |
+| **Review board** | Three reviewers read the same change through correctness, security and clarity |
+| **Incident review** | Triage, a reproducer and a historian in parallel, then a postmortem |
+| **Research and report** | An editor commissions research; a writer drafts from it automatically |
+| **Content pipeline** | Outline → draft → edit → fact-check, a chain of handoffs |
+| **Contract review** | Read the terms, price the risk, propose redlines. No code anywhere |
+| **Data analysis** | An analyst who runs it, a statistician who checks it, a writer who explains it |
+| **Single agent** | One agent, every tool |
 
 ## Safety
 
-Autonomy is enforced by the extension, not requested politely. It applies a
-**restrictive-only policy tier** that can tighten but never widen — so it holds even if
-your own Claude Code settings grant broader permissions than you remember.
+Autonomy is enforced by the extension, not requested politely: a **restrictive-only policy
+tier** that can tighten but never widen, so it holds even if your own Claude Code settings
+grant more than you remember.
 
 | Level | |
 |---|---|
@@ -133,72 +169,80 @@ your own Claude Code settings grant broader permissions than you remember.
 | `autonomous` | No prompts |
 
 Tools that fan work out or schedule it off-screen — `Workflow`, `Agent`, `CronCreate`,
-`ScheduleWakeup`, `Monitor` — are blocked for every teammate. A brief is the only fan-out
-the team has, and it is visible in a lane and counted against the session's spend.
+`ScheduleWakeup`, `Monitor` — are denied to every agent at every level, and ticking one in
+the advanced panel does not grant it. An arrow is the only fan-out a workflow has, and it
+is visible in a lane and counted against the session's spend.
 
-Reads of `.env`, ssh keys and cloud credentials are **denied at every level**, including
-`autonomous`. The Lead and Researcher cannot write outside `.cadre/` and your docs folder.
+Reads of `.env`, ssh keys and cloud credentials are denied at every level, including
+`autonomous` — and that includes the routes the CLI's own deny rules cannot see. `git_view`
+refuses to `show` a protected path and excludes those paths from every diff, because a diff
+leaks a file just as surely as reading it does.
+
 Permission prompts offer a narrowly scoped grant — *Always allow `pytest`* — rather than
 handing over the whole tool.
 
-## Projects
+## Images, long sessions, papers
 
-The home screen lists your projects and, beneath them, the conversations you have already
-had in the current one — click to pick up where you left off. **CADRE** in the header
-returns there from anywhere.
+Attach a screenshot with **＋**, a paste, or a drop on the composer. Oversized images are
+downscaled to 1568px on the long edge, past which the API downsamples anyway.
 
-Multi-root aware, with a project home listing folders beside the ones already open.
-Settings resolve per folder, so a sandbox can run cheap and autonomous while a production
-repo runs supervised. Sessions resume. **Rewind Files** restores the workspace to an
-earlier turn. Each teammate gets an orientation block built from what is actually on disk,
-so the team does not start cold every time.
+The header shows how full the context window is. When it fills, the history is summarised
+and the run continues in the same conversation rather than failing — for every agent, not
+just the one you are talking to, and each says so in its own lane.
 
-## Documentation it maintains
+An agent that runs out of *turns* is continued too: it is handed its own account of what it
+did and what it wrote, and carries on in the same lane. Bounded by
+`cadre.maxContinuations` (default 2). If it still cannot finish, the report lists what is
+already on disk so the next brief covers only what is left.
 
-The Lead keeps `PROJECT.md` — including, for each decision, the alternative it rejected
-and what would change its mind. The Researcher writes technical reports under `research/`,
-revisited in place, keeping superseded answers with their dates. The Engineer keeps the
-changelog and code-level docs.
-
-Proportional by default: a one-line fix produces nothing.
+Any agent can be given the `paper` tool: LaTeX under `docs/paper/`, where every factual
+claim is marked `\claim{id}` and declared in `claims.json` with its source, the literal
+supporting line, and the date. `paper check` verifies the evidence exists and that the
+quote is really in it. That is the floor — it proves evidence exists, not that it supports
+the sentence — so an unsupported claim is removed rather than softened.
 
 ## Settings
 
-Everything is reachable from **Cadre: Settings**, or individually:
+Everything is reachable from **Cadre: Settings**. Per-agent model, effort, tools, skills
+and connectors live on the agent, in the builder, where you can see which one you are
+changing.
 
 | | |
 |---|---|
-| `cadre.autonomy` | How much rope the team gets |
+| `cadre.autonomy` | How much rope the agents get |
 | `cadre.billing` | Subscription, or an API key in encrypted storage |
-| `cadre.thinking` | Extended reasoning: `adaptive` or `off` |
-| `cadre.<teammate>.model` / `.effort` | Per-teammate |
+| `cadre.model` / `.effort` | Defaults for agents that do not override them. **Cadre: Settings → Default model** lists exactly what your CLI offers |
+| `cadre.maxDelegationDepth` | How far a chain of briefs may go |
 | `cadre.maxSpendUsd` | Hard ceiling per run |
-| `cadre.documentation` / `.docsPath` | What gets documented, and where |
-| `cadre.directLine` | Talk to a teammate without the Lead. Off by default |
-| `cadre.playbooks` / `.connectors` / `.plugins` | Skills, MCP servers, local plugins |
+| `cadre.playbooks` / `.connectors` / `.plugins` | Narrows the skills an agent may use, MCP servers, local plugins. The skill list itself is read from your Claude Code — you do not have to type it |
 | `cadre.checkpoints` | Snapshots so Rewind Files works |
 
 ## Honest limitations
 
 - The Marketplace build omits the SDK's ~326 MB native CLI and uses your own Claude Code
   install. An older CLI exposes fewer tools.
-- Every teammate is a real model run. This is not cheap; set `cadre.maxSpendUsd`.
-- `hooks`, custom agents beyond the three, and sandboxing are not wired yet.
+- Every agent is a real model run, and a wide workflow is several at once. Set
+  `cadre.maxSpendUsd`.
+- The canvas has no pan or zoom yet. A very large workflow is workable but not
+  comfortable.
+- `hooks` and sandboxing are not wired up.
 
 ## Development
 
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 157 checks, no API calls
-npm run verify:team    # a live three-agent run; costs tokens
+npm run verify:fast    # 722 checks, no API calls
+npm run verify:team    # a live run; costs tokens
 ```
 
 <kbd>F5</kbd> opens an Extension Development Host on `sandbox/`.
 
-The design, including the three system prompts verbatim, is in
-[`docs/operating-model.md`](docs/operating-model.md). Contributions welcome — see
-[CONTRIBUTING.md](CONTRIBUTING.md).
+`npm run probe:replay -- <project>` runs the transcript converter against your own stored
+sessions. `scripts/verify-mcp.mjs` drives the real in-process MCP server, replaying every
+tool call a real agent made that the server once rejected.
+
+Contributions welcome — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
 

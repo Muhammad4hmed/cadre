@@ -11,22 +11,38 @@ import {
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
-import { DISPLAY_NAME, ROLE_BLURB, TEAMMATES, type Assignment, type AskQuestion, type Attachment, type TeamEvent, type TeammateId, type TeammateStatus } from "./events";
-import { ROSTER, composePrompt, consultVariant, toolAliases, type TeammateSpec } from "./roster";
-import { createTeamServer } from "./tools";
-import { contextPreamble, surveyProject } from "./project";
+import type { AgentId, AgentStatus, Assignment, AskQuestion, Attachment, TeamEvent } from "../team/events";
+import { agentById, thenOrder, type Workflow } from "./model";
+import { PRESETS, resolveAgent, type ResolvedAgent } from "./presets";
+import { composeSystemPrompt } from "./protocol";
+import * as templates from "./templates";
+import { createWorkflowServer, toolAliases } from "./tools";
+import { contextPreamble, surveyProject } from "../team/project";
 import { policyFor, settingSourcesFor, type Autonomy } from "../policy";
 import type { Billing } from "../billing";
+import { TEAM_PREFIX, describeTool, shortToolName } from "../team/describe";
 
-export interface TeamConfig {
+/** Re-exported so the lifecycle suite can run a shipped template end to end. */
+export const __templates = templates;
+
+export interface RunConfig {
+  /** The graph being run. Fixed for the life of the session. */
+  workflow: Workflow;
   cwd: string;
   executablePath: string;
   autonomy: Autonomy;
   inheritGlobalConfig: boolean;
-  directLine: boolean;
-  /** Per-teammate overrides from settings; falls back to the roster default. */
-  models: Partial<Record<TeammateId, string>>;
-  efforts: Partial<Record<TeammateId, string>>;
+  /** Default model when an agent does not override it. */
+  model: string;
+  /** Whether a given model accepts an effort level. Not every one does. */
+  effortAllowed?: (model: string) => boolean;
+  /**
+   * How many delegate arrows deep a run may go before the delegate tools are
+   * withheld. Cycles are legal, so this is what makes them terminate.
+   */
+  maxDepth: number;
+  /** How many times an agent may be continued after hitting its turn limit. */
+  maxContinues?: number;
   skills: string[] | "all" | undefined;
   connectors: Record<string, unknown>;
   thinking: "adaptive" | "off";
@@ -95,7 +111,7 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
-export class TeamSession implements vscode.Disposable {
+export class WorkflowSession implements vscode.Disposable {
   private input = new InputQueue();
   private stream: Query | undefined;
   private pump: Promise<void> | undefined;
@@ -108,26 +124,47 @@ export class TeamSession implements vscode.Disposable {
   private readonly pendingAsks = new Map<string, (a: Record<string, string> | null) => void>();
   /** Live teammate runs, so Stop can actually stop them. */
   private readonly nested = new Set<{ query: Query; abort: AbortController }>();
-  private readonly status = new Map<TeammateId, TeammateStatus>();
-  /** Which teammate the user is currently addressing. */
-  private channel: TeammateId = "lead";
+  /**
+   * Set by Stop, cleared by the next message.
+   *
+   * A handoff chain and a turn-limit continuation both start a NEW run once the
+   * previous one ends, and neither is inside the query an interrupt aborts. So
+   * they have to be told. Without this the chain only stopped because aborting
+   * happened to make the run throw — true today, and not something correctness
+   * should rest on: a node that completes cleanly a moment before Stop lands
+   * would start the next one anyway.
+   */
+  private stopping = false;
+  private readonly status = new Map<AgentId, AgentStatus>();
+  /** Which agent the user is currently addressing. */
+  private channel: AgentId;
   private initSeen = false;
   /** User turns, newest last. Checkpointing rewinds to one of these. */
   private readonly turns: { id: string; text: string; at: number }[] = [];
 
   constructor(
-    private readonly config: TeamConfig,
+    private readonly config: RunConfig,
     private readonly billing: Billing,
     private readonly emit: (event: TeamEvent) => void,
     private readonly log: vscode.LogOutputChannel,
   ) {
-    for (const who of TEAMMATES) this.status.set(who, "idle");
+    this.channel = config.workflow.entry;
+    for (const agent of config.workflow.agents) this.status.set(agent.id, "idle");
+  }
+
+  private agentIds(): AgentId[] {
+    return this.config.workflow.agents.map((a) => a.id);
+  }
+
+  private nameOf(who: AgentId): string {
+    return agentById(this.config.workflow, who)?.name ?? who;
   }
 
   // --------------------------------------------------------------- lifecycle
 
   send(text: string, images: Attachment[] = []): void {
     if (this.disposed) return;
+    this.stopping = false;
     this.runId += 1;
     const id = crypto.randomUUID();
     this.turns.push({ id, text, at: Date.now() });
@@ -160,10 +197,17 @@ export class TeamSession implements vscode.Disposable {
     });
   }
 
-  /** Switching who the user talks to needs a fresh main thread. */
-  setChannel(to: TeammateId): void {
-    if (to === this.channel) return;
-    if (to !== "lead" && !this.config.directLine) return;
+  /**
+   * Switching who the user talks to needs a fresh main thread.
+   *
+   * Each agent has its own system prompt and its own tools, so the running
+   * query cannot simply be re-pointed — and the new agent has not seen the
+   * conversation with the old one, which is worth saying out loud rather than
+   * letting the user discover it from a confused reply.
+   */
+  setChannel(to: AgentId): void {
+    if (to === this.channel || !agentById(this.config.workflow, to)) return;
+    const entry = this.config.workflow.entry;
     this.channel = to;
     this.teardown();
     this.emit({ kind: "channel", to });
@@ -171,13 +215,16 @@ export class TeamSession implements vscode.Disposable {
       kind: "notice",
       level: "info",
       text:
-        to === "lead"
-          ? "Back on the Lead. They have not seen anything said on a direct line."
-          : `Direct line to the ${DISPLAY_NAME[to]}. The Lead is not in the loop — their picture will be stale.`,
+        to === entry
+          ? `Back on ${this.nameOf(entry)}. They have not seen anything said on a direct line.`
+          : `Talking to ${this.nameOf(to)} directly. ${this.nameOf(entry)} is not in the loop, so their picture of the work goes stale until you tell them.`,
     });
   }
 
   async interrupt(): Promise<void> {
+    // Set before anything is awaited: a chain deciding whether to continue must
+    // see this even if it checks while the interrupt is still in flight.
+    this.stopping = true;
     if (!this.stream && !this.nested.size) return;
     // Teammates first: the Lead is blocked on their tool call, so leaving them
     // running would keep editing files under a UI that says idle.
@@ -190,7 +237,7 @@ export class TeamSession implements vscode.Disposable {
       this.log.warn(`interrupt failed: ${describe(err)}`);
     } finally {
       this.setBusy(false);
-      for (const who of TEAMMATES) this.setStatus(who, "idle");
+      for (const who of this.agentIds()) this.setStatus(who, "idle");
     }
   }
 
@@ -199,6 +246,7 @@ export class TeamSession implements vscode.Disposable {
     // Before `disposed` latches, so the webview still hears it and the busy
     // context key resets — otherwise New Session mid-run wedges the composer.
     this.setBusy(false);
+    this.stopping = true;
     this.disposed = true;
     this.settlePermissions("The session ended before this was approved.");
     this.settleAsks();
@@ -259,7 +307,7 @@ export class TeamSession implements vscode.Disposable {
   // ------------------------------------------------------------- main thread
 
   private start(): void {
-    const spec = this.specFor(this.channel);
+    const spec = this.specFor(this.channel, { speaksToUser: true });
     this.log.info(`main thread: ${spec.id} in ${this.config.cwd}`);
     const options = this.optionsFor(spec);
     if (this.config.resumeSessionId) {
@@ -292,7 +340,7 @@ export class TeamSession implements vscode.Disposable {
     this.pump = undefined;
     this.input.detach();
     this.setBusy(false);
-    for (const who of TEAMMATES) this.setStatus(who, "idle");
+    for (const who of this.agentIds()) this.setStatus(who, "idle");
     if (wasBusy) {
       this.emit({ kind: "notice", level: "warn", text: "The session ended. Your next message will start a new one." });
     }
@@ -301,22 +349,46 @@ export class TeamSession implements vscode.Disposable {
   // ---------------------------------------------------------- nested runs
 
   /**
-   * Runs one teammate to completion in its own query, streaming everything into
-   * that teammate's lane. Because we spawn it ourselves, attribution is known
+   * Runs one agent to completion in its own query, streaming everything into
+   * that agent's lane. Because we spawn it ourselves, attribution is known
    * rather than inferred.
+   *
+   * `depth` is how many delegate arrows we have followed to get here. Cycles
+   * are legal in this model — A→B→A is how a peer asks back — so nothing about
+   * the graph's shape bounds recursion, and this counter is what does: at the
+   * cap the agent keeps every other tool but loses its delegate tools, so the
+   * run cannot go deeper. Bounding by capability rather than by refusing the
+   * call means the agent is never left retrying something that will never work.
    */
-  private async runTeammate(args: {
-    who: TeammateId;
+  private async runAgent(args: {
+    who: AgentId;
     kind: "brief" | "consult";
     id: string;
     prompt: string;
-    from: TeammateId;
+    from: AgentId;
     headline: string;
+    depth?: number;
+    /**
+     * Set when this run IS a link in a `then` chain. The chain loop already
+     * holds every downstream node in order, so a link must not start the rest
+     * of the chain itself — that would run each one twice.
+     */
+    inChain?: boolean;
+    /** Renders as a handoff card rather than a brief. */
+    handoff?: boolean;
   }): Promise<string> {
     if (this.disposed) return "The session ended before this could run.";
 
-    const base = this.specFor(args.who);
-    const spec = args.kind === "consult" ? consultVariant(base) : base;
+    const depth = args.depth ?? 1;
+    const agent = agentById(this.config.workflow, args.who);
+    if (!agent) return `There is no agent called "${args.who}" in this workflow.`;
+
+    const spec = this.specFor(args.who, {
+      speaksToUser: false,
+      mayDelegate: depth < Math.max(1, this.config.maxDepth),
+      // A consult is a question, not a handoff: keep it short.
+      maxTurns: args.kind === "consult" ? 12 : undefined,
+    });
 
     const assignment: Assignment = {
       id: args.id,
@@ -324,11 +396,13 @@ export class TeamSession implements vscode.Disposable {
       to: args.who,
       brief: args.headline,
       startedAt: Date.now(),
+      ...(args.handoff ? { handoff: true } : {}),
     };
     if (args.kind === "brief") this.emit({ kind: "assign", assignment });
-    this.setStatus(args.who, "thinking", args.kind === "consult" ? "answering a consult" : args.headline);
+    this.liveEdge = { from: args.from, to: args.who };
+    this.setStatus(args.who, "thinking", args.kind === "consult" ? "answering a question" : args.headline);
 
-    // Its own controller, chained to the session's, so a single teammate can be
+    // Its own controller, chained to the session's, so a single agent can be
     // cancelled without tearing down the whole session.
     const abort = new AbortController();
     const onSessionAbort = () => abort.abort();
@@ -336,16 +410,70 @@ export class TeamSession implements vscode.Disposable {
 
     let handle: { query: Query; abort: AbortController } | undefined;
     try {
-      const nestedQuery = query({ prompt: args.prompt, options: this.optionsFor(spec, abort) });
-      handle = { query: nestedQuery, abort };
-      this.nested.add(handle);
-      const report = await this.consume(nestedQuery, args.who, false);
+      /**
+       * Run, and carry on if the turn limit cuts it off.
+       *
+       * The context window is handled by the CLI: it summarises the history and
+       * keeps going in the same conversation. The turn limit is not — the run
+       * simply stops. So we do the same thing ourselves: hand the agent its own
+       * account of what it did and what it wrote, and let it continue. It
+       * streams into the same lane, so from the outside it is one run.
+       *
+       * Bounded, because "keep going" without a limit is how a stuck agent
+       * spends a whole budget doing nothing.
+       */
+      let prompt = args.prompt;
+      let attempt = 0;
+      let outcomeOf: Awaited<ReturnType<typeof this.consume>>;
+      const carried: string[] = [];
+      const limit = Math.max(0, this.config.maxContinues ?? 2);
+
+      for (;;) {
+        const nestedQuery = query({ prompt, options: this.optionsFor(spec, abort, depth) });
+        handle = { query: nestedQuery, abort };
+        this.nested.add(handle);
+        outcomeOf = await this.consume(nestedQuery, args.who, false);
+        this.nested.delete(handle);
+        handle = undefined;
+
+        for (const action of outcomeOf.touched) if (!carried.includes(action)) carried.push(action);
+
+        const canContinue =
+          outcomeOf.failure === "error_max_turns" &&
+          !outcomeOf.text &&
+          attempt < limit &&
+          !this.disposed &&
+          !this.stopping;
+        if (!canContinue) break;
+
+        attempt += 1;
+        this.emit({
+          kind: "notice",
+          level: "info",
+          who: args.who,
+          text: `${this.nameOf(args.who)} hit its turn limit. Summarising what it has done and carrying on (${attempt} of ${limit}).`,
+        });
+        prompt = this.continuationPrompt(args.prompt, outcomeOf.said, carried, attempt, limit);
+      }
+
+      let report = outcomeOf.text
+        || this.truncatedReport(outcomeOf.failure || "error_during_execution", outcomeOf.said, carried);
       const outcome = /^\s*VERDICT\s*:?\s*(BLOCKED|REJECTED)/im.test(report) ? "blocked" : "delivered";
       if (args.kind === "brief") {
         this.emit({ kind: "deliver", id: args.id, outcome, summary: headlineOf(report) });
       }
       this.setStatus(args.who, "idle");
-      return report || "(the teammate returned nothing)";
+
+      // Any `then` arrows leaving this agent fire now, with its output as their
+      // input. Their results are appended to what goes back to the delegator:
+      // otherwise work the user can watch happening would vanish from the only
+      // record the delegator ever sees.
+      if (!args.inChain) {
+        const handoffs = await this.runHandoffs(args.who, report, depth);
+        if (handoffs) report += handoffs;
+      }
+
+      return report || "(the agent returned nothing)";
     } catch (err) {
       this.log.error(`${args.who} run failed: ${describe(err)}`);
       if (args.kind === "brief") {
@@ -357,6 +485,71 @@ export class TeamSession implements vscode.Disposable {
       if (handle) this.nested.delete(handle);
       this.abort.signal.removeEventListener("abort", onSessionAbort);
     }
+  }
+
+  /**
+   * Runs the `then` chain leaving one agent, in order, feeding each result to
+   * the next. Returns a summary to append to the triggering agent's output, or
+   * an empty string when there is no chain.
+   *
+   * `then` arrows are validated acyclic in the builder, so this terminates
+   * without a depth counter — but it is still capped, because a saved workflow
+   * from an older version could carry a cycle the current validator rejects.
+   */
+  private async runHandoffs(from: AgentId, output: string, depth: number): Promise<string> {
+    const chain = thenOrder(this.config.workflow, from).slice(0, 24);
+    if (!chain.length || this.disposed) return "";
+
+    const parts: string[] = [];
+    // What each agent in the chain will be handed. A→B→C means C reads B's
+    // output, not A's, and `done` is how the immediate predecessor is found —
+    // the chain is a breadth-first order, so the trigger is not the sender for
+    // anything past the first hop. Attributing every card to the trigger read
+    // as "News Researcher → Publisher" for work Blog Writer actually handed on.
+    const handed = new Map<AgentId, string>([[from, output]]);
+    const done = new Set<AgentId>([from]);
+
+    for (const next of chain) {
+      if (this.disposed || this.stopping) break;
+      const target = agentById(this.config.workflow, next);
+      if (!target) continue;
+
+      const edge = this.config.workflow.edges.find(
+        (e) => e.kind === "then" && e.to === next && done.has(e.from),
+      );
+      const sender = edge?.from ?? from;
+      const carried = handed.get(sender) ?? output;
+      const headline = edge?.label || `Handoff from ${this.nameOf(sender)}`;
+      const id = `handoff-${sender}-${next}-${cryptoId()}`;
+
+      const prompt = [
+        `HANDOFF from ${this.nameOf(sender)}.`,
+        "",
+        "This is their output, and it is your input. Nobody is available to clarify it.",
+        "",
+        carried,
+      ].join("\n");
+
+      // runAgent renders the card. Emitting one here too was drawing every
+      // handoff twice.
+      const result = await this.runAgent({
+        who: next,
+        kind: "brief",
+        id,
+        prompt,
+        from: sender,
+        headline,
+        depth: depth + 1,
+        inChain: true,
+        handoff: true,
+      });
+
+      handed.set(next, result);
+      done.add(next);
+      parts.push(`\n\n--- HANDOFF → ${this.nameOf(next)} ---\n${clip(result, 2000)}`);
+    }
+
+    return parts.join("");
   }
 
   /** Summarises the conversation now rather than waiting for the window to fill. */
@@ -383,12 +576,31 @@ export class TeamSession implements vscode.Disposable {
 
   // ----------------------------------------------------------- translation
 
-  /** Consumes one query, emitting lane-attributed events. Returns the final text. */
-  private async consume(stream: Query, who: TeammateId, isMain: boolean): Promise<string> {
+  /**
+   * Consumes one query, emitting lane-attributed events.
+   *
+   * Returns how the run ended as well as what it said: a run cut off by the
+   * turn limit can be continued, and the caller needs the progress record to
+   * seed that continuation.
+   */
+  private async consume(
+    stream: Query,
+    who: AgentId,
+    isMain: boolean,
+  ): Promise<{ text: string; failure: string; said: string; touched: string[] }> {
     let turn = "";
     let finalText = "";
     /** Set when the run ended for any reason other than success. */
     let failure = "";
+    /**
+     * What the agent said and did, kept so a run that is cut off can still
+     * report it. A truncated run used to hand back boilerplate saying nothing
+     * was verified — true, but it also threw away the fact that files had been
+     * written and things learned, so the delegator re-briefed the identical
+     * work and paid for all of it twice.
+     */
+    let said = "";
+    const touched: string[] = [];
 
     for await (const message of stream) {
       if (this.disposed) break;
@@ -396,20 +608,34 @@ export class TeamSession implements vscode.Disposable {
       switch (message.type) {
         case "system": {
           if (message.subtype === "compact_boundary") {
-            // Only the main thread's compaction concerns the user; a teammate
-            // compacting is internal to a run that ends anyway.
-            if (isMain) {
-              const meta = message.compact_metadata;
+            // Surfaced for every agent, not just the main thread. The window
+            // filling and the history being summarised is the single most
+            // important thing to know about a long run — including one nested
+            // inside a brief, where detail dropping silently is how a report
+            // ends up quietly missing what happened at the start.
+            const meta = message.compact_metadata;
+            this.emit({
+              kind: "compacted",
+              trigger: meta.trigger,
+              before: meta.pre_tokens,
+              after: meta.post_tokens,
+            });
+            if (!isMain) {
               this.emit({
-                kind: "compacted",
-                trigger: meta.trigger,
-                before: meta.pre_tokens,
-                after: meta.post_tokens,
+                kind: "notice",
+                level: "info",
+                who,
+                text: `${this.nameOf(who)} filled its context window. The history was summarised and it carried on in the same run — earlier detail is condensed, not lost.`,
               });
             }
             break;
           }
           if (message.subtype !== "init") break;
+          // The id the CLI assigned, so the workflow can record which
+          // conversations belong to it.
+          if (isMain && message.session_id) {
+            this.emit({ kind: "sessionStarted", sessionId: message.session_id });
+          }
           if (isMain && !this.initSeen) {
             this.initSeen = true;
             // Our own in-process server is plumbing, not a user connector.
@@ -440,6 +666,10 @@ export class TeamSession implements vscode.Disposable {
             const delta = event.delta;
             if (delta.type === "text_delta" && delta.text) {
               this.setStatus(who, "thinking");
+              said += delta.text;
+              // Only the tail matters: it is the most recent account of where
+              // the run had got to.
+              if (said.length > 6000) said = said.slice(-6000);
               this.emit({ kind: "say", who, turn, delta: delta.text });
             } else if (delta.type === "thinking_delta" && delta.thinking) {
               this.emit({ kind: "think", who, turn, delta: delta.thinking });
@@ -467,6 +697,8 @@ export class TeamSession implements vscode.Disposable {
             const input = (block.input ?? {}) as Record<string, unknown>;
             // A brief tool call renders as an assignment card, not a tool chip.
             if (isTeamDelegation(block.name)) continue;
+            const trace = summariseAction(block.name, input);
+            if (trace && touched.length < 60 && !touched.includes(trace)) touched.push(trace);
             this.setStatus(who, "working", describeTool(block.name, input));
             this.emit({
               kind: "act",
@@ -518,7 +750,10 @@ export class TeamSession implements vscode.Disposable {
               kind: "notice",
               level: "error",
               who,
-              text: `${DISPLAY_NAME[who]} stopped: ${describeStop(message.subtype)}`,
+              text:
+                message.subtype === "error_max_turns"
+                  ? `${this.nameOf(who)} hit its turn limit. Whatever it wrote is still on disk, and it reported how far it got — raise "Max turns" in its Advanced settings if this keeps happening.`
+                  : `${this.nameOf(who)} stopped: ${describeStop(message.subtype)}`,
             });
           }
           if (isMain) {
@@ -532,8 +767,19 @@ export class TeamSession implements vscode.Disposable {
             if (message.subtype !== "success") {
               this.emit({ kind: "notice", level: "error", text: `Run ended: ${message.subtype}` });
             }
-            if (resultRun === this.runId) this.setBusy(false);
             this.setStatus(who, "idle");
+
+            // `then` arrows leaving the agent you are talking to fire once its
+            // turn is done. Busy stays true across the chain: the composer must
+            // not reopen while agents are still running below it.
+            const chain = thenOrder(this.config.workflow, who);
+            if (chain.length && message.subtype === "success" && !this.disposed && !this.stopping) {
+              void this.runHandoffs(who, finalText, 0).finally(() => {
+                if (resultRun === this.runId) this.setBusy(false);
+              });
+            } else if (resultRun === this.runId) {
+              this.setBusy(false);
+            }
           }
           break;
         }
@@ -543,42 +789,137 @@ export class TeamSession implements vscode.Disposable {
       }
     }
 
-    // A truncated run must not read like a completed one.
-    if (failure && !finalText) {
-      return `VERDICT: BLOCKED\nHEADLINE: The run stopped before producing a report — ${describeStop(failure)}.\nNOT COVERED: everything in the brief. Nothing here was verified.\nNEXT: decide whether a narrower brief is worth another run.`;
+    return { text: finalText, failure, said, touched };
+  }
+
+  /**
+   * What a continuing agent is handed: its brief again, plus everything it did
+   * and said before it ran out of turns.
+   *
+   * Its own words, verbatim, rather than a summary we write: it knows what it
+   * was in the middle of, and paraphrasing that is how the continuation ends up
+   * redoing the first half.
+   */
+  private continuationPrompt(
+    brief: string,
+    said: string,
+    touched: string[],
+    attempt: number,
+    limit: number,
+  ): string {
+    return [
+      "You ran out of turns partway through this work and are being continued.",
+      "This is a fresh context: everything below is all you have. The work already",
+      "done is real and on disk — check it rather than repeating it.",
+      "",
+      "=== THE ORIGINAL BRIEF ===",
+      brief,
+      "",
+      "=== WHAT YOU ALREADY DID ===",
+      touched.length ? touched.map((t) => `- ${t}`).join("\n") : "- nothing was written or run",
+      "",
+      "=== YOUR OWN LAST WORDS BEFORE YOU STOPPED ===",
+      clip(said, 3000) || "(you had not said anything yet)",
+      "",
+      `This is continuation ${attempt} of ${limit}. Finish the work and produce your report.`,
+      "If you cannot finish within these turns, spend the last of them writing the report",
+      "with what you have — a report that arrives is worth more than work that does not.",
+    ].join("\n");
+  }
+
+  /** The report a run that was cut off leaves behind. */
+  private truncatedReport(failure: string, said: string, touched: string[]): string {
+    {
+      const lines = [
+        "VERDICT: BLOCKED",
+        `HEADLINE: The run stopped before it could report — ${describeStop(failure)}.`,
+      ];
+      if (touched.length) {
+        lines.push(
+          "ALREADY DONE: these ran or were written before it stopped. The changes are on disk; do not redo them blindly, check them.",
+          ...touched.map((t) => `  - ${t}`),
+        );
+      }
+      if (said.trim()) {
+        lines.push("", "WHERE IT HAD GOT TO (its own last words, not a report):", clip(said, 1500));
+      }
+      lines.push(
+        "",
+        "NOT COVERED: everything else in the brief. Nothing above was verified by a report.",
+        touched.length
+          ? "NEXT: re-brief only what is left, telling them what is already done — a fresh run starts with an empty context and will otherwise repeat all of it."
+          : "NEXT: nothing was accomplished. Decide whether a narrower brief is worth another run.",
+      );
+      return lines.join("\n");
     }
-    return finalText;
   }
 
   // -------------------------------------------------------------- options
 
-  private specFor(who: TeammateId): TeammateSpec {
-    const base = ROSTER[who];
+  /**
+   * One agent, resolved: its capabilities from the preset and the arrows, and
+   * its system prompt from what the user wrote plus the protocol those arrows
+   * imply.
+   *
+   * Recomputed per run rather than cached, because `speaksToUser` and
+   * `mayDelegate` differ between the main thread and a nested run of the very
+   * same agent.
+   */
+  private specFor(
+    who: AgentId,
+    opts: { speaksToUser: boolean; mayDelegate?: boolean; maxTurns?: number },
+  ): ResolvedAgent {
+    const agent = agentById(this.config.workflow, who);
+    if (!agent) throw new Error(`No agent "${who}" in this workflow.`);
+
+    const resolved = resolveAgent(this.config.workflow, agent, {
+      defaultModel: this.config.model,
+      speaksToUser: opts.speaksToUser,
+      mayDelegate: opts.mayDelegate,
+    });
+
     return {
-      ...base,
-      model: this.config.models[who] || base.model,
-      effort: (this.config.efforts[who] as TeammateSpec["effort"]) || base.effort,
-      prompt:
-        composePrompt(base.prompt, {
-          documentation: this.config.documentation ?? "substantial",
-          docsPath: this.config.docsPath || "docs",
-        }) + this.projectPreamble(),
+      ...resolved,
+      ...(opts.maxTurns ? { maxTurns: opts.maxTurns } : {}),
+      prompt: composeSystemPrompt(this.config.workflow, agent, {
+        scratchpad: SCRATCHPAD,
+        docsPath: this.config.docsPath || "docs",
+        documentation: this.config.documentation ?? "substantial",
+        speaksToUser: opts.speaksToUser,
+        preamble: this.projectPreamble(),
+      }),
     };
   }
 
-  private optionsFor(spec: TeammateSpec, abort?: AbortController): Options {
+  /**
+   * `depth` only affects the tools an agent is given, which specFor has already
+   * applied; it is threaded through so a nested delegate call knows how deep it
+   * is when it in turn delegates.
+   */
+  private optionsFor(spec: ResolvedAgent, abort?: AbortController, depth = 0): Options {
     const policy = policyFor(this.config.autonomy);
-    const server = createTeamServer({
-      cwd: this.config.cwd,
-      signal: this.abort.signal,
-      runTeammate: (args) => this.runTeammate(args),
-    });
+    // Each agent gets its own server: the delegate tools it carries are exactly
+    // the arrows leaving it, so one shared server would hand everyone
+    // everyone's tools.
+    const server = createWorkflowServer(
+      {
+        cwd: this.config.cwd,
+        signal: this.abort.signal,
+        workflow: this.config.workflow,
+        runAgent: (args) => this.runAgent({ ...args, depth: depth + 1 }),
+      },
+      spec.id,
+    );
 
     return {
       cwd: this.config.cwd,
       pathToClaudeCodeExecutable: this.config.executablePath,
       model: spec.model,
-      effort: spec.effort,
+      // Sending an effort level to a model that does not take one is at best
+      // ignored and at worst an error, so it is omitted rather than guessed.
+      ...(this.config.effortAllowed?.(spec.model) === false
+        ? {}
+        : { effort: spec.effort as Options["effort"] }),
       maxTurns: spec.maxTurns,
       permissionMode: policy.permissionMode,
       allowDangerouslySkipPermissions: policy.allowDangerouslySkipPermissions,
@@ -605,10 +946,13 @@ export class TeamSession implements vscode.Disposable {
       // brief is inert until the teammate it spawns hits its own gate.
       allowedTools: spec.tools.filter((t) => t.startsWith("mcp__")),
       disallowedTools: spec.disallowedTools,
-      toolAliases: toolAliases(),
-      mcpServers: { team: server, ...(this.config.connectors as Record<string, never>) },
+      toolAliases: toolAliases(this.config.workflow, spec.id),
+      mcpServers: { team: server, ...this.connectorsFor(spec) },
       strictMcpConfig: this.config.exclusiveConnectors,
-      skills: this.config.skills,
+      // An agent's own skill list wins when it has one. `undefined` inherits
+      // the workspace setting; an empty array is a deliberate "none", so the
+      // two cannot be collapsed with `||`.
+      skills: spec.skills ?? this.config.skills,
       plugins: (this.config.plugins ?? []).map((path) => ({ type: "local" as const, path })),
       additionalDirectories: this.config.additionalDirectories ?? [],
       thinking: this.config.thinking === "off" ? { type: "disabled" } : { type: "adaptive" },
@@ -629,6 +973,23 @@ export class TeamSession implements vscode.Disposable {
       canUseTool: (name, input, context) => this.requestPermission(spec.id, name, input, context),
       stderr: (data) => this.log.debug(`[${spec.id}] ${data.trimEnd()}`),
     };
+  }
+
+  /**
+   * The connectors one agent may reach.
+   *
+   * An agent with no list gets every configured connector, which is the old
+   * behaviour and the sane default. An agent with a list gets exactly that
+   * subset — so a researcher can hold a web connector that the agent editing
+   * your files cannot.
+   */
+  private connectorsFor(spec: ResolvedAgent): Record<string, never> {
+    const all = this.config.connectors as Record<string, never>;
+    if (!spec.connectors) return all;
+    const allowed = new Set(spec.connectors);
+    return Object.fromEntries(
+      Object.entries(all).filter(([name]) => allowed.has(name)),
+    ) as Record<string, never>;
   }
 
   /**
@@ -684,25 +1045,34 @@ export class TeamSession implements vscode.Disposable {
       billing: status.ok ? status.describe : status.reason,
       workspace: shortPath(this.config.cwd),
       connectors,
-      members: TEAMMATES.map((id) => {
-        const spec = this.specFor(id);
+      workflowId: this.config.workflow.id,
+      workflowName: this.config.workflow.name,
+      edges: this.config.workflow.edges,
+      members: this.config.workflow.agents.map((agent) => {
+        const spec = this.specFor(agent.id, { speaksToUser: agent.id === this.channel });
         return {
-          id,
-          name: DISPLAY_NAME[id],
-          role: ROLE_BLURB[id],
-          model: id === "lead" ? model : spec.model,
+          id: agent.id,
+          name: agent.name,
+          role: agent.role,
+          // The CLI reports what the main thread actually resolved to, which
+          // can differ from what was asked for (a fallback, an alias).
+          model: agent.id === this.channel ? model : spec.model,
           effort: String(spec.effort),
-          status: this.status.get(id) ?? "idle",
+          preset: agent.preset,
+          status: this.status.get(agent.id) ?? "idle",
+          entry: agent.id === this.channel,
+          x: agent.x,
+          y: agent.y,
         };
       }),
     });
-    this.log.info(`roster published (${toolCount} tools available to the Lead)`);
+    this.log.info(`roster published: ${this.config.workflow.agents.length} agents, ${toolCount} tools on the main thread`);
   }
 
   // ---------------------------------------------------------- permissions
 
   private async requestPermission(
-    who: TeammateId,
+    who: AgentId,
     name: string,
     input: Record<string, unknown>,
     context: Parameters<CanUseTool>[2],
@@ -722,7 +1092,7 @@ export class TeamSession implements vscode.Disposable {
     if (confined) return deny(confined);
 
     this.setStatus(who, "waiting", `waiting on you: ${shortToolName(name)}`);
-    const prompt = `${DISPLAY_NAME[who]} wants to run ${shortToolName(name)}`;
+    const prompt = `${this.nameOf(who)} wants to run ${shortToolName(name)}`;
     const detail = context.description || describeTool(name, input);
 
     // Prefer the SDK's own scoped suggestions. When it offers none, derive one
@@ -783,7 +1153,7 @@ export class TeamSession implements vscode.Disposable {
    * with nothing and the teammate proceeds as if it had never asked.
    */
   private async askUser(
-    who: TeammateId,
+    who: AgentId,
     input: Record<string, unknown>,
   ): Promise<PermissionResult> {
     const raw = Array.isArray(input.questions) ? (input.questions as RawQuestion[]) : [];
@@ -836,13 +1206,17 @@ export class TeamSession implements vscode.Disposable {
    * Engineer. Everything else still goes through a brief.
    */
   private checkScratchpadOnly(
-    who: TeammateId,
+    who: AgentId,
     name: string,
     input: Record<string, unknown>,
   ): string | undefined {
     const editing = ["Write", "Edit", "NotebookEdit"].includes(shortToolName(name));
     if (!editing) return undefined;
-    if (who === "engineer") return undefined;
+
+    const agent = agentById(this.config.workflow, who);
+    // Whether an agent has real hands is a property of its preset, not of its
+    // name. A workflow with five read-only agents confines all five.
+    if (!agent || PRESETS[agent.preset]?.writesFreely) return undefined;
 
     const target = typeof input.file_path === "string" ? input.file_path : "";
     if (!target) return undefined;
@@ -859,9 +1233,17 @@ export class TeamSession implements vscode.Disposable {
     if (allowed) return undefined;
 
     const writable = roots.map((r) => `${r}/`).join(" and ");
-    return who === "lead"
-      ? `You have no editor outside ${writable}. Brief the Engineer to change ${target}.`
-      : `You write findings and reports, not production code. Only ${writable} is writable.`;
+    // Name who can actually do it: a refusal that leaves the agent guessing
+    // costs another turn and usually ends in it trying a different path.
+    const hands = this.config.workflow.edges
+      .filter((e) => e.from === who && e.kind === "delegate")
+      .map((e) => agentById(this.config.workflow, e.to))
+      .filter((a) => a && PRESETS[a.preset]?.writesFreely)
+      .map((a) => a!.name);
+
+    return hands.length
+      ? `You may only write inside ${writable}. To change ${target}, brief ${hands.join(" or ")}.`
+      : `You may only write inside ${writable}, and no agent you can reach has an editor either. Say so rather than working around it.`;
   }
 
   // -------------------------------------------------------------- plumbing
@@ -873,11 +1255,30 @@ export class TeamSession implements vscode.Disposable {
     void vscode.commands.executeCommand("setContext", "cadre.busy", busy);
   }
 
-  private setStatus(who: TeammateId, status: TeammateStatus, activity?: string): void {
+  private setStatus(who: AgentId, status: AgentStatus, activity?: string): void {
     if (this.status.get(who) === status && !activity) return;
     this.status.set(who, status);
     this.emit({ kind: "status", who, status, activity });
+    this.publishActive();
   }
+
+  /**
+   * Who is live right now, and which arrow work most recently travelled along.
+   *
+   * Derived from status rather than tracked separately: a second source of
+   * truth for "is this agent busy" is a second thing that can be wrong, and the
+   * lane lights and the graph would eventually disagree.
+   */
+  private publishActive(): void {
+    const busy = new Set(["thinking", "working", "waiting", "reporting"]);
+    const agents = [...this.status.entries()]
+      .filter(([, s]) => busy.has(s))
+      .map(([id]) => id);
+    this.emit({ kind: "active", agents, edge: this.liveEdge });
+  }
+
+  /** The arrow currently carrying work, for the graph to highlight. */
+  private liveEdge: { from: AgentId; to: AgentId } | undefined;
 }
 
 // ------------------------------------------------------------------ helpers
@@ -898,13 +1299,40 @@ interface RawQuestion {
   options?: { label?: unknown; description?: unknown }[];
 }
 
-const TEAM_PREFIX = "mcp__team__";
 
 /** The only place the Lead and Researcher may write. */
 export const SCRATCHPAD = ".cadre";
 
+/**
+ * A brief renders as an assignment card travelling between lanes, not as a tool
+ * chip. Matched by prefix because the agent ids are the user's to choose.
+ *
+ * `ask_` is deliberately NOT included: a consult is cheap and frequent, and
+ * showing it as a chip in the asker's lane keeps it distinguishable from real
+ * delegation at a glance.
+ */
+/**
+ * One line describing an action, for the record a truncated run leaves behind.
+ * Only the actions that change something or cost something are worth keeping —
+ * a list of every file read is noise.
+ */
+function summariseAction(name: string, input: Record<string, unknown>): string | undefined {
+  const short = shortToolName(name);
+  const str = (key: string): string => (typeof input[key] === "string" ? (input[key] as string) : "");
+  switch (short) {
+    case "Write": return `wrote ${str("file_path")}`;
+    case "Edit": return `edited ${str("file_path")}`;
+    case "NotebookEdit": return `edited notebook ${str("file_path")}`;
+    case "Bash": {
+      const command = str("command").replace(/\s+/g, " ").trim();
+      return command ? `ran: ${command.length > 120 ? `${command.slice(0, 119)}…` : command}` : undefined;
+    }
+    default: return undefined;
+  }
+}
+
 function isTeamDelegation(name: string): boolean {
-  return name === `${TEAM_PREFIX}brief_researcher` || name === `${TEAM_PREFIX}brief_engineer`;
+  return name.startsWith(`${TEAM_PREFIX}brief_`);
 }
 
 /**
@@ -978,28 +1406,6 @@ function programOf(command: string): string | undefined {
   return /^[\w.@+-]+$/.test(program) ? program : undefined;
 }
 
-function shortToolName(name: string): string {
-  return name.startsWith(TEAM_PREFIX) ? name.slice(TEAM_PREFIX.length) : name;
-}
-
-export function describeTool(name: string, input: Record<string, unknown>): string {
-  const str = (key: string): string | undefined =>
-    typeof input[key] === "string" ? (input[key] as string) : undefined;
-
-  switch (shortToolName(name)) {
-    case "Bash": return str("command") ?? "";
-    case "Read": case "Write": case "Edit": case "NotebookEdit": return str("file_path") ?? "";
-    case "Glob": case "Grep": return [str("pattern"), str("path")].filter(Boolean).join("  in  ");
-    case "WebSearch": return str("query") ?? "";
-    case "WebFetch": return str("url") ?? "";
-    case "git_view": return [str("subcommand"), ...(Array.isArray(input.paths) ? input.paths : [])].join(" ");
-    case "ask_researcher": case "ask_engineer": return str("question") ?? "";
-    default: {
-      const json = JSON.stringify(input);
-      return json.length > 240 ? `${json.slice(0, 240)}…` : json;
-    }
-  }
-}
 
 function summarizeResult(content: unknown): string {
   const text = extractText(content).replace(/\s+/g, " ").trim();
@@ -1040,6 +1446,12 @@ function describeStop(subtype: string): string {
     case "error_during_execution": return "it failed during execution";
     default: return subtype.replace(/^error_/, "").replace(/_/g, " ");
   }
+}
+
+/** Keeps an appended handoff from swamping the report it is attached to. */
+function clip(text: string, limit: number): string {
+  const trimmed = text.trim();
+  return trimmed.length <= limit ? trimmed : `${trimmed.slice(0, limit)}\n… (${trimmed.length - limit} more characters in their lane)`;
 }
 
 function describe(err: unknown): string {

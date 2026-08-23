@@ -25,6 +25,12 @@ export function query({ prompt, options }) {
 
   const control = {
     options,
+    /**
+     * The prompt exactly as handed over. A nested run is given a plain string,
+     * so `received` (which iterates the prompt) sees it one character at a
+     * time — useless for asserting what an agent was actually told.
+     */
+    prompt: typeof prompt === "string" ? prompt : undefined,
     received,
     receivedUuids,
     interrupts: 0,
@@ -79,12 +85,49 @@ export function resultMessage(overrides = {}) {
 }
 
 /** Enough of the in-process MCP surface for the orchestrator to construct itself. */
+/** The start of an assistant turn. Deltas are ignored until one arrives. */
+export function messageStart(id = "m1") {
+  return {
+    type: "stream_event",
+    parent_tool_use_id: null,
+    event: { type: "message_start", message: { id } },
+  };
+}
+
+/** A streamed prose delta, as the CLI emits it. */
+export function textDelta(text) {
+  return {
+    type: "stream_event",
+    parent_tool_use_id: null,
+    event: { type: "content_block_delta", delta: { type: "text_delta", text } },
+  };
+}
+
+/** An assistant turn carrying tool calls. */
+export function assistantMessage(content) {
+  return { type: "assistant", parent_tool_use_id: null, message: { content } };
+}
+
+/** The CLI summarised the history and carried on in the same conversation. */
+export function compactBoundary(trigger = "auto") {
+  return {
+    type: "system",
+    subtype: "compact_boundary",
+    compact_metadata: { trigger, pre_tokens: 180000, post_tokens: 42000 },
+  };
+}
+
 export function tool(name, description, inputSchema, handler) {
   return { name, description, inputSchema, handler };
 }
 
 export function createSdkMcpServer(options) {
   return { type: "sdk", name: options.name, instance: { __fake: true }, tools: options.tools ?? [] };
+}
+
+/** A stored transcript, so resume can be tested without the real store. */
+export async function getSessionMessages(_id, _options) {
+  return registry.messages ?? [];
 }
 
 /** Stored sessions the home screen lists. Tests set registry.sessions. */

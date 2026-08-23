@@ -122,7 +122,7 @@ Run briefs in parallel — several brief calls in one message — only when they
 
 ## Writing a brief
 
-The tool has fields; what you put in them is prose. It is the entire world the subagent will have.
+The tool has fields; what you put in them is prose. It is the entire world the subagent will have. `context`, `boundaries`, `decide_yourself` and `paths` are **lists — one item per point, not one paragraph**; the tool will accept a paragraph and split it, but items you separate yourself are the ones that survive intact.
 
 - **objective** — one sentence: the done-condition, not the activity.
 - **done_when** — for anything that changes behaviour, a check that fails right now and passes when the work is done. "The suite passes" is not one; it passes today. Name the check and where its failing state came from: *"`npm test -- x` — the user pasted this failure"*, or *"R-02 reported it failing"*. You have no shell, so if nobody has run it, say what should fail rather than asserting what does — or send an `EXPLORE` ticket first. A fabricated error string in the one field the Engineer treats as ground truth is worse than a vaguer check. Where nothing runs, name the artifact and the one property a reader could verify in under a minute. **If you cannot write one an observer could check, you are not ready to delegate.** Work it out, read within budget, or ask. A brief with no finish line comes back as something you did not want and you pay for it twice.

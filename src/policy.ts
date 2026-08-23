@@ -30,6 +30,52 @@ const NEVER_READ = [
 ];
 
 /**
+ * The same set, as a predicate, for the paths the CLI's deny rules cannot see.
+ *
+ * `NEVER_READ` binds the Read tool. Anything that reaches a file another way
+ * has to check for itself — `git_view show .env` printed a live secret straight
+ * past the deny list until this existed, which made the promise that these are
+ * "denied at every level" simply untrue.
+ *
+ * Deliberately matched on the path's shape rather than by resolving it: a file
+ * that is not there yet, or is only in git history, still must not be printed.
+ */
+const PROTECTED = [
+  /(^|\/)\.env(\.|$)/i,
+  /(^|\/)\.ssh(\/|$)/i,
+  /(^|\/)\.aws\/credentials$/i,
+  /(^|\/)\.claude\/\.credentials\.json$/i,
+  /(^|\/)id_rsa(\.|$)/i,
+  /(^|\/)id_ed25519(\.|$)/i,
+  /\.pem$/i,
+  /(^|\/)\.netrc$/i,
+  /(^|\/)\.npmrc$/i,
+  /(^|\/)\.pypirc$/i,
+];
+
+export function isProtectedPath(candidate: string): boolean {
+  const normalised = candidate.replace(/\\/g, "/").replace(/^\.\//, "");
+  return PROTECTED.some((rule) => rule.test(normalised));
+}
+
+/** Git pathspecs that keep protected files out of a diff. */
+export const PROTECTED_EXCLUDES = [
+  ":(exclude,glob).env",
+  ":(exclude,glob).env.*",
+  ":(exclude,glob)**/.env",
+  ":(exclude,glob)**/.env.*",
+  ":(exclude,glob)**/.ssh/**",
+  ":(exclude,glob)**/.aws/credentials",
+  ":(exclude,glob)**/.claude/.credentials.json",
+  ":(exclude,glob)**/id_rsa*",
+  ":(exclude,glob)**/id_ed25519*",
+  ":(exclude,glob)**/*.pem",
+  ":(exclude,glob)**/.netrc",
+  ":(exclude,glob)**/.npmrc",
+  ":(exclude,glob)**/.pypirc",
+];
+
+/**
  * Commands worth stopping for. Asking about *every* shell command instead buries
  * the dangerous ones in a stream of prompts for `ls` and `--version`, and the
  * user learns to click through — which is worse than not asking at all.

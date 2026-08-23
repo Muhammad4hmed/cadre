@@ -1,0 +1,99 @@
+[
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Determine whether a natural-sounding, offline, on-device (mobile) Urdu text-to-speech can ship under 10 MB total (model weights + any inference library we must bundle), and recommend the most viable concrete architecture + runtime + data path to get there. This is a feasibility-and-direction study that will decide the project's whole architecture.",
+      "done_when": "You deliver: (1) a clear VERDICT on feasibility — is natural Urdu TTS under 10 MB incl. runtime achievable, and if not, what the tightest achievable (size, quality) point is; (2) a recommended stack named concretely — acoustic model/architecture, vocoder if separate, mobile inference runtime, and a MB-by-MB budget breakdown showing the total under 10 MB (or the closest real number); (3) at least one concrete Urdu data or pretrained-model source with a link and license; (4) 1-2 named fallback options with their size/quality tradeoff. Every size and capability claim carries a citation.",
+      "context": "[\"Project is UrduTTS, a cold/empty repo at the workspace root. Spec at .cadre/spec.md.\", \"User decisions: approach = natural neural (NOT parametric like eSpeak, NOT 'balanced'); target = mobile on-device, fully offline; the 10 MB budget counts model weights PLUS any inference library we have to ship (a runtime that is a shared OS system lib — Android NNAPI, iOS Core ML — would not count against budget, and that distinction matters a lot).\", \"Known reference points to verify and build on, not take as given: eSpeak-ng does Urdu at ~2 MB but robotic (rejected by user). Piper (rhasspy) uses VITS, typical voices 20-60 MB. ONNX Runtime Mobile is roughly 5-10 MB. TFLite runtime is smaller (~1-3 MB). These are the kind of numbers that decide whether the 10 MB budget survives once the runtime is counted.\", \"Key sub-questions: Does a quantized/distilled VITS (or lighter arch like a small MatchaTTS/VITS2/LiteTTS/nano-scale model) reach natural quality? What does int8/quantization do to size AND quality? Can the vocoder be folded in (end-to-end VITS) to avoid shipping a separate HiFi-GAN? Which mobile runtime gives the smallest shippable footprint for this model type? Is there a usable Urdu voice dataset (e.g. Common Voice Urdu, CMU/LDC, Mozilla, university corpora) or an existing pretrained Urdu TTS checkpoint we can fine-tune/quantize instead of training from scratch?\"]",
+      "decide_yourself": "[\"Which specific architectures and runtimes are worth recommending vs dismissing\", \"Whether to recommend Android-first, iOS-first, or cross-platform, and why\", \"Whether the realistic path is quantize-an-existing-model vs fine-tune vs train-from-scratch\", \"Depth of comparison — enough to pick a direction, not an exhaustive survey\"]",
+      "boundaries": "[\"Do not write production code or a paper — this is a research report to direct the build.\", \"Do not recommend cloud/server inference or multi-language scope; both are out.\", \"Do not silently accept the 10 MB as impossible and pivot to parametric — if natural+10MB is truly out of reach, say so explicitly with the evidence and give the closest achievable point.\", \"Distinguish clearly what counts against the 10 MB (shipped bytes) vs what rides on the OS.\"]",
+      "budget": "Worth a solid focused study. Stop and report once you can defend a recommended stack with a size budget and a data source; if a critical number (e.g. quantized model quality on Urdu) has no published source, say so rather than guessing.",
+      "deliver": "Write the report to docs/research/R-01-feasibility.md as well as returning the standard report block. Structure it so the MB budget breakdown and the VERDICT are near the top."
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"context\" ], \"message\": \"Invalid i"
+  },
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Determine whether a natural-sounding, offline, on-device (mobile) Urdu text-to-speech can ship under 10 MB total (model weights + any inference library we must bundle), and recommend the most viable concrete architecture + runtime + data path to get there. This is a feasibility-and-direction study that will decide the project's whole architecture.",
+      "done_when": "You deliver: (1) a clear VERDICT on feasibility — is natural Urdu TTS under 10 MB incl. runtime achievable, and if not, what the tightest achievable (size, quality) point is; (2) a recommended stack named concretely — acoustic model/architecture, vocoder if separate, mobile inference runtime, and a MB-by-MB budget breakdown showing the total under 10 MB (or the closest real number); (3) at least one concrete Urdu data or pretrained-model source with a link and license; (4) 1-2 named fallback options with their size/quality tradeoff. Every size and capability claim carries a citation.",
+      "context": "[\"Project is UrduTTS, a cold/empty repo at the workspace root. Spec at .cadre/spec.md.\", \"User decisions: approach = natural neural (NOT parametric like eSpeak, NOT balanced); target = mobile on-device, fully offline; the 10 MB budget counts model weights PLUS any inference library we have to ship. A runtime that is a shared OS system lib (Android NNAPI, iOS Core ML) would not count against budget, and that distinction matters a lot.\", \"Reference points to verify, not assume: eSpeak-ng does Urdu at ~2 MB but robotic (rejected). Piper/rhasspy uses VITS, voices ~20-60 MB. ONNX Runtime Mobile ~5-10 MB. TFLite runtime ~1-3 MB. These numbers decide whether the 10 MB budget survives once runtime is counted.\", \"Key sub-questions: Does a quantized/distilled VITS (or lighter arch like small Matcha-TTS/VITS2/nano-scale) reach natural quality? What does int8 quantization do to size AND quality? Can the vocoder fold into an end-to-end VITS to avoid shipping a separate HiFi-GAN? Which mobile runtime gives the smallest shippable footprint? Is there a usable Urdu voice dataset (Common Voice Urdu, LDC, university corpora) or an existing pretrained Urdu TTS checkpoint we can fine-tune/quantize rather than train from scratch?\"]",
+      "decide_yourself": "[\"Which specific architectures and runtimes are worth recommending vs dismissing\", \"Whether to recommend Android-first, iOS-first, or cross-platform, and why\", \"Whether the realistic path is quantize-an-existing-model vs fine-tune vs train-from-scratch\", \"Depth of comparison — enough to pick a direction, not an exhaustive survey\"]",
+      "boundaries": "[\"Do not write production code or a paper — this is a research report to direct the build.\", \"Do not recommend cloud/server inference or multi-language scope; both are out.\", \"Do not silently accept 10 MB as impossible and pivot to parametric — if natural+10MB is truly out of reach, say so explicitly with evidence and give the closest achievable point.\", \"Distinguish clearly what counts against the 10 MB (shipped bytes) vs what rides on the OS.\"]",
+      "budget": "Worth a solid focused study. Stop and report once you can defend a recommended stack with a size budget and a data source; if a critical number (e.g. quantized model quality on Urdu) has no published source, say so rather than guessing.",
+      "deliver": "Write the report to docs/research/R-01-feasibility.md as well as returning the standard report block. Structure it so the MB budget breakdown and the VERDICT are near the top."
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"context\" ], \"message\": \"Invalid i"
+  },
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Recommend a concrete, current stack for building a lightweight, realistic, fully-offline Urdu text-to-speech that runs on-device on Android and iOS, built by fine-tuning an existing Urdu-capable pretrained model (not training from scratch). The output drives an architecture decision, so it must name specific models, runtimes, datasets, and a phonemization path — not a survey.",
+      "done_when": "You return a report that answers all of the following, each backed by a current source/link (2024–2026 preferred): (1) A recommended base model to fine-tune, with its license, approximate parameter count / on-disk size, and a one-paragraph reason it beats the alternatives for lightweight on-device Urdu. Compare at least: Piper/rhasspy (VITS), Meta MMS-TTS 'urd', Coqui VITS, and one modern option (StyleTTS2 or similar) — say why each is in or out for MOBILE OFFLINE use. (2) The on-device runtime to actually ship inference on both Android and iOS offline — check sherpa-onnx and onnxruntime-mobile specifically: confirm from current docs whether each supports VITS/Piper-style TTS on Android AND iOS, and note expected model size + rough latency on a mid-range phone. (3) At least two Urdu speech datasets usable for fine-tuning (e.g. Mozilla Common Voice Urdu, OpenSLR Urdu, any single-speaker Urdu corpora), each with approximate hours, number/gender of speakers, sample-rate/quality, and license. (4) The Urdu text→phoneme path: does espeak-ng support Urdu ('ur') and is it good enough, and what are the known hard problems for Urdu specifically (diacritics/aerab often absent in written text, Nastaliq, numerals, code-switching with English). (5) A clear licensing flag: for every model and dataset named, state whether it permits commercial use or is non-commercial/restricted.",
+      "decide_yourself": "Which additional candidates are worth comparing; how deep to go on each; how to structure the report; whether to recommend a single stack or present a primary + fallback when the evidence is genuinely split.",
+      "context": "Project is a cold/empty repo at UrduTTS. User decisions already fixed: target = on-device mobile (Android + iOS), fully offline; approach = fine-tune a pretrained Urdu-capable model, NOT from scratch; must be lightweight AND realistic (these pull against each other on a phone). Commercial vs non-commercial intent is UNKNOWN, so licensing must be explicit for everything you name. Key names to investigate: Piper (rhasspy/piper), Meta MMS-TTS (facebook/mms-tts-urd), Coqui TTS / XTTS, StyleTTS2, sherpa-onnx (k2-fsa), onnxruntime-mobile, espeak-ng Urdu support, Mozilla Common Voice Urdu, OpenSLR (search for Urdu/Crowdsourced South Asian corpora).",
+      "boundaries": "Do not write code. Repository is read-only for you. Keep the focus on MOBILE OFFLINE deployment — discard options that only realistically run server-side unless they can be distilled/exported to a mobile runtime, and say so. Explicitly flag any non-commercial or research-only license (MMS-TTS in particular is believed to be CC-BY-NC — verify).",
+      "budget": "One focused research pass. If the base-model choice is clear-cut, say so and don't pad with weaker alternatives. Stop and report rather than chase exhaustive benchmarks.",
+      "deliver": "Standard report plus a short \"recommended stack\" block: base model → runtime → dataset(s) → phonemizer, each on one line with its license, so it can be pasted into a decision record."
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"context\" ], \"message\": \"Invalid i"
+  },
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Recommend a concrete, current stack for building a lightweight, realistic, fully-offline Urdu text-to-speech that runs on-device on Android and iOS, built by fine-tuning an existing Urdu-capable pretrained model (not training from scratch). The output drives an architecture decision, so it must name specific models, runtimes, datasets, and a phonemization path — not a survey.",
+      "done_when": "You return a report that answers all of the following, each backed by a current source/link (2024–2026 preferred): (1) A recommended base model to fine-tune, with its license, approximate parameter count / on-disk size, and a one-paragraph reason it beats the alternatives for lightweight on-device Urdu. Compare at least: Piper/rhasspy (VITS), Meta MMS-TTS 'urd', Coqui VITS, and one modern option (StyleTTS2 or similar) — say why each is in or out for MOBILE OFFLINE use. (2) The on-device runtime to actually ship inference on both Android and iOS offline — check sherpa-onnx and onnxruntime-mobile specifically: confirm from current docs whether each supports VITS/Piper-style TTS on Android AND iOS, and note expected model size + rough latency on a mid-range phone. (3) At least two Urdu speech datasets usable for fine-tuning (e.g. Mozilla Common Voice Urdu, OpenSLR Urdu, any single-speaker Urdu corpora), each with approximate hours, number/gender of speakers, sample-rate/quality, and license. (4) The Urdu text→phoneme path: does espeak-ng support Urdu ('ur') and is it good enough, and what are the known hard problems for Urdu specifically (diacritics/aerab often absent in written text, Nastaliq, numerals, code-switching with English). (5) A clear licensing flag: for every model and dataset named, state whether it permits commercial use or is non-commercial/restricted.",
+      "decide_yourself": "[\"Which additional candidates are worth comparing beyond the named ones\", \"How deep to go on each option\", \"How to structure the report\", \"Whether to recommend a single stack or a primary plus fallback when evidence is genuinely split\"]",
+      "context": "[\"Project is a cold/empty repo at UrduTTS\", \"User decisions already fixed: target = on-device mobile (Android + iOS), fully offline; approach = fine-tune a pretrained Urdu-capable model, NOT from scratch; must be lightweight AND realistic (these pull against each other on a phone)\", \"Commercial vs non-commercial intent is UNKNOWN, so licensing must be explicit for everything named\", \"Key names to investigate: Piper (rhasspy/piper), Meta MMS-TTS (facebook/mms-tts-urd), Coqui TTS / XTTS, StyleTTS2, sherpa-onnx (k2-fsa), onnxruntime-mobile, espeak-ng Urdu support, Mozilla Common Voice Urdu, OpenSLR Urdu / Crowdsourced South Asian corpora\"]",
+      "boundaries": "[\"Do not write code\", \"Repository is read-only for you\", \"Keep focus on MOBILE OFFLINE deployment — discard options that only realistically run server-side unless they can be exported to a mobile runtime, and say so\", \"Explicitly flag any non-commercial or research-only license (MMS-TTS is believed to be CC-BY-NC — verify)\"]",
+      "budget": "One focused research pass. If the base-model choice is clear-cut, say so and don't pad with weaker alternatives. Stop and report rather than chase exhaustive benchmarks.",
+      "deliver": "Standard report plus a short \"recommended stack\" block: base model -> runtime -> dataset(s) -> phonemizer, each on one line with its license, so it can be pasted into a decision record."
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"context\" ], \"message\": \"Invalid i"
+  },
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Recommend a concrete, current stack for a lightweight, realistic, fully-offline Urdu TTS that runs on-device on Android and iOS, built by fine-tuning an existing Urdu-capable pretrained model (not from scratch). Must name specific models, runtimes, datasets, and a phonemization path.",
+      "done_when": "Report answers all, each with a current source/link (2024-2026 preferred): (1) A recommended base model to fine-tune, with license, approx params/on-disk size, and why it beats alternatives for lightweight on-device Urdu; compare at least Piper/rhasspy VITS, Meta MMS-TTS urd, Coqui VITS, and one modern option (StyleTTS2 or similar), saying why each is in or out for mobile offline. (2) The on-device runtime to ship inference on both Android and iOS offline; check sherpa-onnx and onnxruntime-mobile specifically, confirm VITS/Piper TTS support on Android AND iOS, note model size and rough latency on a mid-range phone. (3) At least two Urdu datasets for fine-tuning with approx hours, speakers/gender, sample-rate, license. (4) Urdu text-to-phoneme path: does espeak-ng support Urdu and is it adequate, and the known hard problems for Urdu (missing diacritics/aerab, numerals, English code-switching). (5) Explicit commercial-vs-noncommercial license flag for every model and dataset named.",
+      "decide_yourself": "[\"Which extra candidates to compare\", \"How deep to go on each\", \"Report structure\", \"Whether to give a single stack or primary plus fallback\"]",
+      "authority": "EXPLORE",
+      "context": "[\"Cold empty repo at UrduTTS\", \"Fixed user decisions: target on-device mobile Android+iOS fully offline; approach = fine-tune a pretrained Urdu-capable model not from scratch; must be lightweight AND realistic\", \"Commercial intent UNKNOWN so licensing must be explicit for everything\", \"Names to investigate: Piper rhasspy/piper, Meta facebook/mms-tts-urd, Coqui TTS/XTTS, StyleTTS2, sherpa-onnx k2-fsa, onnxruntime-mobile, espeak-ng Urdu, Mozilla Common Voice Urdu, OpenSLR Urdu\"]",
+      "boundaries": "[\"Do not write code\", \"Repo is read-only\", \"Focus on mobile offline deployment; discard server-only options unless exportable to a mobile runtime and say so\", \"Explicitly flag any non-commercial/research-only license; MMS-TTS believed CC-BY-NC, verify\"]",
+      "budget": "One focused research pass. If the base-model choice is clear-cut, say so and do not pad with weak alternatives.",
+      "deliver": "Standard report plus a short recommended-stack block: base model -> runtime -> dataset(s) -> phonemizer, each on one line with its license."
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"context\" ], \"message\": \"Invalid i"
+  },
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Test brief.",
+      "done_when": "Test.",
+      "decide_yourself": "[\"a\", \"b\"]",
+      "context": "[\"x\", \"y\"]",
+      "boundaries": "[\"no\"]"
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"context\" ], \"message\": \"Invalid i"
+  },
+  {
+    "tool": "brief_researcher",
+    "args": {
+      "objective": "Test.",
+      "done_when": "Test.",
+      "decide_yourself": "[\"a\"]"
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_researcher: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"decide_yourself\" ], \"message\": \"I"
+  },
+  {
+    "tool": "brief_engineer",
+    "args": {
+      "objective": "Test.",
+      "done_when": "Test.",
+      "decide_yourself": "[\"a\"]",
+      "authority": "EXPLORE",
+      "paths": "[]"
+    },
+    "error": "MCP error -32602: Input validation error: Invalid arguments for tool brief_engineer: [ { \"expected\": \"array\", \"code\": \"invalid_type\", \"path\": [ \"decide_yourself\" ], \"message\": \"Inv"
+  }
+]

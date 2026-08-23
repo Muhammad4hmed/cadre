@@ -1,4 +1,1550 @@
-// @ts-check
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>/* VS Code Dark Modern token values. The webview normally inherits these from
+   the host; here they are supplied so the real stylesheet renders as it does
+   in the editor. Nothing about media/team.css is changed. */
+:root {
+  --vscode-font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", sans-serif;
+  --vscode-font-size: 13px;
+  --vscode-editor-font-family: "DejaVu Sans Mono", ui-monospace, monospace;
+  --vscode-foreground: #cccccc;
+  --vscode-descriptionForeground: #9d9d9d;
+  --vscode-sideBar-background: #181818;
+  --vscode-editor-background: #1f1f1f;
+  --vscode-panel-border: #2b2b2b;
+  --vscode-editorWidget-background: #202020;
+  --vscode-textCodeBlock-background: #0d0d0d;
+  --vscode-input-background: #313131;
+  --vscode-input-foreground: #cccccc;
+  --vscode-input-border: #3c3c3c;
+  --vscode-focusBorder: #0078d4;
+  --vscode-button-background: #0078d4;
+  --vscode-button-foreground: #ffffff;
+  --vscode-button-hoverBackground: #026ec1;
+  --vscode-button-secondaryBackground: #313131;
+  --vscode-button-secondaryForeground: #cccccc;
+  --vscode-button-secondaryHoverBackground: #3c3c3c;
+  --vscode-dropdown-background: #313131;
+  --vscode-dropdown-foreground: #cccccc;
+  --vscode-dropdown-border: #3c3c3c;
+  --vscode-errorForeground: #f85149;
+  --vscode-testing-iconPassed: #3fb950;
+  --vscode-testing-iconFailed: #f85149;
+  --vscode-inputValidation-warningBorder: #d67e00;
+  --vscode-inputValidation-warningBackground: #352a05;
+  --vscode-inputValidation-warningForeground: #d9a441;
+  --vscode-inputValidation-errorBorder: #be1100;
+}
+html, body { background: var(--vscode-sideBar-background); }
+</style><style>/* ============================================================================
+   AI Team — one stylesheet for both surfaces.
+   Narrow (sidebar) stacks the teammates; wide (editor tab) puts them in lanes.
+   Colours derive from the VS Code theme so it sits in light and dark alike;
+   the accents are the only opinionated part.
+   ========================================================================= */
+
+:root {
+  --lead: #a78bfa;
+  --researcher: #22d3ee;
+  --engineer: #fbbf24;
+
+  --edge: color-mix(in srgb, var(--vscode-foreground) 14%, transparent);
+  --edge-soft: color-mix(in srgb, var(--vscode-foreground) 7%, transparent);
+  --surface: color-mix(in srgb, var(--vscode-foreground) 3%, transparent);
+  --dim: var(--vscode-descriptionForeground);
+  --mono: var(--vscode-editor-font-family, ui-monospace, monospace);
+
+  --lane-accent: var(--dim);
+}
+
+* { box-sizing: border-box; min-width: 0; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  display: flex;
+  flex-direction: column;
+  font-family: var(--vscode-font-family);
+  font-size: var(--vscode-font-size);
+  color: var(--vscode-foreground);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+
+/* ------------------------------------------------------------------ header */
+
+.bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  /* Wraps rather than overlapping: at sidebar width the chips do not fit on
+     one line, and truncating them all to nothing is worse than a second row. */
+  flex-wrap: wrap;
+  gap: 6px 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--edge);
+  font-size: 11px;
+  color: var(--dim);
+}
+
+.brand {
+  border: none;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  color: var(--vscode-foreground);
+  background: linear-gradient(90deg, var(--lead), var(--researcher));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.bar .spacer { flex: 1 1 auto; }
+
+.chip {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 2px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 22ch;
+  flex: 0 1 auto;
+}
+
+/* The spacer only earns its place when everything already fits on one line. */
+@media (max-width: 560px) {
+  .bar .spacer { display: none; }
+  .chip { max-width: 16ch; }
+}
+.chip.warn { border-color: var(--vscode-inputValidation-warningBorder); }
+
+button.chip.pick {
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+}
+button.chip.pick:hover { color: var(--vscode-foreground); border-color: var(--dim); }
+
+button.ghost {
+  background: none;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+  border-radius: 4px;
+  padding: 2px 8px;
+  font-size: 10px;
+  cursor: pointer;
+}
+button.ghost:hover { color: var(--vscode-foreground); border-color: var(--dim); }
+
+/* ------------------------------------------------------------------ roster */
+
+.roster {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--edge-soft);
+  border-bottom: 1px solid var(--edge);
+}
+
+.member {
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  cursor: pointer;
+  border-top: 2px solid transparent;
+  transition: border-color 120ms, background 120ms;
+}
+.member:hover { background: var(--surface); }
+.member[data-active="true"] { border-top-color: var(--lane-accent); }
+/* The accent is set inline from the agent's position in the workflow: agent
+   names are the user's to choose, so nothing can be keyed to them here. */
+
+.member .who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.member .activity {
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-height: 1em;
+}
+
+/* Status light. Pulses only while the teammate is actually doing something. */
+.dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+  background: var(--dim);
+  opacity: 0.45;
+}
+[data-status="idle"]     .dot { opacity: 0.35; }
+[data-status="thinking"] .dot,
+[data-status="working"]  .dot,
+[data-status="reporting"] .dot {
+  background: var(--lane-accent);
+  opacity: 1;
+  animation: pulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 6px var(--lane-accent);
+}
+[data-status="waiting"]  .dot { background: var(--vscode-inputValidation-warningBorder); opacity: 1; }
+[data-status="done"]     .dot { background: var(--vscode-testing-iconPassed); opacity: 1; }
+[data-status="offline"]  .dot { opacity: 0.18; }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .dot { animation: none !important; } }
+
+/* ------------------------------------------------------------------- lanes */
+
+.floor {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: 1fr;      /* narrow: one merged stream */
+  overflow: hidden;
+}
+
+.lane {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-left: 1px solid var(--edge-soft);
+}
+.lane:first-child { border-left: none; }
+
+
+.lane > header {
+  display: none;                    /* only shown in lane mode */
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--edge-soft);
+}
+
+.stream {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+/* Wide surfaces get one column per teammate. */
+@media (min-width: 760px) {
+  body[data-layout="floor"] .floor { grid-auto-flow: column; }
+  body[data-layout="floor"] .lane > header { display: flex; }
+  body[data-layout="floor"] .roster { display: none; }
+}
+
+/* --------------------------------------------------------------- utterances */
+
+.utterance { display: flex; flex-direction: column; gap: 3px; }
+
+.utterance > .tag {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+  opacity: 0.85;
+}
+
+.utterance > .body {
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.utterance.user > .body {
+  background: var(--surface);
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.utterance.user > .tag { color: var(--dim); }
+
+.body code {
+  font-family: var(--mono);
+  font-size: 0.9em;
+  background: var(--vscode-textCodeBlock-background);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+.body pre {
+  margin: 8px 0;
+  padding: 10px;
+  overflow-x: auto;
+  background: var(--vscode-textCodeBlock-background);
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+}
+.body pre code { background: none; padding: 0; }
+
+details.reasoning { border-left: 2px solid var(--edge); padding-left: 9px; }
+details.reasoning summary {
+  cursor: pointer;
+  font-size: 10px;
+  font-family: var(--mono);
+  letter-spacing: 0.08em;
+  color: var(--dim);
+}
+details.reasoning .body { margin-top: 4px; font-size: 0.92em; color: var(--dim); }
+
+/* ------------------------------------------------------------------- acts */
+
+.act {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 1px solid var(--edge-soft);
+  border-left: 2px solid var(--lane-accent);
+  border-radius: 0 5px 5px 0;
+  background: var(--surface);
+  font-size: 11px;
+}
+/* A failed call and the reason it failed, banded together. */
+.act-failed { display: flex; flex-direction: column; }
+.act-failed .act { border-radius: 0 5px 0 0; border-bottom: none; }
+.act-failed .why { border-top: none; }
+.act-failed .why {
+  border: 1px solid var(--edge-soft);
+  border-left: 2px solid var(--vscode-inputValidation-errorBorder);
+  border-radius: 0 0 5px 0;
+  background: var(--surface);
+  padding: 5px 8px 6px 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  line-height: 1.45;
+  color: var(--dim);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 9em;
+  overflow-y: auto;
+}
+
+.act .tool { font-family: var(--mono); font-size: 10px; flex: 0 0 auto; }
+.act .detail {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.act[data-state="running"] .tool::before { content: "◌ "; }
+.act[data-state="ok"]      .tool::before { content: "✓ "; color: var(--vscode-testing-iconPassed); }
+.act[data-state="failed"]  .tool::before { content: "✕ "; color: var(--vscode-testing-iconFailed); }
+.act[data-state="failed"] { border-color: var(--vscode-inputValidation-errorBorder); }
+
+/* ------------------------------------------------------------ assignments */
+
+.assignment {
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: linear-gradient(
+    100deg,
+    color-mix(in srgb, var(--lane-accent) 9%, transparent),
+    transparent 65%
+  );
+}
+.assignment .route {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+  margin-bottom: 3px;
+}
+.assignment .brief { font-size: 12px; line-height: 1.45; }
+.assignment .outcome { margin-top: 5px; font-size: 11px; color: var(--dim); }
+.assignment[data-outcome="blocked"] { border-color: var(--vscode-inputValidation-warningBorder); }
+.assignment[data-outcome="failed"]  { border-color: var(--vscode-inputValidation-errorBorder); }
+
+/* --------------------------------------------------------------- questions */
+
+.ask {
+  border: 1px solid var(--lane-accent);
+  border-radius: 8px;
+  padding: 12px 13px;
+  background: color-mix(in srgb, var(--lane-accent) 7%, transparent);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ask .who {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--lane-accent);
+}
+
+/* The whole point: the question wraps instead of being clipped to one line. */
+.ask .q {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.ask .choices { display: flex; flex-direction: column; gap: 5px; }
+
+.ask .choice {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--vscode-editor-background, transparent);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.ask .choice:hover { border-color: var(--lane-accent); }
+.ask .choice[aria-pressed="true"] { border-color: var(--lane-accent); background: color-mix(in srgb, var(--lane-accent) 14%, transparent); }
+.ask .choice .label { font-size: 12.5px; font-weight: 600; }
+.ask .choice .why { font-size: 11px; color: var(--dim); line-height: 1.45; }
+
+.ask .own { display: flex; gap: 6px; }
+.ask .own input {
+  flex: 1 1 auto;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--edge));
+  border-radius: 6px;
+}
+.ask .actions { display: flex; gap: 6px; justify-content: flex-end; }
+.ask[data-done="true"] { opacity: 0.6; border-style: dashed; }
+.ask[data-done="true"] .choices, .ask[data-done="true"] .own, .ask[data-done="true"] .actions { display: none; }
+.ask .answered { font-size: 11.5px; color: var(--dim); }
+
+/* ---------------------------------------------------------------- notices */
+
+.notice {
+  padding: 6px 9px;
+  border-radius: 6px;
+  border: 1px solid var(--edge);
+  font-size: 11.5px;
+}
+.notice.warn  { border-color: var(--vscode-inputValidation-warningBorder); }
+.notice.error { border-color: var(--vscode-inputValidation-errorBorder); color: var(--vscode-errorForeground); }
+.notice.compacted {
+  border-style: dashed;
+  border-color: var(--edge);
+  color: var(--dim);
+  font-size: 11px;
+  text-align: center;
+}
+
+.spend { font-size: 10px; font-family: var(--mono); color: var(--dim); text-align: right; }
+
+.empty {
+  margin: auto;
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 1.7;
+  padding: 20px;
+  max-width: 34ch;
+}
+.empty .glyph { font-size: 22px; opacity: 0.5; display: block; margin-bottom: 8px; }
+
+/* --------------------------------------------------------------- composer */
+
+.composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--edge);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.composer .to {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+}
+.composer select {
+  font-family: inherit;
+  font-size: 10px;
+  color: var(--vscode-dropdown-foreground);
+  background: var(--vscode-dropdown-background);
+  border: 1px solid var(--vscode-dropdown-border, var(--edge));
+  border-radius: 4px;
+  padding: 1px 4px;
+}
+.composer select:disabled { opacity: 0.5; }
+
+.composer .row { display: flex; gap: 6px; align-items: flex-end; }
+
+.attachments { display: flex; flex-wrap: wrap; gap: 6px; }
+
+.thumb {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border-radius: 6px;
+  overflow: hidden;
+  border: 1px solid var(--edge);
+  background: var(--surface);
+}
+.thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.thumb button {
+  position: absolute;
+  top: 1px; right: 1px;
+  width: 16px; height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.72);
+  color: #fff;
+  font-size: 11px;
+  line-height: 16px;
+  cursor: pointer;
+}
+
+button.ghost.attach {
+  font-size: 15px;
+  line-height: 1;
+  padding: 6px 10px;
+  align-self: stretch;
+}
+
+/* Whole composer is a drop target, so the aim does not have to be precise. */
+.composer[data-dropping="true"] {
+  outline: 1px dashed var(--researcher);
+  outline-offset: -3px;
+}
+
+.utterance .shots { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.utterance .shots img {
+  max-width: 180px;
+  max-height: 140px;
+  border-radius: 6px;
+  border: 1px solid var(--edge);
+}
+
+textarea {
+  flex: 1 1 auto;
+  resize: none;
+  max-height: 190px;
+  padding: 7px 9px;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--vscode-input-foreground);
+  background: var(--vscode-input-background);
+  border: 1px solid var(--vscode-input-border, var(--edge));
+  border-radius: 6px;
+}
+textarea:focus { outline: 1px solid var(--vscode-focusBorder); outline-offset: -1px; }
+
+button.primary, button.danger {
+  padding: 7px 13px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: inherit;
+}
+button.primary {
+  color: var(--vscode-button-foreground);
+  background: var(--vscode-button-background);
+}
+button.primary:hover:not(:disabled) { background: var(--vscode-button-hoverBackground); }
+button:disabled { opacity: 0.5; cursor: default; }
+button.danger {
+  color: var(--vscode-button-secondaryForeground);
+  background: var(--vscode-button-secondaryBackground);
+}
+
+/* ============================================================================
+   Screens. Only one is visible at a time; the header persists across all.
+   ========================================================================= */
+
+.screen { display: none; flex: 1 1 auto; min-height: 0; flex-direction: column; }
+.screen[data-active="true"] { display: flex; }
+
+/* --- signed out ---------------------------------------------------------- */
+
+.gate { align-items: center; justify-content: center; padding: 24px; }
+
+.gate-card {
+  max-width: 42ch;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: center;
+}
+
+.gate-card .glyph {
+  font-size: 30px;
+  background: linear-gradient(120deg, var(--lead), var(--researcher));
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.gate-card h1 { margin: 0; font-size: 16px; font-weight: 600; }
+.gate-card p { margin: 0; color: var(--dim); font-size: 12.5px; line-height: 1.6; }
+
+.gate-actions { display: flex; flex-direction: column; gap: 8px; width: 100%; max-width: 26ch; }
+.gate-actions button { width: 100%; }
+button.ghost.quiet { border: none; color: var(--dim); font-size: 11px; }
+button.ghost.quiet:hover { color: var(--vscode-foreground); }
+
+/* --- project list -------------------------------------------------------- */
+
+.projects-head { padding: 16px 14px 8px; }
+.projects-head h1 { margin: 0 0 2px; font-size: 14px; font-weight: 600; letter-spacing: 0.02em; }
+.muted { font-size: 11px; color: var(--dim); font-family: var(--mono); }
+
+.project-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.project {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--edge-soft);
+  border-left: 2px solid transparent;
+  border-radius: 8px;
+  background: var(--surface);
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+  transition: border-color 120ms, background 120ms;
+}
+.project:hover { background: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); }
+.project[data-open="true"] { border-left-color: var(--researcher); }
+.project[data-active="true"] { border-left-color: var(--lead); }
+
+.project .top { display: flex; align-items: baseline; gap: 8px; }
+.project .name { font-weight: 600; font-size: 13px; }
+.project .badges { margin-left: auto; display: flex; gap: 5px; flex: 0 0 auto; }
+
+.badge {
+  font-family: var(--mono);
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+}
+.badge.open   { border-color: var(--researcher); color: var(--researcher); }
+.badge.known  { border-color: var(--lead); color: var(--lead); }
+
+.project .path {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--dim);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.projects-foot { padding: 8px 12px; border-top: 1px solid var(--edge); }
+
+.sessions { padding: 4px 10px 10px; border-top: 1px solid var(--edge-soft); margin-top: 6px; }
+.sessions h2 {
+  margin: 10px 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.session-list { display: flex; flex-direction: column; gap: 4px; max-height: 34vh; overflow-y: auto; }
+
+.session {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 7px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+.session:hover { background: var(--surface); border-color: var(--edge-soft); }
+.session .title {
+  flex: 1 1 auto;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session .when { font-family: var(--mono); font-size: 10px; color: var(--dim); flex: 0 0 auto; }
+.session-empty { font-size: 11px; color: var(--dim); padding: 4px 2px; }
+
+.project-empty { margin: auto; text-align: center; color: var(--dim); font-size: 12px; line-height: 1.7; max-width: 34ch; padding: 20px; }
+
+button.chip.account[data-state="out"] {
+  color: var(--vscode-inputValidation-warningForeground, var(--engineer));
+  border-color: var(--vscode-inputValidation-warningBorder, var(--engineer));
+}
+
+/* ============================================================================
+   Home — the workflows in this folder
+   ========================================================================= */
+
+.home-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 20px 20px 10px;
+}
+.home-head h1 { margin: 0; font-size: 17px; font-weight: 600; }
+.home-head .muted { font-size: 11px; color: var(--dim); }
+
+.workflow-list { padding: 4px 0; }
+
+.workflow-card {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--surface);
+  overflow: hidden;
+}
+.workflow-card[data-broken="true"] { border-color: var(--vscode-inputValidation-warningBorder); }
+
+.wf-open {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 13px 14px 11px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.wf-open:hover { background: color-mix(in srgb, var(--vscode-foreground) 4%, transparent); }
+.wf-name { font-size: 13px; font-weight: 600; }
+.wf-desc { font-size: 11px; color: var(--dim); line-height: 1.45; }
+.wf-meta { font-size: 10px; color: var(--dim); font-family: var(--mono); }
+.wf-problem { font-size: 10px; color: var(--vscode-inputValidation-warningForeground, var(--dim)); }
+
+.wf-cast { display: flex; flex-wrap: wrap; gap: 4px; }
+.pill {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+}
+.pill.more { opacity: 0.7; }
+
+.wf-actions {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px;
+  border-top: 1px solid var(--edge-soft);
+}
+
+.templates { padding: 18px 20px 24px; }
+.templates h2 { margin: 0 0 8px; font-size: 11px; font-weight: 600; color: var(--dim); text-transform: uppercase; letter-spacing: 0.06em; }
+/* A plain block: the grids are the groups inside it, not this. */
+.template-list { display: block; }
+.template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 13px;
+  border: 1px dashed var(--edge);
+  border-radius: 9px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.template-card:hover { border-style: solid; background: var(--surface); }
+
+.empty-note { padding: 22px; border: 1px dashed var(--edge); border-radius: 9px; }
+.empty-note p { margin: 0 0 6px; font-size: 12px; }
+.empty-note .muted { color: var(--dim); font-size: 11px; line-height: 1.5; }
+
+/* ============================================================================
+   Builder — agents on a canvas, arrows between them
+   ========================================================================= */
+
+.screen.builder { display: none; flex-direction: column; min-height: 0; }
+.screen.builder[data-active="true"] { display: flex; }
+
+.builder-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--edge);
+}
+.name-field {
+  flex: 0 1 260px;
+  padding: 4px 8px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-weight: 600;
+}
+.builder-bar .note { font-size: 11px; color: var(--dim); }
+.builder-bar .note[data-level="warn"] { color: var(--vscode-inputValidation-warningForeground, var(--dim)); }
+.toggle { display: flex; align-items: center; gap: 5px; font-size: 11px; color: var(--dim); cursor: pointer; }
+
+.builder-body { flex: 1; display: flex; min-height: 0; }
+
+.canvas-wrap {
+  flex: 1;
+  position: relative;
+  overflow: auto;
+  background:
+    radial-gradient(circle at 1px 1px, var(--edge-soft) 1px, transparent 0) 0 0 / 22px 22px;
+}
+.canvas { position: relative; min-width: 100%; min-height: 100%; }
+.wires { position: absolute; inset: 0; overflow: visible; pointer-events: none; }
+
+.wire { fill: none; stroke: var(--dim); stroke-width: 1.6; pointer-events: stroke; }
+.wire.delegate { stroke: var(--vscode-charts-blue, #60a5fa); }
+.wire.then { stroke: var(--vscode-charts-green, #4ade80); stroke-dasharray: 5 4; }
+.wire.back { opacity: 0.75; }
+.wire.ghost { stroke-dasharray: 3 4; opacity: 0.6; }
+.wire-hit { fill: none; stroke: transparent; stroke-width: 14; pointer-events: stroke; cursor: pointer; }
+.head.delegate { fill: var(--vscode-charts-blue, #60a5fa); }
+.head.then { fill: var(--vscode-charts-green, #4ade80); }
+/* A halo in the canvas colour, so a label crossing a wire or a box stays
+   readable instead of merging into it. */
+.wire-label {
+  fill: var(--dim);
+  font-size: 10px;
+  font-family: var(--mono);
+  paint-order: stroke;
+  stroke: var(--vscode-editor-background);
+  stroke-width: 4px;
+  stroke-linejoin: round;
+}
+
+.agent-node {
+  position: absolute;
+  width: 210px;
+  /* Fixed, not min-height: the wire geometry is computed from these numbers,
+     so a box that grows with its text detaches its arrows from its edge. */
+  height: 92px;
+  overflow: hidden;
+  padding: 10px 12px;
+  border: 1px solid var(--edge);
+  border-left: 3px solid var(--dim);
+  border-radius: 8px;
+  background: var(--vscode-editor-background);
+  cursor: grab;
+  user-select: none;
+}
+.agent-node[data-preset="readonly"] { border-left-color: #a78bfa; }
+.agent-node[data-preset="research"] { border-left-color: #22d3ee; }
+.agent-node[data-preset="build"]    { border-left-color: #fbbf24; }
+.agent-node[data-preset="full"]     { border-left-color: #f472b6; }
+.agent-node[data-selected="true"] { outline: 1px solid var(--vscode-focusBorder); }
+.agent-node[data-problem="true"] { border-color: var(--vscode-inputValidation-errorBorder); }
+.agent-node:active { cursor: grabbing; }
+
+.an-name { font-size: 12px; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+.an-role {
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 3px;
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.an-warn { font-size: 10px; margin-top: 5px; color: var(--vscode-inputValidation-warningForeground, var(--dim)); }
+.badge {
+  font-size: 9px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid var(--edge);
+  color: var(--dim);
+  font-weight: 400;
+  text-transform: lowercase;
+}
+
+/* Two ports, so the arrow's kind is chosen by which one you pull from. */
+.port {
+  position: absolute;
+  right: -6px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 1px solid var(--vscode-editor-background);
+  cursor: crosshair;
+}
+.port.delegate { top: 26px; background: var(--vscode-charts-blue, #60a5fa); }
+.port.then { top: 48px; background: var(--vscode-charts-green, #4ade80); }
+.port:hover { transform: scale(1.25); }
+
+.edge-editor {
+  position: absolute;
+  right: 14px;
+  bottom: 14px;
+  z-index: 5;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  width: 260px;
+  padding: 12px;
+  border: 1px solid var(--edge);
+  border-radius: 8px;
+  background: var(--vscode-editor-background);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.32);
+}
+.ee-title { font-size: 11px; font-weight: 600; }
+.ee-row { display: flex; gap: 6px; }
+.ee-row .chip.on { border-color: var(--vscode-focusBorder); color: var(--vscode-foreground); }
+.ee-label {
+  padding: 5px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-size: 11px;
+}
+
+/* ------------------------------------------------------------- inspector */
+
+.inspector {
+  flex: 0 0 320px;
+  overflow-y: auto;
+  padding: 14px 16px 26px;
+  border-left: 1px solid var(--edge);
+  background: var(--vscode-sideBar-background, var(--vscode-editor-background));
+}
+.insp-head { display: flex; align-items: center; justify-content: space-between; }
+.insp-head h2 { margin: 0; font-size: 13px; font-weight: 600; }
+.insp-row { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 12px; }
+.inspector h3 { margin: 18px 0 8px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.07em; color: var(--dim); }
+.inspector h4 { margin: 14px 0 6px; font-size: 11px; font-weight: 600; }
+
+.field { display: block; margin: 10px 0; }
+.flabel { display: block; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); margin-bottom: 4px; }
+.fhint { display: block; font-size: 10px; color: var(--dim); margin-top: 4px; line-height: 1.45; }
+.field input, .field select, .field textarea, .inspector > select {
+  width: 100%;
+  padding: 5px 7px;
+  border: 1px solid var(--edge);
+  border-radius: 5px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-size: 12px;
+}
+.field textarea { resize: vertical; line-height: 1.5; font-family: var(--mono); font-size: 11px; }
+
+.preset-row {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 7px 9px;
+  border: 1px solid var(--edge-soft);
+  border-radius: 6px;
+  margin-bottom: 5px;
+  cursor: pointer;
+}
+.preset-row.on { border-color: var(--vscode-focusBorder); background: var(--surface); }
+.preset-text { display: flex; flex-direction: column; gap: 2px; }
+.pname { font-size: 12px; }
+.pblurb { font-size: 10px; color: var(--dim); line-height: 1.4; }
+
+.advanced { margin-top: 16px; border-top: 1px solid var(--edge-soft); padding-top: 10px; }
+.advanced summary { font-size: 11px; color: var(--dim); cursor: pointer; }
+.tool-group { margin: 10px 0 4px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--dim); }
+.tool-row { display: flex; align-items: baseline; gap: 7px; padding: 3px 0; font-size: 11px; cursor: pointer; }
+.tname { font-family: var(--mono); font-size: 10px; }
+.tblurb { color: var(--dim); font-size: 10px; }
+
+.problems {
+  flex: 0 0 auto;
+  max-height: 110px;
+  overflow-y: auto;
+  border-top: 1px solid var(--edge);
+  padding: 7px 14px;
+}
+.problem { font-size: 11px; padding: 2px 0; line-height: 1.45; }
+.problem[data-level="error"]::before { content: "✕ "; color: var(--vscode-testing-iconFailed); }
+.problem[data-level="warning"]::before { content: "! "; color: var(--vscode-inputValidation-warningForeground, var(--dim)); }
+
+/* Past a few agents the lanes stop fitting, so the board scrolls sideways
+   rather than squeezing every lane below the point of being readable. */
+.floor.scrolls { overflow-x: auto; }
+
+@media (max-width: 900px) {
+  .builder-body { flex-direction: column; }
+  .inspector { flex: 0 0 auto; max-height: 46vh; border-left: 0; border-top: 1px solid var(--edge); }
+}
+
+/* A scrollable board must say so. The right-hand fade is painted with
+   `background-attachment: local` so it appears only while there is more to
+   scroll to and disappears at the end — a static gradient would imply hidden
+   lanes that are not there. */
+.floor.scrolls {
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background-image: linear-gradient(
+    to left,
+    color-mix(in srgb, var(--vscode-editor-background) 85%, transparent),
+    transparent 42px
+  );
+  background-repeat: no-repeat;
+  background-attachment: scroll;
+  background-position: right center;
+  background-size: 42px 100%;
+}
+.floor.scrolls::-webkit-scrollbar { height: 9px; }
+.floor.scrolls::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--vscode-foreground) 22%, transparent);
+  border-radius: 5px;
+}
+
+/* Autosave state. Quiet when saved, and never a modal or a toast — the point
+   of autosaving is that the user does not have to think about it. */
+.builder-bar .saved {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--dim);
+  opacity: 0.75;
+}
+.builder-bar .saved[data-state="dirty"] {
+  color: var(--vscode-inputValidation-warningForeground, var(--dim));
+  opacity: 1;
+}
+
+/* ============================================================================
+   Workflow page — what it is, and every conversation under it
+   ========================================================================= */
+
+.detail-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--edge);
+}
+.detail-body { flex: 1; display: flex; min-height: 0; overflow: hidden; }
+.detail-main { flex: 1; overflow-y: auto; padding: 20px 22px 28px; }
+.detail-main h1 { margin: 0; font-size: 18px; font-weight: 600; }
+.detail-main h2 {
+  margin: 22px 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+}
+.detail-main .muted {
+  margin: 6px 0 0;
+  /* The global .muted is monospace, which is right for a path chip and wrong
+     for a sentence. */
+  font-family: var(--vscode-font-family);
+  font-size: 12px;
+  color: var(--dim);
+  line-height: 1.5;
+  max-width: 62ch;
+}
+.detail-problems { margin-top: 12px; }
+
+.detail-map {
+  flex: 0 0 42%;
+  min-width: 260px;
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--edge);
+  background:
+    radial-gradient(circle at 1px 1px, var(--edge-soft) 1px, transparent 0) 0 0 / 22px 22px;
+}
+.map-wrap { flex: 1; display: flex; align-items: center; justify-content: center; padding: 18px; min-height: 0; }
+/* On a tall page the graph would otherwise float in the middle of a mostly
+   empty column, scaled down for no reason. */
+.detail-map .map-wrap { align-items: flex-start; padding-top: 30px; }
+.detail-map .map { max-height: 440px; }
+.map { width: 100%; height: 100%; max-height: 100%; }
+.map-empty { font-size: 11px; color: var(--dim); }
+
+.map-legend { display: flex; gap: 14px; padding: 8px 18px 12px; font-size: 10px; color: var(--dim); }
+.legend-item { display: flex; align-items: center; gap: 5px; }
+.swatch { width: 14px; height: 2px; border-radius: 1px; display: inline-block; }
+.swatch.delegate { background: color-mix(in srgb, var(--vscode-foreground) 40%, transparent); }
+.swatch.then {
+  background: none;
+  border-top: 2px dashed color-mix(in srgb, var(--vscode-foreground) 40%, transparent);
+  height: 0;
+}
+.swatch.live { background: var(--vscode-charts-yellow, #fbbf24); height: 3px; }
+
+.map-box { fill: var(--vscode-editor-background); stroke: var(--edge); stroke-width: 1; }
+.map-name { fill: var(--vscode-foreground); font-size: 15px; font-weight: 600; font-family: var(--vscode-font-family); }
+.map-role { fill: var(--dim); font-size: 12px; font-family: var(--vscode-font-family); }
+.map-badge { fill: var(--dim); font-size: 11px; font-family: var(--mono); }
+/* Resting is grey; only work in motion takes colour. Solid versus dashed still
+   distinguishes a delegate arrow from a handoff, so nothing is lost. */
+.map .wire { fill: none; stroke-width: 2; }
+.map .wire.then { stroke-dasharray: 6 5; }
+.map .wire.idle { stroke: color-mix(in srgb, var(--vscode-foreground) 28%, transparent); }
+.map .head.idle { fill: color-mix(in srgb, var(--vscode-foreground) 28%, transparent); }
+
+/* Live state. The moving dash is the one animation in the product: work
+   travelling along an arrow is the single thing a static picture cannot say. */
+.map .wire.live {
+  stroke: var(--vscode-charts-yellow, #fbbf24);
+  stroke-width: 3;
+  stroke-dasharray: 8 7;
+  animation: flow 0.75s linear infinite;
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--vscode-charts-yellow, #fbbf24) 55%, transparent));
+}
+.map .head.live { fill: var(--vscode-charts-yellow, #fbbf24); }
+@keyframes flow { to { stroke-dashoffset: -30; } }
+
+/* An agent that is not working recedes: dimmed, grey bar, thin outline. */
+.map-node.resting { opacity: 0.42; color: var(--dim); }
+.map-node.resting .map-name { fill: var(--dim); }
+
+.map-node.active .map-box {
+  stroke: var(--vscode-charts-yellow, #fbbf24);
+  stroke-width: 2;
+  filter: drop-shadow(0 0 7px color-mix(in srgb, var(--vscode-charts-yellow, #fbbf24) 40%, transparent));
+}
+.map-node.active .map-name { fill: var(--vscode-foreground); }
+.map-pulse { animation: breathe 1.4s ease-in-out infinite; }
+@keyframes breathe { 0%, 100% { opacity: 0.3; r: 4; } 50% { opacity: 1; r: 6; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .map .wire.live { animation: none; }
+  .map-pulse { animation: none; opacity: 1; }
+  .map-node.resting { opacity: 0.55; }
+}
+
+/* The live map above a running board. Collapsed by default: the lanes are the
+   thing you are reading, and the map is for orientation. */
+.livemap {
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--edge);
+  background: var(--surface);
+}
+.livemap > summary {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--vscode-foreground);
+  cursor: pointer;
+  user-select: none;
+  list-style: none;
+}
+.livemap > summary::-webkit-details-marker { display: none; }
+.livemap > summary:hover { background: color-mix(in srgb, var(--vscode-foreground) 5%, transparent); }
+.livemap > summary .chev {
+  display: inline-block;
+  transition: transform 0.12s ease;
+  color: var(--dim);
+  font-size: 13px;
+  line-height: 1;
+}
+.livemap[open] > summary .chev { transform: rotate(90deg); }
+.livemap-hint { font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--dim); }
+.livemap-toggle {
+  margin-left: auto;
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--dim);
+  border: 1px solid var(--edge);
+  border-radius: 4px;
+  padding: 1px 7px;
+}
+.livemap > summary:hover .livemap-toggle { color: var(--vscode-foreground); border-color: var(--edge); }
+.livemap[open] .map-wrap { height: 210px; padding: 10px 14px 14px; }
+
+/* Drag to give the map more room, or take it away. Deliberately a few pixels
+   of hit area around a one-pixel line: a hairline you cannot grab is not a
+   control. */
+.splitter {
+  flex: 0 0 auto;
+  height: 9px;
+  margin-top: -5px;
+  cursor: row-resize;
+  position: relative;
+  z-index: 2;
+  background: none;
+}
+.splitter::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 1px;
+  background: var(--edge);
+  transition: background 0.12s ease, height 0.12s ease;
+}
+.splitter:hover::after,
+.splitter:focus-visible::after,
+.splitter[data-dragging]::after {
+  background: var(--vscode-focusBorder);
+  height: 2px;
+  top: 3px;
+}
+.splitter:focus-visible { outline: none; }
+
+.wf-section { display: flex; align-items: baseline; gap: 10px; padding: 14px 20px 4px; }
+.wf-section h2 {
+  margin: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+}
+.wf-section .muted { font-size: 10px; color: var(--dim); opacity: 0.8; }
+.wf-grid {
+  display: grid;
+  gap: 10px;
+  padding: 4px 20px;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+}
+.wf-name .badge { margin-left: 6px; }
+
+@media (max-width: 900px) {
+  .detail-body { flex-direction: column; }
+  .detail-map { flex: 0 0 auto; height: 220px; border-left: 0; border-top: 1px solid var(--edge); }
+}
+
+/* "Build with Claude" — describe a pipeline, get a workflow to edit. */
+.home-actions { display: flex; gap: 8px; }
+
+.composer-card {
+  margin: 4px 20px 12px;
+  padding: 14px 16px 12px;
+  border: 1px solid var(--edge);
+  border-radius: 9px;
+  background: var(--surface);
+}
+.composer-card label { display: block; font-size: 12px; font-weight: 600; }
+.composer-card .muted {
+  display: block;
+  margin: 5px 0 9px;
+  font-family: var(--vscode-font-family);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--dim);
+  max-width: 74ch;
+}
+.composer-card textarea {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--edge);
+  border-radius: 6px;
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.55;
+  resize: vertical;
+}
+.build-row { display: flex; align-items: center; gap: 8px; margin-top: 9px; }
+.build-row .muted { margin: 0; font-size: 11px; }
+
+/* The full-view control. It used to say "Floor", which meant nothing to anyone
+   who had not read the source. */
+.bar .ghost.wide {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+/* ============================================================================
+   Rendered markdown inside a lane
+   ========================================================================= */
+
+.body > :first-child { margin-top: 0; }
+.body > :last-child { margin-bottom: 0; }
+.body p { margin: 0 0 0.65em; }
+
+/* Clamped sizes: a heading inside a chat lane is a section marker, not a
+   billboard. h3 is the largest an agent can produce. */
+.body h3, .body h4, .body h5, .body h6 {
+  margin: 1.1em 0 0.4em;
+  font-weight: 600;
+  line-height: 1.35;
+}
+.body h3 { font-size: 1.12em; }
+.body h4 { font-size: 1.04em; }
+.body h5, .body h6 { font-size: 1em; color: var(--dim); }
+
+.body ul, .body ol { margin: 0 0 0.65em; padding-left: 1.35em; }
+.body li { margin: 0.18em 0; line-height: 1.55; }
+.body li > code { white-space: pre-wrap; }
+
+.body blockquote {
+  margin: 0 0 0.65em;
+  padding: 0.1em 0 0.1em 0.8em;
+  border-left: 2px solid var(--edge);
+  color: var(--dim);
+}
+
+.body hr { border: 0; border-top: 1px solid var(--edge-soft); margin: 0.9em 0; }
+
+.body a { color: var(--vscode-textLink-foreground); text-decoration: none; }
+.body a:hover { text-decoration: underline; }
+
+.body del { opacity: 0.65; }
+
+/* A wide table scrolls inside its own box rather than stretching the lane. */
+.table-wrap { overflow-x: auto; margin: 0 0 0.7em; }
+.body table { border-collapse: collapse; font-size: 0.95em; }
+.body th, .body td {
+  border: 1px solid var(--edge-soft);
+  padding: 3px 8px;
+  text-align: left;
+  vertical-align: top;
+}
+.body th { font-weight: 600; background: var(--surface); }
+
+/* Templates come in two kinds, and the label is the point: a starter is a shape
+   to build on, a complete one is a workflow someone could run today. */
+.template-group {
+  margin: 14px 0 8px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--dim);
+}
+.template-group:first-child { margin-top: 0; }
+.template-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+}
+.template-card[data-complete="true"] {
+  border-style: solid;
+  border-color: var(--edge);
+  background: var(--surface);
+}
+</style>
+<style>html,body{width:1180px;height:100%;margin:0;overflow:hidden}</style>
+</head><body>
+  <header class="bar">
+    <button class="brand" id="home" title="Home — projects and past sessions">CADRE</button>
+    <button class="chip pick" id="workspace" title="Back to projects">—</button>
+    <span class="chip" id="autonomy">—</span>
+    <span class="chip" id="billing">—</span>
+    <span class="chip" id="connectors" hidden>—</span>
+    <span class="chip" id="context" hidden>—</span>
+    <span class="spacer"></span>
+    <button class="chip pick account" id="account" title="Account">account</button>
+    <span class="chip" id="spend">$0.0000</span>
+    <button class="ghost wide" id="openFloor" title="Open this workflow in a full editor tab, with room for every lane">⛶ Full view</button>
+  </header>
+
+  <section class="screen gate" id="screen-auth" hidden>
+    <div class="gate-card">
+      <span class="glyph">◈</span>
+      <h1>Sign in to Claude</h1>
+      <p id="auth-detail">The team runs on your Claude Code login. Nothing can run until it is signed in.</p>
+      <div class="gate-actions">
+        <button class="primary" id="auth-signin">Sign in to Claude</button>
+        <button class="ghost" id="auth-apikey">Use an API key instead</button>
+      </div>
+      <button class="ghost quiet" id="auth-recheck">Check again</button>
+    </div>
+  </section>
+
+  <section class="screen" id="screen-projects" hidden>
+    <div class="projects-head">
+      <h1>Projects</h1>
+      <span class="muted" id="projects-roots"></span>
+    </div>
+    <div class="project-list" id="project-list"></div>
+    <div class="projects-foot">
+      <button class="ghost" id="projects-configure">Change where to look…</button>
+    </div>
+  </section>
+
+  <section class="screen" id="screen-home" hidden>
+    <div class="home-head">
+      <div>
+        <h1>Workflows</h1>
+        <span class="muted" id="home-project"></span>
+      </div>
+      <div class="home-actions">
+        <button class="ghost" id="home-new">Blank workflow</button>
+        <button class="primary" id="home-build">Build with Claude</button>
+      </div>
+    </div>
+    <div class="composer-card" id="build-card" hidden>
+      <label for="build-input">Describe the pipeline</label>
+      <p class="muted">What are the stages, who does what, and what should happen automatically. Claude designs the agents, their prompts and the arrows; you edit anything before it runs.</p>
+      <textarea id="build-input" rows="4" placeholder="e.g. Read incoming support tickets, work out which are bugs, reproduce the bugs against our repo, and draft a reply for each one."></textarea>
+      <div class="build-row">
+        <span class="muted" id="build-note"></span>
+        <span class="spacer"></span>
+        <button class="ghost" id="build-cancel">Cancel</button>
+        <button class="primary" id="build-go">Build it</button>
+      </div>
+    </div>
+    <div class="workflow-list" id="workflow-list"></div>
+    <div class="templates" id="templates">
+      <h2>Start from a template</h2>
+      <div class="template-list" id="template-list"></div>
+    </div>
+  </section>
+
+  <section class="screen" id="screen-workflow" hidden>
+    <div class="detail-head">
+      <button class="ghost" id="detail-back" title="Back to workflows">‹ Workflows</button>
+      <span class="spacer"></span>
+      <button class="ghost" id="detail-scope" title="Where this workflow is stored">—</button>
+      <button class="ghost" id="detail-edit">Edit</button>
+      <button class="primary" id="detail-start">New conversation</button>
+    </div>
+    <div class="detail-body">
+      <div class="detail-main">
+        <h1 id="detail-name">—</h1>
+        <p class="muted" id="detail-desc"></p>
+        <div class="detail-problems" id="detail-problems" hidden></div>
+        <h2>Conversations</h2>
+        <div class="session-list" id="detail-sessions"></div>
+      </div>
+      <aside class="detail-map">
+        <div class="map-wrap" id="detail-map"></div>
+        <div class="map-legend" id="detail-legend"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="screen builder" id="screen-builder" hidden>
+    <div class="builder-bar">
+      <button class="ghost" id="builder-back" title="Back to workflows">‹ Workflows</button>
+      <input id="builder-name" class="name-field" aria-label="Workflow name" placeholder="Name this workflow">
+      <span class="spacer"></span>
+      <span class="note" id="builder-note"></span>
+      <span class="saved" id="builder-saved" data-state="saved"></span>
+      <label class="toggle" title="Turn a one-line description into a full system prompt before launching. You always see the result.">
+        <input type="checkbox" id="builder-refine" checked>
+        <span>Refine prompts</span>
+      </label>
+      <button class="ghost" id="builder-add">Add agent</button>
+      <button class="ghost" id="builder-save">Save</button>
+      <button class="primary" id="builder-launch">Launch</button>
+    </div>
+    <div class="builder-body">
+      <div class="canvas-wrap" id="canvas-wrap">
+        <div class="canvas" id="canvas">
+          <svg class="wires" id="wires" aria-hidden="true"></svg>
+        </div>
+      </div>
+      <aside class="inspector" id="inspector" hidden></aside>
+    </div>
+    <div class="problems" id="problems" hidden></div>
+  </section>
+
+  <div class="screen" id="screen-run" hidden>
+    <details class="livemap" id="livemap" open>
+      <summary>
+        <span class="chev" aria-hidden="true">›</span>
+        <span id="livemap-title">Workflow</span>
+        <span class="livemap-hint" id="livemap-hint"></span>
+        <span class="livemap-toggle" id="livemap-toggle">Hide</span>
+      </summary>
+      <div class="map-wrap" id="run-map"></div>
+    </details>
+    <div class="splitter" id="splitter" role="separator" aria-orientation="horizontal"
+         aria-label="Resize the workflow map" tabindex="0" title="Drag to resize · double-click to reset"></div>
+    <div class="roster" id="roster"></div>
+    <main class="floor" id="floor"></main>
+    <footer class="composer">
+      <div class="to">
+        <span>Talking to</span>
+        <select id="channel" aria-label="Who to talk to"></select>
+        <span class="spacer"></span>
+        <button class="ghost quiet" id="run-sessions" title="Earlier conversations in this workflow">Sessions</button>
+        <button class="ghost quiet" id="run-edit" title="Edit this workflow">Edit</button>
+      </div>
+      <div class="sessions" id="sessions" hidden>
+        <div class="session-list" id="session-list"></div>
+      </div>
+      <div class="attachments" id="attachments" hidden></div>
+      <div class="row">
+        <input type="file" id="file" accept="image/png,image/jpeg,image/gif,image/webp" multiple hidden>
+        <button class="ghost attach" id="attach" title="Attach an image (or paste, or drop one here)">＋</button>
+        <textarea id="input" rows="1" placeholder="Describe your project…" aria-label="Message"></textarea>
+        <button class="primary" id="send" title="Send (Enter)">Send</button>
+        <button class="danger" id="stop" title="Interrupt" hidden>Stop</button>
+      </div>
+    </footer>
+  </div>
+
+
+<script>
+  // The webview's only host dependency.
+  window.acquireVsCodeApi = () => ({ postMessage(){}, getState(){}, setState(){} });
+</script>
+<script>// @ts-check
 (function () {
   const vscode = acquireVsCodeApi();
 
@@ -2114,7 +3660,7 @@
     advanced.appendChild(multi("Skills", state.palette.skills, agent.skills, (next) => {
       agent.skills = next;
       touch();
-    }, "Every skill this Claude Code has"));
+    }, "Every skill the workspace offers"));
     advanced.appendChild(multi("Connectors", state.palette.connectors, agent.connectors, (next) => {
       agent.connectors = next;
       touch();
@@ -2203,7 +3749,7 @@
 
     el.inspector.appendChild(multi("Skills", state.palette.skills, d.skills, (next) => {
       d.skills = next; touch();
-    }, "Every skill this Claude Code has"));
+    }, "Every skill the workspace offers"));
     el.inspector.appendChild(multi("Connectors", state.palette.connectors, d.connectors, (next) => {
       d.connectors = next; touch();
     }, "Every connector the workspace offers"));
@@ -2280,17 +3826,9 @@
   function multi(title, options, chosen, onChange, inheritLabel) {
     const wrap = node("div", "multi");
     wrap.appendChild(node("h4", null, title));
-    // Options may be plain strings (connectors) or described objects (skills).
-    const items = options.map((o) => (typeof o === "string" ? { name: o } : o));
-    if (!items.length) {
-      wrap.appendChild(node("p", "fhint", `No ${title.toLowerCase()} available.`));
+    if (!options.length) {
+      wrap.appendChild(node("p", "fhint", `No ${title.toLowerCase()} configured for this workspace.`));
       return wrap;
-    }
-    if (title === "Skills") {
-      // Said once, up front. A skill that cannot work should not be discovered
-      // by watching an agent fail halfway through a run.
-      wrap.appendChild(node("p", "fhint",
-        "Skills that schedule work for later or fan it out — /loop, /schedule, /batch, /deep-research — cannot run here: Workflow, Agent, Cron and ScheduleWakeup are denied to every agent, at every autonomy level. An arrow is the only fan-out a workflow has."));
     }
 
     const inherit = node("label", "tool-row");
@@ -2303,24 +3841,19 @@
     inherit.appendChild(node("span", "tblurb", inheritLabel));
     wrap.appendChild(inherit);
 
-    for (const option of items) {
+    for (const option of options) {
       const row = node("label", "tool-row");
       const tick = document.createElement("input");
       tick.type = "checkbox";
       tick.disabled = chosen === undefined;
-      tick.checked = (chosen || []).includes(option.name);
+      tick.checked = (chosen || []).includes(option);
       tick.addEventListener("change", () => {
         const current = new Set(chosen || []);
-        if (tick.checked) current.add(option.name); else current.delete(option.name);
+        if (tick.checked) current.add(option); else current.delete(option);
         onChange([...current]);
       });
       row.appendChild(tick);
-      row.appendChild(node("span", "tname", `/${option.name}`));
-      if (option.description) {
-        const blurb = node("span", "tblurb", option.description);
-        blurb.title = option.description;
-        row.appendChild(blurb);
-      }
+      row.appendChild(node("span", "tname", option));
       wrap.appendChild(row);
     }
     return wrap;
@@ -2598,3 +4131,17 @@
   vscode.postMessage({ kind: "ready" });
   el.input.focus();
 })();
+</script>
+<script>
+  const send = (e) => window.dispatchEvent(new MessageEvent("message", { data: e }));
+  const script = [{"kind":"screen","screen":"run"},{"kind":"roster","workflowId":"software_team","workflowName":"Release train","edges":[{"from":"lead","to":"researcher","kind":"delegate"},{"from":"lead","to":"engineer","kind":"delegate"}],"workspace":"…/pipeline","autonomy":"Standard — edits flow, risky commands ask","billing":"Claude subscription","connectors":[{"name":"kaggle","ok":true,"status":"connected"}],"members":[{"id":"planner","name":"Planner","role":"Decides scope","preset":"readonly","model":"opus","effort":"high","status":"thinking","activity":"deciding what ships","entry":true},{"id":"researcher","name":"Researcher","role":"Checks the outside world","preset":"research","model":"opus","effort":"high","status":"working","activity":"changelog since v3","entry":false},{"id":"backend","name":"Backend","role":"Server changes","preset":"build","model":"opus","effort":"high","status":"working","activity":"pytest -x","entry":false},{"id":"frontend","name":"Frontend","role":"Client changes","preset":"build","model":"opus","effort":"high","status":"idle","activity":"","entry":false},{"id":"reviewer","name":"Reviewer","role":"Reads the diff","preset":"readonly","model":"opus","effort":"high","status":"idle","activity":"","entry":false},{"id":"release","name":"Release","role":"Ships it","preset":"build","model":"opus","effort":"high","status":"idle","activity":"","entry":false}]},{"kind":"sendability","ok":true},{"kind":"userSaid","to":"planner","text":"Cut the 3.4 release."},{"kind":"say","who":"planner","turn":"m1","delta":"Two blockers and a doc gap. Fanning out."},{"kind":"assign","assignment":{"id":"A","from":"planner","to":"backend","brief":"Fix the migration ordering bug","startedAt":0}},{"kind":"assign","assignment":{"id":"B","from":"planner","to":"researcher","brief":"What changed in the upstream client?","startedAt":0}},{"kind":"say","who":"researcher","turn":"m2","delta":"Upstream renamed two fields in 4.1 and kept aliases until 5.0."},{"kind":"say","who":"backend","turn":"m3","delta":"Reproduced. The migration sorts lexically, so 10 lands before 9."},{"kind":"act","who":"backend","act":"a1","tool":"Bash","summary":"pytest -x tests/test_migrate.py"},{"kind":"assign","assignment":{"id":"C","from":"backend","to":"release","brief":"cut the tag once green","startedAt":0,"handoff":true}},{"kind":"spend","usd":0.82,"turns":11,"durationMs":91000}];
+  // Deltas are delivered in one pass; the streaming path is the same code.
+  for (const e of script) send(e);
+  const live = document.getElementById("livemap");
+  if (live && document.getElementById("screen-run")?.dataset.active === "true") {
+    live.open = true;
+    live.dispatchEvent(new Event("toggle"));
+  }
+  document.title = "ready";
+</script>
+</body></html>

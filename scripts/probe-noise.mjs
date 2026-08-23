@@ -1,6 +1,6 @@
 import { query } from "@anthropic-ai/claude-agent-sdk";
 import { createRequire } from "node:module";
-const require = createRequire("/home/ahmed/Desktop/ai-team/package.json");
+const require = createRequire(new URL("../package.json", import.meta.url));
 const exe = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
 
 const RISKY = ["Bash(rm:*)","Bash(sudo:*)","Bash(curl:*)","Bash(git push:*)","Bash(npm install:*)"];

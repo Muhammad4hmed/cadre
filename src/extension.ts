@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
 import { listSessions } from "@anthropic-ai/claude-agent-sdk";
 import { TeamController } from "./team/controller";
-import { DISPLAY_NAME, TEAMMATES, type TeammateId } from "./team/events";
 import { describeAuth, logout, readAuthStatus } from "./auth";
 import { buildPaper, detectToolchain, installToolchain, toolchainHome } from "./paper";
 import { resolveClaudeExecutable } from "./cli";
+import { cachedModels, discoverModels } from "./models";
 import type { Autonomy } from "./policy";
 import type { BillingMode } from "./billing";
 
@@ -48,8 +48,10 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cadre.setAutonomy", () => chooseAutonomy(controller)),
     vscode.commands.registerCommand("cadre.settings", () => settingsHub(controller)),
     vscode.commands.registerCommand("cadre.setThinking", () => chooseThinking()),
-    vscode.commands.registerCommand("cadre.setModel", () => choosePerTeammate("model")),
-    vscode.commands.registerCommand("cadre.setEffort", () => choosePerTeammate("effort")),
+    vscode.commands.registerCommand("cadre.setModel", () => chooseDefault("model", controller)),
+    vscode.commands.registerCommand("cadre.setEffort", () => chooseDefault("effort")),
+    vscode.commands.registerCommand("cadre.newWorkflow", () => controller.receive({ kind: "newWorkflow" })),
+    vscode.commands.registerCommand("cadre.goHome", () => controller.receive({ kind: "goHome" })),
     vscode.commands.registerCommand("cadre.resumeSession", () => resumeSession(controller)),
     vscode.commands.registerCommand("cadre.rewindFiles", () => rewindFiles(controller)),
     vscode.commands.registerCommand("cadre.compact", () => controller.compactNow()),
@@ -99,7 +101,7 @@ class ChatViewProvider implements vscode.WebviewViewProvider {
   }
 }
 
-/** The full-width board. Same view, more room. */
+/** The same view in a full editor tab, with room for every lane. */
 class TeamFloor implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private attachment: vscode.Disposable | undefined;
@@ -116,7 +118,7 @@ class TeamFloor implements vscode.Disposable {
     }
     this.panel = vscode.window.createWebviewPanel(
       "cadre.floor",
-      "Cadre — Floor",
+      "Cadre — Full view",
       vscode.ViewColumn.Active,
       { ...webviewOptions(this.context), retainContextWhenHidden: true },
     );
@@ -525,18 +527,17 @@ async function settingsHub(controller: TeamController): Promise<void> {
     controller.billing.status(),
     executablePath ? readAuthStatus(executablePath) : Promise.resolve(undefined),
   ]);
-  const models = TEAMMATES.map((id) => cfg.get<string>(`${id}.model`) || "default");
+  const model = cfg.get<string>("model") || "default";
   const spend = cfg.get<number>("maxSpendUsd") ?? 0;
 
   const items: (vscode.QuickPickItem & { run: () => unknown })[] = [
-    { label: "$(hubot) Models", description: models.join(" · "), run: () => choosePerTeammate("model") },
-    { label: "$(dashboard) Effort", description: TEAMMATES.map((id) => cfg.get<string>(`${id}.effort`) || "default").join(" · "), run: () => choosePerTeammate("effort") },
+    { label: "$(hubot) Default model", description: `${model} — each agent can override this`, run: () => chooseDefault("model", controller) },
     { label: "$(lightbulb) Thinking", description: cfg.get<string>("thinking") ?? "adaptive", run: chooseThinking },
     { label: "$(shield) Autonomy", description: controller.effectiveAutonomy(), run: () => chooseAutonomy(controller) },
     { label: "$(credit-card) Billing", description: billing.ok ? billing.describe : billing.reason, run: () => chooseBilling(controller) },
     { label: "$(account) Account", description: describeAuth(auth), run: () => showAccount(controller) },
     { label: "$(law) Spend cap", description: spend > 0 ? `$${spend.toFixed(2)} per run` : "none", run: chooseSpendCap },
-    { label: "$(broadcast) Direct line", description: cfg.get<boolean>("directLine") ? "on — you can talk to a teammate without the Lead" : "off — you talk to the Lead only", run: () => toggle("directLine") },
+    { label: "$(git-merge) Delegation depth", description: `${cfg.get<number>("maxDelegationDepth") ?? 3} — how far a chain of briefs may go`, run: chooseDepth },
     { label: "$(discard) Checkpoints", description: cfg.get<boolean>("checkpoints") === false ? "off" : "on", run: () => toggle("checkpoints") },
     { label: "", kind: vscode.QuickPickItemKind.Separator, run: () => undefined },
     { label: "$(folder-opened) Project", description: controller.activeFolder()?.name ?? "none", run: () => selectProject(controller) },
@@ -577,30 +578,62 @@ async function chooseThinking(): Promise<void> {
   await vscode.workspace.getConfiguration("cadre").update("thinking", picked.value, vscode.ConfigurationTarget.Workspace);
 }
 
-const MODELS = ["", "opus", "sonnet", "haiku", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"];
 const EFFORTS = ["", "low", "medium", "high", "xhigh", "max"];
 
-async function choosePerTeammate(key: "model" | "effort"): Promise<void> {
-  const who = await vscode.window.showQuickPick(
-    TEAMMATES.map((id) => ({ label: DISPLAY_NAME[id], id })),
-    { title: `Set ${key} for which teammate?`, ignoreFocusOut: true },
-  );
-  if (!who) return;
+/**
+ * The workspace default. Per-agent model and effort now live on the agent, in
+ * the builder, where you can see which agent you are changing.
+ */
+async function chooseDefault(key: "model" | "effort", controller?: TeamController): Promise<void> {
+  const current = vscode.workspace.getConfiguration("cadre").get<string>(key) ?? "";
 
-  const options = key === "model" ? MODELS : EFFORTS;
-  const current = vscode.workspace.getConfiguration("cadre").get<string>(`${who.id}.${key}`) ?? "";
+  let options: { label: string; description?: string; detail?: string; value: string }[];
+  if (key === "model") {
+    // The installed CLI is the authority on which models exist and what their
+    // identifiers are — they are not the API's, and they change per release.
+    const executablePath = resolveClaudeExecutable(log);
+    const models = executablePath
+      ? await discoverModels({
+          executablePath,
+          cwd: controller?.activeFolder()?.uri.fsPath ?? process.cwd(),
+          log: (m) => log.info(m),
+        })
+      : cachedModels();
+    options = [
+      { label: "Default", value: "", detail: "Let the CLI choose" },
+      ...models.map((m) => ({
+        label: m.label,
+        value: m.value,
+        detail: [m.value, m.efforts.length ? `effort: ${m.efforts.join(", ")}` : "no effort levels"]
+          .filter(Boolean)
+          .join("  ·  "),
+      })),
+    ];
+  } else {
+    options = EFFORTS.map((v) => ({ label: v || "Default", value: v }));
+  }
+
   const picked = await vscode.window.showQuickPick(
-    options.map((v) => ({
-      label: v || "Default",
-      description: v === current ? "current" : undefined,
-      value: v,
-    })),
-    { title: `${DISPLAY_NAME[who.id as TeammateId]} — ${key}`, ignoreFocusOut: true },
+    options.map((o) => ({ ...o, description: o.value === current ? "current" : o.description })),
+    { title: `Default ${key} for agents that do not set their own`, ignoreFocusOut: true },
   );
   if (!picked) return;
   await vscode.workspace
     .getConfiguration("cadre")
-    .update(`${who.id}.${key}`, picked.value, vscode.ConfigurationTarget.Workspace);
+    .update(key, picked.value, vscode.ConfigurationTarget.Workspace);
+}
+
+async function chooseDepth(): Promise<void> {
+  const entered = await vscode.window.showInputBox({
+    title: "Maximum delegation depth",
+    prompt: "How many delegate arrows a single chain may follow. Cycles are allowed, so this is what makes them stop.",
+    value: String(vscode.workspace.getConfiguration("cadre").get<number>("maxDelegationDepth") ?? 3),
+    validateInput: (v) => (Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 8 ? undefined : "A whole number from 1 to 8."),
+  });
+  if (entered === undefined) return;
+  await vscode.workspace
+    .getConfiguration("cadre")
+    .update("maxDelegationDepth", Number(entered), vscode.ConfigurationTarget.Workspace);
 }
 
 async function chooseSpendCap(): Promise<void> {
@@ -715,7 +748,7 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
     <span class="spacer"></span>
     <button class="chip pick account" id="account" title="Account">account</button>
     <span class="chip" id="spend">$0.0000</span>
-    <button class="ghost" id="openFloor" title="Open the full-width board">Floor</button>
+    <button class="ghost wide" id="openFloor" title="Open this workflow in a full editor tab, with room for every lane">⛶ Full view</button>
   </header>
 
   <section class="screen gate" id="screen-auth" hidden>
@@ -737,26 +770,113 @@ function teamHtml(webview: vscode.Webview, context: vscode.ExtensionContext): st
       <span class="muted" id="projects-roots"></span>
     </div>
     <div class="project-list" id="project-list"></div>
-    <div class="sessions" id="sessions" hidden>
-      <h2>Recent sessions</h2>
-      <div class="session-list" id="session-list"></div>
-    </div>
     <div class="projects-foot">
       <button class="ghost" id="projects-configure">Change where to look…</button>
     </div>
   </section>
 
-  <div class="screen" id="screen-team" hidden>
+  <section class="screen" id="screen-home" hidden>
+    <div class="home-head">
+      <div>
+        <h1>Workflows</h1>
+        <span class="muted" id="home-project"></span>
+      </div>
+      <div class="home-actions">
+        <button class="ghost" id="home-new">Blank workflow</button>
+        <button class="primary" id="home-build">Build with Claude</button>
+      </div>
+    </div>
+    <div class="composer-card" id="build-card" hidden>
+      <label for="build-input">Describe the pipeline</label>
+      <p class="muted">What are the stages, who does what, and what should happen automatically. Claude designs the agents, their prompts and the arrows; you edit anything before it runs.</p>
+      <textarea id="build-input" rows="4" placeholder="e.g. Read incoming support tickets, work out which are bugs, reproduce the bugs against our repo, and draft a reply for each one."></textarea>
+      <div class="build-row">
+        <span class="muted" id="build-note"></span>
+        <span class="spacer"></span>
+        <button class="ghost" id="build-cancel">Cancel</button>
+        <button class="primary" id="build-go">Build it</button>
+      </div>
+    </div>
+    <div class="workflow-list" id="workflow-list"></div>
+    <div class="templates" id="templates">
+      <h2>Start from a template</h2>
+      <div class="template-list" id="template-list"></div>
+    </div>
+  </section>
+
+  <section class="screen" id="screen-workflow" hidden>
+    <div class="detail-head">
+      <button class="ghost" id="detail-back" title="Back to workflows">‹ Workflows</button>
+      <span class="spacer"></span>
+      <button class="ghost" id="detail-scope" title="Where this workflow is stored">—</button>
+      <button class="ghost" id="detail-edit">Edit</button>
+      <button class="primary" id="detail-start">New conversation</button>
+    </div>
+    <div class="detail-body">
+      <div class="detail-main">
+        <h1 id="detail-name">—</h1>
+        <p class="muted" id="detail-desc"></p>
+        <div class="detail-problems" id="detail-problems" hidden></div>
+        <h2>Conversations</h2>
+        <div class="session-list" id="detail-sessions"></div>
+      </div>
+      <aside class="detail-map">
+        <div class="map-wrap" id="detail-map"></div>
+        <div class="map-legend" id="detail-legend"></div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="screen builder" id="screen-builder" hidden>
+    <div class="builder-bar">
+      <button class="ghost" id="builder-back" title="Back to workflows">‹ Workflows</button>
+      <input id="builder-name" class="name-field" aria-label="Workflow name" placeholder="Name this workflow">
+      <span class="spacer"></span>
+      <span class="note" id="builder-note"></span>
+      <span class="saved" id="builder-saved" data-state="saved"></span>
+      <label class="toggle" title="Turn a one-line description into a full system prompt before launching. You always see the result.">
+        <input type="checkbox" id="builder-refine" checked>
+        <span>Refine prompts</span>
+      </label>
+      <button class="ghost" id="builder-add">Add agent</button>
+      <button class="ghost" id="builder-save">Save</button>
+      <button class="primary" id="builder-launch">Launch</button>
+    </div>
+    <div class="builder-body">
+      <div class="canvas-wrap" id="canvas-wrap">
+        <div class="canvas" id="canvas">
+          <svg class="wires" id="wires" aria-hidden="true"></svg>
+        </div>
+      </div>
+      <aside class="inspector" id="inspector" hidden></aside>
+    </div>
+    <div class="problems" id="problems" hidden></div>
+  </section>
+
+  <div class="screen" id="screen-run" hidden>
+    <details class="livemap" id="livemap" open>
+      <summary>
+        <span class="chev" aria-hidden="true">›</span>
+        <span id="livemap-title">Workflow</span>
+        <span class="livemap-hint" id="livemap-hint"></span>
+        <span class="livemap-toggle" id="livemap-toggle">Hide</span>
+      </summary>
+      <div class="map-wrap" id="run-map"></div>
+    </details>
+    <div class="splitter" id="splitter" role="separator" aria-orientation="horizontal"
+         aria-label="Resize the workflow map" tabindex="0" title="Drag to resize · double-click to reset"></div>
     <div class="roster" id="roster"></div>
     <main class="floor" id="floor"></main>
     <footer class="composer">
       <div class="to">
         <span>Talking to</span>
-        <select id="channel" aria-label="Who to talk to">
-          <option value="lead">Lead</option>
-          <option value="researcher">Researcher</option>
-          <option value="engineer">Engineer</option>
-        </select>
+        <select id="channel" aria-label="Who to talk to"></select>
+        <span class="spacer"></span>
+        <button class="ghost quiet" id="run-sessions" title="Earlier conversations in this workflow">Sessions</button>
+        <button class="ghost quiet" id="run-edit" title="Edit this workflow">Edit</button>
+      </div>
+      <div class="sessions" id="sessions" hidden>
+        <div class="session-list" id="session-list"></div>
       </div>
       <div class="attachments" id="attachments" hidden></div>
       <div class="row">

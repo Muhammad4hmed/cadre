@@ -46,13 +46,13 @@ const vscodeStub = {
       onDidDispose: () => ({ dispose() {} }), reveal: () => {}, dispose: () => {},
     }),
     showErrorMessage: async (m) => { shownErrors.push(m); return undefined; },
-    showWarningMessage: async () => undefined,
+    showWarningMessage: async () => vscodeStub.__warn,
     showInformationMessage: async () => undefined,
     showQuickPick: async (items) => {
       const resolved = await items;
       return vscodeStub.__pick ? vscodeStub.__pick(resolved) : undefined;
     },
-    showInputBox: async () => undefined,
+    showInputBox: async () => vscodeStub.__input,
   },
   commands: {
     registerCommand: (id, fn) => { (vscodeStub.__commands ??= {})[id] = fn; return { dispose() {} }; },
@@ -128,6 +128,26 @@ const view = {
 };
 vscodeStub.__provider.resolveWebviewView(view);
 
+/**
+ * A second surface, to check what someone opening the view mid-session sees.
+ * `private` in TypeScript is a compile-time fiction, so the controller the
+ * provider is holding is reachable here.
+ */
+const controller = vscodeStub.__provider.controller;
+function makeSurface() {
+  const seen = [];
+  let send;
+  const webview = {
+    options: {}, html: "", cspSource: "x", asWebviewUri: (u) => u,
+    onDidReceiveMessage: (cb) => { send = cb; return { dispose() {} }; },
+    postMessage: async (m) => { seen.push(m); return true; },
+  };
+  const handle = controller.attach(webview);
+  return { seen, ready: () => send({ kind: "ready" }), dispose: () => handle.dispose() };
+}
+/** Feeds an event through the same path the runner uses. */
+const emit = (event) => controller["broadcast"](event);
+
 const last = (kind) => [...posted].reverse().find((m) => m.kind === kind);
 const settle = () => new Promise((r) => setTimeout(r, 40));
 /** Waits for a specific message rather than a fixed delay, so screen
@@ -163,28 +183,95 @@ state.workspaceFolders = [{ uri: { fsPath: process.cwd() } }];
 posted.length = 0;
 vscodeStub.__onFolders();
 await settle();
-check("folder opened -> composer unblocked", last("sendability")?.ok === true);
+// A folder alone is not enough any more: agents come from a workflow.
+check("folder but no workflow -> still blocked", last("sendability")?.ok === false);
+check("...and it says which of the two is missing",
+  /open a workflow/i.test(last("sendability")?.reason ?? ""));
 
-// ---- direct line is off by default -----------------------------------------
+// ---- creating a workflow from a template -----------------------------------
+const project = process.cwd();
+const wfDir = path.join(project, ".cadre", "workflows");
+fs.rmSync(wfDir, { recursive: true, force: true });
+
 posted.length = 0;
-receive({ kind: "setChannel", to: "researcher" });
+// A template must not stop to ask for a name: the builder is a better place to
+// change it than a modal shown before you have seen what you are naming.
+vscodeStub.__input = undefined;
+receive({ kind: "newWorkflow", template: "software-team" });
 await settle();
-check("direct line off -> switch refused", !posted.some((m) => m.kind === "channel" && m.to === "researcher"));
-check("direct line off -> explains why",
-  posted.some((m) => m.kind === "notice" && /direct line is off/i.test(m.text)));
-check("webview told the gate state", last("directLine")?.enabled === false);
+check("picking a template goes straight to the builder, no questions",
+  (await waitFor("screen", (m) => m.screen === "builder"))?.screen === "builder");
+const editing = last("editing");
+check("the template's agents come with it", editing?.workflow.agents.length === 3);
+check("it takes the template's own name", editing?.workflow.name === "Software team");
+check("the template is written to the project",
+  fs.existsSync(path.join(wfDir, "software_team.json")));
+check("a new workflow is local unless asked otherwise", editing?.workflow.scope === "local");
+check("the builder is given the presets to offer", (editing?.presets ?? []).length >= 4);
+check("...and the tool catalogue for the advanced panel", (editing?.catalogue ?? []).length > 0);
+check("a runnable template reports no errors",
+  (editing?.problems ?? []).every((p) => p.level !== "error"));
 
-// ---- direct line enabled ----------------------------------------------------
-settings["cadre.directLine"] = true;
+// ---- live validation while drawing -----------------------------------------
 posted.length = 0;
-vscodeStub.__onConfig({ affectsConfiguration: () => true });
+const broken = JSON.parse(JSON.stringify(editing.workflow));
+broken.edges.push({ from: "engineer", to: "lead", kind: "then" });
+broken.edges.push({ from: "lead", to: "engineer", kind: "then" });
+receive({ kind: "checkWorkflow", workflow: broken });
 await settle();
-check("enabling direct line reaches the webview", last("directLine")?.enabled === true);
+const validated = last("editing");
+check("a 'then' loop drawn in the builder is reported at once",
+  (validated?.problems ?? []).some((p) => p.level === "error" && /loop/i.test(p.message)));
+check("validating does not write the broken graph to disk",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8")).edges.length === 4);
 
+// ---- launching ---------------------------------------------------------------
+posted.length = 0;
+receive({ kind: "saveWorkflow", workflow: editing.workflow, launch: true });
+await settle();
+check("launching opens the run view",
+  (await waitFor("screen", (m) => m.screen === "run"))?.screen === "run");
+check("a launched workflow unblocks the composer", last("sendability")?.ok === true);
+
+// ---- switching who you talk to ----------------------------------------------
 posted.length = 0;
 receive({ kind: "setChannel", to: "engineer" });
 await settle();
-check("direct line on -> switch allowed", last("channel")?.to === "engineer");
+check("you can address any agent without a settings gate", last("channel")?.to === "engineer");
+posted.length = 0;
+receive({ kind: "setChannel", to: "nobody" });
+await settle();
+check("an agent that is not in the workflow is refused",
+  !posted.some((m) => m.kind === "channel"));
+receive({ kind: "setChannel", to: "lead" });
+await settle();
+
+// ---- a workflow that cannot run goes to the builder, not the run view -------
+const halfBuilt = {
+  id: "half", name: "Half built", entry: "", agents: [], edges: [],
+  createdAt: 1, updatedAt: 1, revision: 1,
+};
+fs.writeFileSync(path.join(wfDir, "half.json"), JSON.stringify(halfBuilt));
+posted.length = 0;
+receive({ kind: "openWorkflow", id: "half" });
+await settle();
+check("an unfinished workflow opens in the builder instead of running",
+  (await waitFor("screen", (m) => m.screen === "builder"))?.screen === "builder");
+check("...and says why", posted.some((m) => m.kind === "notice" && /not finished/i.test(m.text)));
+
+// ---- the home screen lists what is in the project ---------------------------
+posted.length = 0;
+receive({ kind: "goHome" });
+await settle();
+check("Home is the workflow list",
+  (await waitFor("screen", (m) => m.screen === "home"))?.screen === "home");
+const listing = last("workflows");
+check("every workflow in the project is listed", (listing?.items ?? []).length === 2);
+check("a broken one is flagged with a count, not hidden",
+  (listing?.items ?? []).some((w) => w.id === "half" && w.problems > 0));
+check("templates are offered alongside", (listing?.templates ?? []).length >= 3);
+
+fs.rmSync(path.join(wfDir, "half.json"), { force: true });
 
 // ---- API-key billing without a key blocks, with a remedy --------------------
 settings["cadre.billing"] = "apiKey";
@@ -273,7 +360,13 @@ receive({ kind: "goHome" });
 posted.length = 0;
 receive({ kind: "refreshAuth" });
 await settle();
-check("credential present -> home is the project list",
+check("credential present -> home is the workflow list",
+  (await waitFor("screen", (m) => m.screen === "home"))?.screen === "home");
+
+// The project list is still reachable, it is just no longer the landing page.
+receive({ kind: "selectProject" });
+await settle();
+check("the project switcher is still reachable",
   (await waitFor("screen", (m) => m.screen === "projects"))?.screen === "projects");
 const listed = await waitFor("projects");
 check("the project list is populated", (listed?.items?.length ?? 0) > 0);
@@ -300,19 +393,14 @@ check("a credential appearing is picked up without a reload", recovered?.signedI
 check("and the gate is left behind",
   (await waitFor("screen", (m) => m.screen !== "auth"))?.screen !== "auth");
 
-// ---- choosing a project moves to the team -----------------------------------
+// ---- choosing a project lands on that project's workflows -------------------
 posted.length = 0;
 receive({ kind: "openProject", path: A.uri.fsPath, alreadyOpen: true });
 await settle();
-check("choosing a project shows the team",
-  (await waitFor("screen", (m) => m.screen === "team"))?.screen === "team");
-
-// ---- and Home goes back ------------------------------------------------------
-posted.length = 0;
-receive({ kind: "goHome" });
-await settle();
-check("Home returns to the project list",
-  (await waitFor("screen", (m) => m.screen === "projects"))?.screen === "projects");
+check("choosing a project shows its workflows",
+  (await waitFor("screen", (m) => m.screen === "home"))?.screen === "home");
+check("...which are that project's, not the last one's",
+  last("workflows")?.project === "alpha");
 
 // ---- the sign-in affordance must survive every screen ----------------------
 // `claude auth status` reports loggedIn:true for an expired token, so the gate
@@ -320,9 +408,14 @@ check("Home returns to the project list",
 // control is the escape hatch and must never be conditional.
 const html = view.webview.html;
 check("the header carries an account control", /id="account"/.test(html));
+// "Floor" was internal jargon nobody outside the source could decode.
+check("the full-view control says what it does",
+  /id="openFloor"[^>]*>[^<]*Full view/.test(html));
+check("...and its tooltip explains why you would want it",
+  /Open this workflow in a full editor tab/.test(html));
 check("it is a button, not a static chip", /<button[^>]*id="account"/.test(html));
 
-for (const screen of ["auth", "projects", "team"]) {
+for (const screen of ["auth", "projects", "home", "builder", "run"]) {
   const hidesAccount = new RegExp(`"${screen}"[\\s\\S]{0,400}?el\\.account[\\s\\S]{0,80}?display`, "m");
   check(`the account control is not hidden on the ${screen} screen`,
     !hidesAccount.test(fs.readFileSync("media/team.js", "utf8")));
@@ -334,64 +427,307 @@ check("clicking it asks the host for account options",
 check("it renders a sign-in label when signed out",
   /e\.signedIn \? e\.detail : "sign in"/.test(teamJs));
 
-// ---- past sessions belong on the home screen -------------------------------
+// ---- past sessions belong to a workflow, not to the project -----------------
+// Two workflows in one folder share the CLI's session store, so the index is
+// what keeps one from showing the other's history.
+state.workspaceFolders = [{ uri: { fsPath: project } }];
+vscodeStub.__onFolders();
+await settle();
+
 fake.__registry.sessions = [
   { sessionId: "s-1", customTitle: "Urdu TTS feasibility", lastModified: Date.now() - 3 * 3600_000 },
   { sessionId: "s-2", summary: "fix the decoder truncation", lastModified: Date.now() - 26 * 3600_000 },
   { sessionId: "s-3", firstPrompt: "set up CI", lastModified: Date.now() - 9 * 60_000 },
+  { sessionId: "other-1", summary: "belongs to a different workflow", lastModified: Date.now() },
 ];
-receive({ kind: "goHome" });
+fs.writeFileSync(path.join(wfDir, "software_team.sessions.json"), JSON.stringify([
+  { sessionId: "s-1", title: "Urdu TTS feasibility", when: 3 },
+  { sessionId: "s-2", title: "fix the decoder truncation", when: 2 },
+  { sessionId: "s-3", title: "set up CI", when: 1 },
+]));
+
+posted.length = 0;
+receive({ kind: "openWorkflow", id: "software_team" });
 const stored = await waitFor("sessions", (m) => (m.items?.length ?? 0) > 0);
-check("the home screen lists past sessions", stored?.items?.length === 3);
-check("a custom title is preferred", stored?.items?.[0]?.title === "Urdu TTS feasibility");
+check("opening a workflow lists its past sessions", stored?.items?.length === 3);
+check("a custom title is preferred",
+  stored?.items?.some((i) => i.title === "Urdu TTS feasibility"));
 check("a session with only a first prompt still gets a label",
   stored?.items?.some((i) => i.title === "set up CI"));
-check("the project is named so the list is not ambiguous", Boolean(stored?.project));
+check("another workflow's session is not shown",
+  !stored?.items?.some((i) => i.id === "other-1"));
+check("the sessions are attributed to the workflow they belong to",
+  stored?.workflowId === "software_team");
+
+// Resuming must bring the conversation back, not just the model's memory.
+fake.__registry.messages = [
+  { type: "user", uuid: "u1", parent_tool_use_id: null,
+    message: { role: "user", content: "the decoder drops the last word" } },
+  { type: "assistant", uuid: "a1", parent_tool_use_id: null, message: { role: "assistant", content: [
+    { type: "text", text: "Reproduced. Briefing the Engineer." },
+    { type: "tool_use", id: "t1", name: "mcp__team__brief_engineer",
+      input: { objective: "Write a failing test for the dropped word" } },
+  ] } },
+  { type: "user", uuid: "u2", parent_tool_use_id: null, message: { role: "user", content: [
+    { type: "tool_result", tool_use_id: "t1",
+      content: "VERDICT: DONE\nHEADLINE: the tokenizer drops a trailing space, not the decoder" },
+  ] } },
+  { type: "assistant", uuid: "a2", parent_tool_use_id: "t1", message: { role: "assistant", content: [
+    { type: "text", text: "internal to the teammate run" },
+  ] } },
+  // The CLI writes this into the user role itself; replaying it as a chat
+  // bubble would show the user saying something they never typed.
+  { type: "user", uuid: "u2b", parent_tool_use_id: null, message: { role: "user", content: [
+    { type: "text", text: "[Request interrupted by user for tool use]" },
+  ] } },
+  { type: "assistant", uuid: "a3", parent_tool_use_id: null, message: { role: "assistant", content: [
+    { type: "thinking", thinking: "the diff will show whether the fix landed" },
+    { type: "tool_use", id: "t2", name: "git_view", input: { subcommand: "diff" } },
+  ] } },
+  { type: "user", uuid: "u3", parent_tool_use_id: null, message: { role: "user", content: [
+    { type: "tool_result", tool_use_id: "t2", is_error: true, content: "not a git repository" },
+  ] } },
+];
 
 posted.length = 0;
 receive({ kind: "resumeSession", id: "s-2", title: "fix the decoder truncation" });
 await settle();
 check("resuming a session leaves the home screen",
-  (await waitFor("screen", (m) => m.screen === "team"))?.screen === "team");
+  (await waitFor("screen", (m) => m.screen === "run"))?.screen === "run");
 check("resuming says which conversation it reopened",
   posted.some((m) => m.kind === "notice" && /decoder truncation/.test(m.text)));
+
+const said = posted.filter((m) => m.kind === "userSaid");
+check("what you said is replayed",
+  said.some((m) => /drops the last word/.test(m.text)));
+check("a tool result is not replayed as something you said",
+  !said.some((m) => /VERDICT/.test(m.text)));
+check("the Lead's replies are replayed",
+  posted.some((m) => m.kind === "say" && /Reproduced/.test(m.delta)));
+check("delegations come back as assignment cards",
+  posted.some((m) => m.kind === "assign" && m.assignment.to === "engineer"));
+check("ordinary tool calls come back as chips",
+  posted.some((m) => m.kind === "act" && m.tool === "git_view"));
+check("a teammate's internal messages are not replayed into the Lead's lane",
+  !posted.some((m) => m.kind === "say" && /internal to the teammate/.test(m.delta)));
+check("a delegation replays with the report that came back",
+  posted.some((m) => m.kind === "deliver" && m.outcome === "delivered" && /trailing space/.test(m.summary)));
+check("a tool call that failed replays as failed",
+  posted.some((m) => m.kind === "actEnd" && m.ok === false && /not a git repository/.test(m.summary)));
+check("an interruption is shown as what it is, not as something you typed",
+  posted.some((m) => m.kind === "notice" && /Request interrupted/.test(m.text)) &&
+  !posted.some((m) => m.kind === "userSaid" && /Request interrupted/.test(m.text)));
+check("reasoning is replayed when the store kept it",
+  posted.some((m) => m.kind === "think" && /whether the fix landed/.test(m.delta)));
+check("the end of the replayed history is marked",
+  posted.some((m) => m.kind === "notice" && /end of the earlier conversation/.test(m.text)));
+check("empty teammate lanes above the line are explained, not left to imply idleness",
+  posted.some((m) => m.kind === "notice" && /own session/.test(m.text)));
+// The composer must lock while history streams in, or a reply lands above the
+// conversation it answers.
+const gates = posted.filter((m) => m.kind === "sendability");
+check("sending is blocked while the transcript loads",
+  gates.some((m) => m.ok === false && /earlier conversation/i.test(m.reason ?? "")));
+check("sending is unblocked once the transcript is in",
+  gates.length > 0 && gates[gates.length - 1].ok === true);
 
 posted.length = 0;
 receive({ kind: "goHome" });
 check("Home returns from a resumed session",
-  (await waitFor("screen", (m) => m.screen === "projects"))?.screen === "projects");
+  (await waitFor("screen", (m) => m.screen === "home"))?.screen === "home");
 
 check("the header carries a Home control", /id="home"/.test(view.webview.html));
 
-// ---- reaching for a teammate should offer the direct line, not a settings file
-settings["cadre.directLine"] = false;
-vscodeStub.__onConfig({ affectsConfiguration: () => true });
+// ---- opening a workflow must show it, before anything runs -------------------
+// The board used to be built only from a live session's init message, so it sat
+// empty — no lanes, no "talking to" options, no workflow id for the Edit button
+// — until you spent a turn.
+posted.length = 0;
+receive({ kind: "openWorkflow", id: "software_team" });
 await settle();
+const board = last("roster");
+check("opening a workflow publishes its agents immediately",
+  (board?.members?.length ?? 0) === 3);
+check("...without starting a session", !posted.some((m) => m.kind === "spend"));
+check("the roster names the workflow, so Edit has something to open",
+  board?.workflowId === "software_team");
+check("the arrows come with it, so the map can be drawn",
+  (board?.edges?.length ?? 0) === 4);
+check("the entry agent is marked",
+  board?.members?.filter((m) => m.entry).length === 1);
+check("each agent carries its canvas position",
+  board?.members?.every((m) => typeof m.x === "number"));
+check("each agent carries the model it will actually use",
+  board?.members?.every((m) => Boolean(m.model)));
 
-let offered = null;
-const realInfo = vscodeStub.window.showInformationMessage;
-vscodeStub.window.showInformationMessage = async (message, opts, ...choices) => {
-  offered = { message, detail: opts?.detail, choices };
-  return choices[0];
-};
+// ---- a workflow's own page ---------------------------------------------------
+// Opening a workflow lands on its page, not in a chat: most of the time you are
+// coming back to a conversation rather than starting one.
+posted.length = 0;
+receive({ kind: "showWorkflow", id: "software_team" });
+await settle();
+check("opening a workflow shows its page",
+  (await waitFor("screen", (m) => m.screen === "workflow"))?.screen === "workflow");
+const detail = last("detail");
+check("the page carries the graph", detail?.workflow.agents.length === 3);
+check("...and the conversations under it", (detail?.sessions?.length ?? 0) === 3);
+check("...and anything that would stop it running",
+  Array.isArray(detail?.problems));
 
 posted.length = 0;
-receive({ kind: "requestDirectLine", to: "researcher" });
+receive({ kind: "startSession", id: "software_team" });
+await settle();
+check("starting a conversation opens the run view",
+  (await waitFor("screen", (m) => m.screen === "run"))?.screen === "run");
+check("...on a clean board", posted.some((m) => m.kind === "clear"));
+
+// ---- global workflows --------------------------------------------------------
+// A global workflow lives in the home directory and shows up in every project.
+const globalDir = path.join(os.homedir(), ".cadre", "workflows");
+const globalId = "verify_ui_global";
+fs.rmSync(path.join(globalDir, `${globalId}.json`), { force: true });
+
+posted.length = 0;
+receive({ kind: "moveWorkflow", id: "software_team", to: "global" });
+await settle();
+check("a workflow can be moved out of the project",
+  fs.existsSync(path.join(globalDir, "software_team.json")));
+check("...and is gone from the project",
+  !fs.existsSync(path.join(wfDir, "software_team.json")));
+check("moving it says what changed",
+  posted.some((m) => m.kind === "notice" && /every project/i.test(m.text)));
+
+posted.length = 0;
+receive({ kind: "goHome" });
+await settle();
+const scoped = last("workflows");
+check("a global workflow is listed",
+  (scoped?.items ?? []).some((w) => w.id === "software_team" && w.scope === "global"));
+
+// Its conversations stay with the project, not with the workflow: the same
+// global workflow used in two repositories has two separate histories.
+check("its session index stayed in the project",
+  fs.existsSync(path.join(wfDir, "software_team.sessions.json")));
+
+posted.length = 0;
+receive({ kind: "moveWorkflow", id: "software_team", to: "local" });
+await settle();
+check("and it can be moved back",
+  fs.existsSync(path.join(wfDir, "software_team.json")) &&
+  !fs.existsSync(path.join(globalDir, "software_team.json")));
+
+// ---- workflow-level defaults ---------------------------------------------------
+const withDefaults = JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"));
+withDefaults.defaults = { model: "sonnet", effort: "low" };
+receive({ kind: "saveWorkflow", workflow: withDefaults });
+await settle();
+check("workflow defaults are persisted",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8")).defaults.model === "sonnet");
+
+// ---- a long session must not grow without bound ------------------------------
+// Streamed prose arrives one delta at a time. Every delta used to be kept, so a
+// single turn pushed thousands of objects into the replay log and the same
+// thousands into every webview.
+emit({ kind: "clear" });
+for (let i = 0; i < 5000; i += 1) emit({ kind: "say", who: "lead", turn: "t1", delta: "x" });
+emit({ kind: "sayEnd", who: "lead", turn: "t1" });
+emit({ kind: "say", who: "lead", turn: "t2", delta: "second" });
+
+const joining = makeSurface();
+joining.ready();
+await settle();
+const replayed = joining.seen.filter((m) => m.kind === "say");
+check("5000 streamed deltas replay as one message, not five thousand",
+  replayed.length === 2);
+check("...with none of the text lost",
+  replayed.find((m) => m.turn === "t1")?.delta.length === 5000);
+check("a different turn stays a different message",
+  Boolean(replayed.find((m) => m.turn === "t2")));
+joining.dispose();
+
+// And the log is capped whatever else happens.
+for (let i = 0; i < 6000; i += 1) emit({ kind: "notice", level: "info", text: `n${i}` });
+const late = makeSurface();
+late.ready();
+await settle();
+const notices = late.seen.filter((m) => m.kind === "notice");
+check("the replay log is capped rather than growing forever", notices.length < 5200);
+check("...and says history was dropped instead of starting mid-sentence",
+  notices.some((m) => /not shown here/.test(m.text)));
+late.dispose();
+emit({ kind: "clear" });
+
+// ---- autosave --------------------------------------------------------------
+// The whole point is that it never interrupts. It must reach disk without
+// moving the user, and without resetting the session they are talking to.
+receive({ kind: "openWorkflow", id: "software_team" });
+await settle();
+const live = last("screen")?.screen;
+
+posted.length = 0;
+const edited = JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"));
+edited.agents[0].role = "changed by an autosave";
+receive({ kind: "saveWorkflow", workflow: edited, auto: true });
 await settle();
 
-check("clicking a teammate offers to open the line", /talk to the researcher directly/i.test(offered?.message ?? ""));
-check("it says what the trade-off is", /lead does not see/i.test(offered?.detail ?? ""));
-check("accepting turns the setting on", settings["cadre.directLine"] === true);
-check("and switches to that teammate",
-  (await waitFor("channel", (m) => m.to === "researcher"))?.to === "researcher");
-vscodeStub.window.showInformationMessage = realInfo;
+check("an autosave reaches disk",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"))
+    .agents[0].role === "changed by an autosave");
+check("an autosave is acknowledged so the UI can stop saying 'unsaved'",
+  last("saved")?.auto === true);
+check("an autosave does not move the user off the screen they are on",
+  (last("screen")?.screen ?? live) === live);
+check("an autosave does not reset the running session",
+  !posted.some((m) => m.kind === "notice" && /session was reset/i.test(m.text)));
 
-fs.rmSync(workRoot, { recursive: true, force: true });
+posted.length = 0;
+edited.agents[0].role = "changed deliberately";
+receive({ kind: "saveWorkflow", workflow: edited });
+await settle();
+check("an explicit save is acknowledged as deliberate", last("saved")?.auto === false);
+check("an explicit save does reset the running session, and says so",
+  posted.some((m) => m.kind === "notice" && /session was reset/i.test(m.text)));
 
-console.log("=== controller + composer ===");
+// ---- the builder must be told when it may replace its own draft -------------
+posted.length = 0;
+receive({ kind: "editWorkflow", id: "software_team" });
+await settle();
+check("opening a workflow to edit is authoritative",
+  posted.some((m) => m.kind === "editing" && m.authoritative === true));
+posted.length = 0;
+receive({ kind: "checkWorkflow", workflow: edited });
+await settle();
+check("a re-validate is not — it must not overwrite unsaved edits",
+  posted.some((m) => m.kind === "editing") &&
+  posted.filter((m) => m.kind === "editing").every((m) => m.authoritative === false));
+
+// ---- deleting a workflow ----------------------------------------------------
+// The confirmation is modal, so this exercises the declined path too: a
+// workflow must survive a dialog the user dismissed.
+vscodeStub.__warn = undefined;
+posted.length = 0;
+receive({ kind: "deleteWorkflow", id: "software_team" });
+await settle();
+check("a declined delete leaves the workflow alone",
+  fs.existsSync(path.join(wfDir, "software_team.json")));
+
+vscodeStub.__warn = "Delete";
+posted.length = 0;
+receive({ kind: "deleteWorkflow", id: "software_team" });
+await settle();
+check("a confirmed delete removes it", !fs.existsSync(path.join(wfDir, "software_team.json")));
+check("...and its session index with it",
+  !fs.existsSync(path.join(wfDir, "software_team.sessions.json")));
+check("deleting returns you to the list",
+  (await waitFor("screen", (m) => m.screen === "home"))?.screen === "home");
+vscodeStub.__warn = undefined;
+
+
+console.log("=== ui ===");
 let failed = false;
 for (const [label, ok] of checks) {
   if (!ok) failed = true;
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}`);
 }
+// The credential watcher keeps the loop alive, so exit explicitly.
 process.exit(failed ? 1 : 0);

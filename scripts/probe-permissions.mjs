@@ -8,7 +8,7 @@ async function probe(label, extra) {
   const q = query({
     prompt: "Run exactly `echo PERMPROBE` with the Bash tool. Nothing else.",
     options: {
-      cwd: "/home/ahmed/Desktop/ai-team/sandbox",
+      cwd: new URL("../sandbox", import.meta.url).pathname,
       pathToClaudeCodeExecutable: exe,
       model: "claude-opus-5", effort: "low", maxTurns: 3,
       permissionMode: "default",
