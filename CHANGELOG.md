@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.0 — the Read tool could read credentials the rest of the extension refused
+
+Three lists guard credential files, and they have to agree: one binds the Read
+tool, one catches anything reaching a file another way, and one keeps them out
+of a diff. The comment on the second calls it "the same set" as the first. It
+was not.
+
+The Read list had fallen behind the other two in two ways. It covered `.env`
+only at the project root, so `packages/api/.env` was readable. And it did not
+cover `.netrc`, `.npmrc` or `.pypirc` at all — an npm auth token, a PyPI
+password, a machine login — though both other lists did. So `git_view` refused
+a file that `Read` would hand over.
+
+The README says these are "denied at every level, including autonomous". For
+six of the fifteen paths now checked, that was not true.
+
+Fixed by bringing the Read list up to the other two, and by testing the
+agreement rather than the wording: the deny globs are expanded and run against
+the same sample paths as the predicate, so a file protected on one route and not
+the other fails a check. Removing any of the three additions turns it red.
+
+1063 checks.
+
 ## 0.11.16 — consulting a teammate showed you raw JSON
 
 How a tool call is labelled named `ask_researcher` and `ask_engineer`

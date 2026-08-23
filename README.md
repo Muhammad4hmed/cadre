@@ -184,8 +184,9 @@ Tools that fan work out or schedule it off-screen — `Workflow`, `Agent`, `Cron
 the advanced panel does not grant it. An arrow is the only fan-out a workflow has, and it
 is visible in a lane and counted against the session's spend.
 
-Reads of `.env`, ssh keys and cloud credentials are denied at every level, including
-`autonomous` — and that includes the routes the CLI's own deny rules cannot see. `git_view`
+Reads of `.env` at any depth, ssh keys, cloud credentials and the files package
+managers keep tokens in — `.npmrc`, `.netrc`, `.pypirc` — are denied at every level,
+including `autonomous` — and that includes the routes the CLI's own deny rules cannot see. `git_view`
 refuses to `show` a protected path and excludes those paths from every diff, because a diff
 leaks a file just as surely as reading it does.
 
@@ -248,7 +249,7 @@ changing.
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 1029 checks, no API calls
+npm run verify:fast    # 1063 checks, no API calls
 npm run verify:team    # a live run; costs tokens
 ```
 

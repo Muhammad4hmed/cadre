@@ -9,3 +9,4 @@ export * as generate from "../src/workflow/generate";
 export * as models from "../src/models";
 export * as replay from "../src/team/replay";
 export * as describe from "../src/team/describe";
+export * as policy from "../src/policy";

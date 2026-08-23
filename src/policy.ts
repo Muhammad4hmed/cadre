@@ -18,15 +18,32 @@ export interface Policy {
  * Files that must never be read into an agent's context, at any autonomy level.
  * Deny beats every other rule tier, so this holds even on "autonomous".
  */
+// Three lists guard these files and they must agree: this one binds the Read
+// tool, PROTECTED catches anything that reaches a file another way, and
+// PROTECTED_EXCLUDES keeps them out of a diff. This one had fallen behind the
+// other two — it covered .env only at the root, and did not cover .netrc,
+// .npmrc or .pypirc at all, so a file refused to git_view could still be read
+// directly. The recursive forms sit alongside the root ones because a leading
+// double-star does not universally match zero directories.
 const NEVER_READ = [
   "Read(./.env)",
   "Read(./.env.*)",
+  "Read(**/.env)",
+  "Read(**/.env.*)",
   "Read(**/.ssh/**)",
   "Read(**/.aws/credentials)",
   "Read(**/.claude/.credentials.json)",
   "Read(**/id_rsa)",
   "Read(**/id_ed25519)",
   "Read(**/*.pem)",
+  // Auth tokens and passwords, as plainly as any of the above: an npm
+  // _authToken, a PyPI password, a machine login.
+  "Read(./.netrc)",
+  "Read(**/.netrc)",
+  "Read(./.npmrc)",
+  "Read(**/.npmrc)",
+  "Read(./.pypirc)",
+  "Read(**/.pypirc)",
 ];
 
 /**

@@ -24,7 +24,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 const wf = createRequire(import.meta.url)(outfile);
-const { model, presets, protocol, store, templates, generate, models, replay, describe } = wf;
+const { model, presets, protocol, store, templates, generate, models, replay, describe, policy } = wf;
 
 
 /**
@@ -322,6 +322,60 @@ check("one workflow does not see another's sessions", store.listSessions(root, s
   check("a write that fails after its scratch file exists still reports it", blockedThrew);
   check("...and does not leave the scratch file in the repository",
     !fs.readdirSync(blDir).some((f) => f.endsWith(".tmp")));
+}
+
+/* ------------------------------------------------------ credential files */
+
+// Two lists guard the same files: deny rules handed to the CLI, which bind the
+// Read tool, and a predicate for everything that reaches a file another way.
+// The comment on the second calls it "the same set as the first". This checks
+// that, because they are edited separately and a file protected from one route
+// and not the other is not protected.
+{
+  // A glob as the CLI reads it, so the two lists can be compared on the same
+  // paths rather than by eye.
+  const globToRe = (glob) => {
+    const body = glob
+      .replace(/[.+^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*\*\//g, "\u0000")
+      .replace(/\*/g, "[^/]*")
+      .replace(/\u0000/g, "(?:.*/)?");
+    return new RegExp("^" + body + "$");
+  };
+  const denies = policy.policyFor("autonomous").managedSettings.permissions.deny;
+  const readRules = denies
+    .filter((d) => d.startsWith("Read("))
+    .map((d) => d.slice("Read(".length, -1).replace(/^\.\//, ""));
+  const deniedToRead = (p) => readRules.some((g) => globToRe(g).test(p));
+
+  const secrets = [
+    ".env",
+    ".env.local",
+    "packages/api/.env",
+    "services/worker/.env.production",
+    ".ssh/id_rsa",
+    "home/.ssh/known_hosts",
+    ".aws/credentials",
+    ".claude/.credentials.json",
+    "id_rsa",
+    "keys/id_ed25519",
+    "certs/server.pem",
+    ".netrc",
+    ".npmrc",
+    "packages/ui/.npmrc",
+    ".pypirc",
+  ];
+  for (const p of secrets) {
+    check(`${p} is refused to anything that reaches a file directly`,
+      policy.isProtectedPath(p) === true);
+    check(`...and ${p} is refused to the Read tool as well`, deniedToRead(p) === true);
+  }
+
+  // And ordinary files are not swept up by either.
+  for (const ok of ["src/index.ts", "README.md", "environment.yml", "docs/env-setup.md"]) {
+    check(`${ok} is not treated as a secret`,
+      policy.isProtectedPath(ok) === false && deniedToRead(ok) === false);
+  }
 }
 
 /* ------------------------------------------------- labelling a tool call */
