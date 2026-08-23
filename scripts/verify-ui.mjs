@@ -1102,6 +1102,48 @@ if (serializer) {
   fake.__registry.hangDiscovery = false;
 }
 
+// ---- every event has somewhere to land ------------------------------------
+// The host and the webview talk in two typed unions. Adding a case to either
+// and forgetting the other end fails silently: an event nobody handles falls
+// through a switch and is dropped, which is how the run's cost card and the
+// "history was summarised" notice went missing for months.
+{
+  const events = fs.readFileSync("src/team/events.ts", "utf8");
+  const cut = (name, nextName) => {
+    const from = events.indexOf(`export type ${name} =`);
+    const to = nextName ? events.indexOf(`export type ${nextName} =`, from) : events.length;
+    return events.slice(from, to === -1 ? events.length : to);
+  };
+  const kindsIn = (text) => [...new Set([...text.matchAll(/kind:\s*"([a-zA-Z]+)"/g)].map((m) => m[1]))];
+
+  const outbound = kindsIn(cut("TeamEvent", "Screen"));
+  const inbound = kindsIn(cut("UiCommand", null));
+  check("the event union is not empty, or this checks nothing", outbound.length > 10);
+  check("the command union is not empty either", inbound.length > 10);
+
+  const webview = fs.readFileSync("media/team.js", "utf8");
+  // A handler is either a case in the render switch or a key on the handlers
+  // map, and the map's entries may or may not take a parameter.
+  const handled = new Set([
+    ...[...webview.matchAll(/case\s+"([a-zA-Z]+)":/g)].map((m) => m[1]),
+    ...[...webview.matchAll(/^\s{4}([a-zA-Z]+)\((?:e)?\)\s*\{/gm)].map((m) => m[1]),
+  ]);
+  // Some events are for the host alone and are deliberately not forwarded.
+  const host = fs.readFileSync("src/team/controller.ts", "utf8");
+  const interceptedByHost = new Set(
+    [...host.matchAll(/if \(event\.kind === "([a-zA-Z]+)"\)[\s\S]{0,200}?return;/g)].map((m) => m[1]),
+  );
+
+  const unhandled = outbound.filter((k) => !handled.has(k) && !interceptedByHost.has(k));
+  check(`every event reaches a handler or is answered by the host${unhandled.length ? " (" + unhandled.join(", ") + ")" : ""}`,
+    unhandled.length === 0);
+
+  const commands = new Set([...host.matchAll(/case\s+"([a-zA-Z]+)":/g)].map((m) => m[1]));
+  const ignored = inbound.filter((k) => !commands.has(k));
+  check(`every command the webview can send is answered${ignored.length ? " (" + ignored.join(", ") + ")" : ""}`,
+    ignored.length === 0);
+}
+
 console.log("=== ui ===");
 let failed = false;
 for (const [label, ok] of checks) {
