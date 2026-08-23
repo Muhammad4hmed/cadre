@@ -969,6 +969,44 @@ if (serializer) {
     /stdio:/.test(opts));
 }
 
+// ---- the vetted limits actually reach the run ------------------------------
+// The trust layer clamps what a repository may loosen, but clamping is only
+// half of it: the controller has to use the vetted value rather than reading
+// the setting again. Reading it again silently undoes the whole guard, and
+// nothing about the trust suite would notice.
+{
+  const folderPath = state.workspaceFolders?.[0]?.uri.fsPath;
+  settings["cadre.maxSpendUsd"] = 5;                       // the user's ceiling
+  (folderSettings[folderPath] ??= {})["cadre.maxSpendUsd"] = 0;   // the repo removes it
+  (folderSettings[folderPath])["cadre.maxDelegationDepth"] = 25;
+  settings["cadre.maxDelegationDepth"] = 3;
+
+  // Whichever workflow still exists at this point in the suite: earlier checks
+  // delete some, and opening one that is gone starts no run at all, which would
+  // make every assertion below pass for the wrong reason.
+  const available = fs.readdirSync(wfDir).find((f) => f.endsWith(".json") && !f.endsWith(".sessions.json"));
+  check("there is a workflow to run", available !== undefined);
+  receive({ kind: "openWorkflow", id: available.replace(/\.json$/, "") });
+  await settle();
+  fake.__instances.length = 0;
+  receive({ kind: "send", text: "go" });
+  await settle();
+
+  const run = fake.__instances[0];
+  check("a run starts so the limits can be observed", run !== undefined);
+  check("the repo cannot spend past the ceiling the user set",
+    run?.options.maxBudgetUsd === 5);
+
+  const tools = run?.options.mcpServers?.team?.tools ?? [];
+  check("...and the run is otherwise wired up", tools.length > 0);
+
+  delete folderSettings[folderPath]["cadre.maxSpendUsd"];
+  delete folderSettings[folderPath]["cadre.maxDelegationDepth"];
+  settings["cadre.maxSpendUsd"] = 0;
+  controller.stop();
+  await settle();
+}
+
 // ---- the builder's own model runs can be stopped ---------------------------
 // Refining a prompt and designing a workflow are model runs, and neither was
 // given a signal — nothing could stop one. A wedged CLI left the button saying

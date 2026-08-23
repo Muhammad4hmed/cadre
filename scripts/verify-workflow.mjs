@@ -226,6 +226,34 @@ check("a 'then' receiver is told where its input came from",
   /started automatically/.test(secondPrompt));
 check("the arrow's label reaches the prompt", firstPrompt.includes("drafting"));
 
+// The README says an agent is told about the arrows it has and nothing about
+// the arrows it does not. The tests above check that on a two-agent graph. The
+// shipped templates are where it would actually go wrong: six agents, several
+// arrows each, and plenty of teammates any given agent cannot reach. Naming one
+// of those invites an agent to try a tool it does not have.
+for (const card of templates.templateCards()) {
+  const wf = { ...templates.templateById(card.id).build(0), id: "t", createdAt: 0, updatedAt: 0, revision: 1 };
+  const ids = wf.agents.map((a) => a.id);
+  let leaked = [];
+  let missing = [];
+  for (const a of wf.agents) {
+    const prompt = protocol.composeSystemPrompt(wf, a, { ...opts, speaksToUser: a.id === wf.entry });
+    const reachable = new Set(
+      wf.edges.filter((e) => e.kind === "delegate" && e.from === a.id).map((e) => e.to),
+    );
+    for (const other of ids) {
+      if (other === a.id) continue;
+      const named = prompt.includes(`brief_${other}`) || prompt.includes(`ask_${other}`);
+      if (named && !reachable.has(other)) leaked.push(`${a.id}->${other}`);
+      if (!named && reachable.has(other)) missing.push(`${a.id}->${other}`);
+    }
+  }
+  check(`${card.id}: no agent is told about an arrow it does not have${leaked.length ? " (" + leaked.join(", ") + ")" : ""}`,
+    leaked.length === 0);
+  check(`${card.id}: every arrow an agent does have is in its prompt${missing.length ? " (" + missing.join(", ") + ")" : ""}`,
+    missing.length === 0);
+}
+
 /* ----------------------------------------------------------------- store */
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-proj-"));

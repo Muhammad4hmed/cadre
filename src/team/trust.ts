@@ -34,6 +34,12 @@ function escapesWorkspace(candidate: string): boolean {
 
 export interface VettedSettings {
   autonomy: Autonomy;
+  /** The spend ceiling, in USD. 0 means uncapped. */
+  maxSpendUsd: number;
+  maxDelegationDepth: number;
+  maxContinuations: number;
+  checkpoints: boolean;
+  inheritGlobalConfig: boolean;
   connectors: Record<string, unknown>;
   plugins: string[];
   /** Extra folders the agents may read and edit, outside the workspace. */
@@ -164,7 +170,63 @@ export class SettingsTrust {
       docsPath = "docs";
     }
 
-    return { autonomy, connectors, plugins, additionalDirectories, docsPath, warnings };
+    // --- limits a repository may tighten but never loosen --------------------
+    //
+    // Autonomy, connectors and plugins are guarded above because they lead to
+    // code execution. These lead somewhere else, and were not guarded at all: a
+    // spend ceiling the user set and the repo removes, a delegation depth and a
+    // continuation count that each multiply what a run costs, the snapshots
+    // that make Rewind Files work, and whether the user's own global Claude
+    // settings get loaded. Every one is resource-scoped, so every one travels
+    // in .vscode/settings.json.
+    //
+    // The rule is the same as for autonomy: a repository asking for *less* is
+    // not an attack, and is left alone.
+    const clamp = <T>(
+      key: string,
+      fallback: T,
+      loosens: (repo: T, user: T) => boolean,
+      why: (repo: T, user: T) => string,
+    ): T => {
+      const info = inspect<T>(key);
+      const fromRepo = repoValue(info);
+      const fromUser = userValue(info) ?? fallback;
+      const current = (cfg.get<T>(key) ?? fallback) as T;
+      if (fromRepo === undefined || fromRepo === fromUser) return current;
+      if (!loosens(fromRepo, fromUser)) return current;
+      if (this.approved(key, fromRepo)) return current;
+      warnings.push(why(fromRepo, fromUser));
+      return fromUser;
+    };
+
+    // 0 means uncapped, which is the loosest value there is, not the tightest.
+    const maxSpendUsd = clamp<number>("maxSpendUsd", 0,
+      (repo, user) => user > 0 && (repo === 0 || repo > user),
+      (repo, user) => (repo === 0
+        ? `This folder's settings remove your $${user.toFixed(2)} spend cap. Keeping the cap — a repository does not get to decide what a run costs you.`
+        : `This folder's settings raise your spend cap from $${user.toFixed(2)} to $${repo.toFixed(2)}. Keeping yours.`));
+
+    const maxDelegationDepth = clamp<number>("maxDelegationDepth", 3,
+      (repo, user) => repo > user,
+      (repo, user) => `This folder's settings deepen delegation from ${user} to ${repo}, which multiplies what a run costs. Keeping ${user}.`);
+
+    const maxContinuations = clamp<number>("maxContinuations", 2,
+      (repo, user) => repo > user,
+      (repo, user) => `This folder's settings let a stuck run continue ${repo} times instead of ${user}. Keeping ${user}.`);
+
+    const checkpoints = clamp<boolean>("checkpoints", true,
+      (repo, user) => user === true && repo === false,
+      () => "This folder's settings turn off the snapshots that let you undo what agents wrote. Keeping them on.");
+
+    const inheritGlobalConfig = clamp<boolean>("inheritGlobalConfig", false,
+      (repo, user) => user === false && repo === true,
+      () => "This folder's settings ask to load your own global Claude Code settings, which you had left out. Not loading them.");
+
+    return {
+      autonomy, connectors, plugins, additionalDirectories, docsPath,
+      maxSpendUsd, maxDelegationDepth, maxContinuations, checkpoints, inheritGlobalConfig,
+      warnings,
+    };
   }
 
   /** What a repo is asking for, so the review command can show it. */

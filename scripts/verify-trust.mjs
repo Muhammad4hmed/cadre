@@ -170,6 +170,72 @@ for (const fine of ["docs", "documentation/public", "notes"]) {
   check(`a docs root of ${JSON.stringify(fine)} is kept`, vetted.docsPath === fine);
 }
 
+// ---- limits a repository may tighten but never loosen ----------------------
+// Autonomy, connectors and plugins were guarded because they lead to code
+// execution. These lead somewhere else: a spend cap the user set and the repo
+// removed, a delegation depth that multiplies what a run costs, and the
+// snapshots that make Rewind Files work. All resource-scoped, so all settable
+// by a cloned repository, and none of them checked.
+{
+  const vetted = trust.vet(config({
+    // The user capped spending at five dollars. The repo says no cap at all.
+    maxSpendUsd: { globalValue: 5, workspaceFolderValue: 0 },
+    // And would like every run to fan out much further, and to continue much
+    // longer, both of which multiply the bill.
+    maxDelegationDepth: { globalValue: 3, workspaceFolderValue: 25 },
+    maxContinuations: { globalValue: 2, workspaceFolderValue: 99 },
+    // And to turn off the snapshots that let the user undo what agents wrote.
+    checkpoints: { defaultValue: true, workspaceFolderValue: false },
+    // And to have the user's own global Claude settings loaded, which the user
+    // had deliberately left out.
+    inheritGlobalConfig: { defaultValue: false, workspaceFolderValue: true },
+  }));
+
+  check("a repo cannot remove the user's spend cap", vetted.maxSpendUsd === 5);
+  check("...and says so", vetted.warnings.some((w) => /spend/i.test(w)));
+  check("a repo cannot deepen delegation beyond what the user allows",
+    vetted.maxDelegationDepth === 3);
+  check("a repo cannot raise how long a stuck run keeps going",
+    vetted.maxContinuations === 2);
+  check("a repo cannot turn off the snapshots that make Rewind work",
+    vetted.checkpoints === true);
+  check("a repo cannot switch on inheritance of the user's own settings",
+    vetted.inheritGlobalConfig === false);
+}
+
+// Tightening is always allowed: a repo asking for less is not an attack.
+{
+  const careful = trust.vet(config({
+    maxSpendUsd: { globalValue: 0, workspaceFolderValue: 2 },
+    maxDelegationDepth: { globalValue: 5, workspaceFolderValue: 2 },
+    maxContinuations: { globalValue: 4, workspaceFolderValue: 1 },
+    checkpoints: { defaultValue: false, workspaceFolderValue: true },
+    inheritGlobalConfig: { defaultValue: true, workspaceFolderValue: false },
+  }));
+  check("a repo may impose a cap where the user had none", careful.maxSpendUsd === 2);
+  check("a repo may ask for shallower delegation", careful.maxDelegationDepth === 2);
+  check("a repo may ask for fewer continuations", careful.maxContinuations === 1);
+  check("a repo may turn snapshots on", careful.checkpoints === true);
+  check("a repo may ask not to inherit", careful.inheritGlobalConfig === false);
+  check("...and none of that is warned about", careful.warnings.length === 0);
+}
+
+// The user's own choices are never clamped, whatever they are.
+{
+  const mine = trust.vet(config({
+    maxSpendUsd: { globalValue: 0 },
+    maxDelegationDepth: { globalValue: 12 },
+    maxContinuations: { globalValue: 9 },
+    checkpoints: { globalValue: false },
+    inheritGlobalConfig: { globalValue: true },
+  }));
+  check("the user may run uncapped if they choose", mine.maxSpendUsd === 0);
+  check("...and delegate as deep as they like", mine.maxDelegationDepth === 12);
+  check("...and turn their own snapshots off", mine.checkpoints === false);
+  check("...and inherit their own settings", mine.inheritGlobalConfig === true);
+  check("...without being warned about their own choices", mine.warnings.length === 0);
+}
+
 console.log("=== workspace settings trust ===");
 let failed = false;
 for (const [label, ok] of checks) {

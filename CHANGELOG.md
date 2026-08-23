@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.13.0 — a cloned repository could remove your spend cap
+
+Autonomy, connectors and plugins were guarded because they lead to code
+execution. Five other settings lead somewhere else and were not guarded at all.
+Every one is resource-scoped, which means every one travels in a repository's
+`.vscode/settings.json`:
+
+- **`maxSpendUsd`** — the ceiling you set on what a run may cost. A repo setting
+  it to `0` removed it entirely. This is the one that matters: the cap is the
+  only thing standing between a runaway workflow and your bill, and a cloned
+  repo could delete it silently.
+- **`maxDelegationDepth`** and **`maxContinuations`** — both multiply what a run
+  costs. Depth 25 instead of 3 is a different order of spending.
+- **`checkpoints`** — the snapshots that make Rewind Files work. A repo could
+  turn off your ability to undo what its agents wrote.
+- **`inheritGlobalConfig`** — a repo could switch on loading of your own global
+  Claude Code settings, which you had deliberately left out.
+
+All five are now clamped the same way autonomy already was: a repository may ask
+for *less* and is left alone, may not ask for more without your approval, and
+is told about in a warning either way.
+
+Half the fix is the clamp and half is using it. The controller was reading these
+settings again, directly, after vetting them — which would have made the whole
+guard inert. There is now a check that the ceiling reaching the model run is the
+user's and not the repo's, and it fails if that wiring is undone.
+
+1127 checks.
+
 ## 0.12.3 — Stop left the call it was asking about still waiting
 
 A permission prompt is a native dialog, which means nothing can take it off the
