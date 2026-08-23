@@ -603,6 +603,53 @@ check("html in a message is escaped, not executed",
 check("emphasis does not reach inside a code span",
   /<code>a\*\*b\*\*c<\/code>/.test(danger.innerHTML));
 
+// A link's href and title are built as attributes out of agent text, and a URL
+// containing a quote is one the link pattern happily matches. Unescaped, the
+// quote closes the attribute and the rest of the URL becomes markup — an
+// on-handler, an autofocus, a style covering the panel. The content security
+// policy refuses to run an inline handler, so this is not a live script
+// injection; it is one CSP change away from being one, and it is malformed
+// markup either way. The assertion is about the markup, not about what the
+// browser chose to execute.
+const injections = [
+  ["a link", '[click](https://x.com/"onmouseover="alert(1))', 'https://x.com/"onmouseover="alert(1'],
+  ["a pasted URL", 'see https://x.com/"onfocus="alert(1)"autofocus="x', 'https://x.com/"onfocus="alert'],
+  ["a table cell", '| a |\n|---|\n| [x](https://a/"onclick="1) |', 'https://a/"onclick="1'],
+  ["a single-quoted break", "[a](https://x.com/'onmouseover='alert(1))", "https://x.com/'onmouseover='alert(1"],
+];
+for (const [label, payload, expectedHref] of injections) {
+  send({ kind: "clear" });
+  send({ kind: "say", who: "one", turn: "inj", delta: payload });
+  send({ kind: "sayEnd", who: "one", turn: "inj" });
+  const body = document.querySelector(".body");
+  const anchors = [...body.querySelectorAll("a")];
+  const attrs = anchors.flatMap((a) => [...a.attributes].map((at) => at.name.toLowerCase()));
+
+  check(label + " cannot smuggle an attribute past the href",
+    anchors.length > 0 && attrs.every((n) => n === "href" || n === "title" || n === "class"));
+  check("...and " + label + " leaves no event handler anywhere in the lane",
+    !/\son[a-z]+\s*=/i.test(body.innerHTML));
+  // The quote must end up *inside* the href rather than terminating it, which
+  // is the difference between an escaped URL and a broken tag.
+  check("...and " + label + " keeps the quote inside the href",
+    anchors.some((a) => a.getAttribute("href") === expectedHref));
+}
+
+// The escaping must not have broken ordinary punctuation, which is far more
+// common than an attack.
+send({ kind: "clear" });
+send({ kind: "say", who: "one", turn: "q",
+  delta: 'He said "hello" and it\'s the agent\'s job. See [docs](https://example.com/a?b=1&c=2)' });
+send({ kind: "sayEnd", who: "one", turn: "q" });
+{
+  const body = document.querySelector(".body");
+  check("straight quotes still render as quotes", body.textContent.includes('"hello"'));
+  check("an apostrophe still renders as one", body.textContent.includes("it's the agent's job"));
+  const link = body.querySelector("a");
+  check("a query string with an ampersand survives escaping",
+    link !== null && link.getAttribute("href") === "https://example.com/a?b=1&c=2");
+}
+
 document.title = "done";
 window.__results = results;
 `;

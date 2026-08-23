@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.10.3 — a link in agent output could smuggle attributes into the lane
+
+Messages are rendered as markdown, and a link's `href` and `title` are built as
+HTML attributes out of that text. The escaper handled `&`, `<` and `>` but not
+quotes — and the link pattern happily matches a URL containing one. So this:
+
+    [click](https://x.com/"onmouseover="alert(1))
+
+closed the attribute and turned the rest of the URL into markup on the anchor:
+an event handler, an `autofocus`, a `style` covering the panel. Bare pasted URLs
+and table cells took the same route.
+
+Not a live script injection: the webview's content security policy allows
+scripts only by nonce, which refuses an inline handler, and that held. It is
+still malformed markup, and it is one CSP change away from being the other
+thing. Quotes are escaped now.
+
+The renderer had no tests at all before this — it is the code that renders
+untrusted output, so it now has fifteen, driven through the real page in
+headless Chrome rather than against an extracted copy. Removing the escape turns
+nine of them red. Ordinary punctuation is covered too: quotes, apostrophes and
+a query string's ampersand all still render as themselves.
+
+865 checks.
+
 ## 0.10.2 — a crash could take the workflow with it
 
 Both of the files Cadre owns were written with `writeFileSync`, which truncates

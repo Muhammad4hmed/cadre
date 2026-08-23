@@ -262,8 +262,21 @@
     return out + blocks(tail);
   }
 
+  /**
+   * Quotes are escaped as well as angle brackets, because a link's href and
+   * title are built as attributes out of this text. Without it a URL
+   * containing a double quote — which the link pattern happily matches —
+   * closes the attribute and everything after it becomes markup:
+   *
+   *   [x](https://a/"onmouseover="…)  ->  <a href="https://a/" onmouseover="…">
+   *
+   * The content security policy refuses to run an inline handler, so that is
+   * not a live script injection today. It is one CSP change away from being
+   * one, and it is malformed markup either way.
+   */
   const escapeHtml = (s) =>
-    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
 
   /**
    * Block structure: headings, lists, quotes, rules and tables.
