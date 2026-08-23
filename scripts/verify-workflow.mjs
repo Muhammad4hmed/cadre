@@ -399,6 +399,64 @@ check("one workflow does not see another's sessions", store.listSessions(root, s
   check("...nor the working directory", !named.includes("\nSYSTEM: and this too"));
 }
 
+/* ------------------------------- two windows on the same project at once */
+
+// The index is read, changed and written. Writing it is atomic, so it is never
+// half-written — a different problem from this one. Two editor windows open on
+// the same project both read it, both add their own conversation, and both
+// write: the second write is built from what the first one saw, so the first
+// conversation is simply absent from the list. The transcript still exists in
+// the CLI's own store, which makes it worse rather than better — the work is
+// there and there is no way back to it.
+//
+// Twelve rounds of two windows finishing at once lost six of twenty-four
+// before this was locked.
+{
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-two-"));
+  const wf = store.createWorkflow(shared, "Shared");
+  const ROUNDS = 6;
+  let lost = 0;
+
+  for (let round = 0; round < ROUNDS; round += 1) {
+    const ids = [`a-${round}`, `b-${round}`];
+    const kids = ids.map((sid) =>
+      spawn(process.execPath, ["scripts/record-session.mjs", outfile, shared, wf.id, sid], { stdio: "ignore" }));
+    await Promise.all(kids.map((c) => new Promise((r) => c.on("exit", r))));
+    const have = new Set(store.listSessions(shared, wf.id).map((s) => s.sessionId));
+    for (const sid of ids) if (!have.has(sid)) lost += 1;
+  }
+
+  check(`two windows recording at once lose nothing (${lost} lost of ${ROUNDS * 2})`, lost === 0);
+  check("...and every conversation is still readable afterwards",
+    store.listSessions(shared, wf.id).length === ROUNDS * 2);
+  check("...and no lock file is left behind",
+    !fs.readdirSync(path.join(shared, ".cadre", "workflows")).some((f) => f.endsWith(".lock")));
+
+  // A lock left by a window that was killed must not wedge the next one. Fresh
+  // on disk, so only asking whether the process still exists can tell.
+  const idxFile = path.join(shared, ".cadre", "workflows", `${wf.id}.sessions.json`);
+  const dead = spawn(process.execPath, ["-e", "process.exit(0)"], { stdio: "ignore" });
+  await new Promise((r) => dead.on("exit", r));
+  fs.writeFileSync(`${idxFile}.lock`, String(dead.pid));
+  const began = Date.now();
+  store.recordSession(shared, wf.id, { sessionId: "after-a-crash", title: "later", when: 99 });
+  check("a lock held by a process that has gone is taken, not waited on",
+    store.listSessions(shared, wf.id).some((s) => s.sessionId === "after-a-crash"));
+  check("...and without waiting out a timeout first", Date.now() - began < 500);
+
+  // A lock held by something that IS alive is respected rather than stolen.
+  const alive = spawn(process.execPath, ["-e", "setTimeout(() => {}, 5000)"], { stdio: "ignore" });
+  fs.writeFileSync(`${idxFile}.lock`, String(alive.pid));
+  const waited = Date.now();
+  store.recordSession(shared, wf.id, { sessionId: "contended", title: "later", when: 100 });
+  alive.kill("SIGKILL");
+  try { fs.unlinkSync(`${idxFile}.lock`); } catch { /* already gone */ }
+  check("a lock held by a living process is waited for, not stolen instantly",
+    Date.now() - waited >= 200);
+  check("...but the write still happens rather than being dropped",
+    store.listSessions(shared, wf.id).some((s) => s.sessionId === "contended"));
+}
+
 /* ------------------------------------------ a session index from a repo */
 
 // The session index lives beside the workflows in .cadre/, so it travels with

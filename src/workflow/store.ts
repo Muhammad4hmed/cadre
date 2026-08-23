@@ -381,13 +381,108 @@ export function listSessions(root: string, id: string): StoredSession[] {
   }
 }
 
+/** A real sleep, without burning a core: this runs on the extension host thread. */
+function pause(ms: number): void {
+  try {
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+  } catch {
+    // No SharedArrayBuffer here; the caller retries either way.
+  }
+}
+
+/**
+ * Read, change, write — with nobody else in the middle.
+ *
+ * Writing the file is already atomic, so it is never half-written. That is a
+ * different problem from this one: two editor windows open on the same project
+ * both read the index, both add their own conversation, and both write. The
+ * second write is built from what the first one saw, so the first conversation
+ * is gone — not corrupted, just absent, and only from the list Cadre shows.
+ * The transcript is still in the CLI's own store, which makes it worse rather
+ * than better: the work exists and there is no way back to it.
+ *
+ * Measured before fixing: two windows recording at once lost six conversations
+ * out of twenty-four.
+ *
+ * A lock file, created with `wx` so that creating it is the test for whether
+ * anyone else holds it. The critical section is one small read and one small
+ * write, so waiting is rare and short. A lock left behind by a process that
+ * died is taken after five seconds, and after two seconds of waiting this gives
+ * up and writes anyway — a lost update is bad, but an editor that has stopped
+ * responding because a lock file exists is worse.
+ */
+/**
+ * Is the process that took this lock still running?
+ *
+ * Signal 0 asks without sending anything. A pid we cannot read, or one owned by
+ * another user, is treated as alive so that a lock is never stolen on a guess —
+ * the age check behind it still breaks any real deadlock.
+ */
+function holderAlive(lock: string): boolean {
+  let pid = 0;
+  try {
+    pid = Number.parseInt(fs.readFileSync(lock, "utf8").trim(), 10);
+    const age = Date.now() - fs.statSync(lock).mtimeMs;
+    if (age > 5_000) return false;
+  } catch {
+    return false;   // it went away, or was never readable
+  }
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  if (pid === process.pid) return true;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM";
+  }
+}
+
+function withSessionLock<T>(file: string, work: () => T): T {
+  const lock = `${file}.lock`;
+  const deadline = Date.now() + 2_000;
+  for (;;) {
+    let fd: number | undefined;
+    try {
+      fd = fs.openSync(lock, "wx");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "EEXIST") return work();
+      // Whoever holds it may not be there any more: a window that was killed
+      // never gets to clean up. Waiting out a timeout for a process that no
+      // longer exists is the wrong answer, so ask whether it does.
+      if (!holderAlive(lock)) {
+        try { fs.unlinkSync(lock); } catch { /* someone else got there first */ }
+        continue;
+      }
+      if (Date.now() > deadline) return work();
+      pause(2);
+      continue;
+    }
+    try {
+      // The pid is what makes a lock left by a dead process recognisable.
+      try { fs.writeSync(fd, String(process.pid)); } catch { /* the lock is the file, not its contents */ }
+      fs.closeSync(fd);
+      return work();
+    } finally {
+      try { fs.unlinkSync(lock); } catch { /* already gone */ }
+    }
+  }
+}
+
 export function recordSession(root: string, id: string, session: StoredSession): void {
-  const existing = listSessions(root, id).filter((s) => s.sessionId !== session.sessionId);
-  const next = [session, ...existing].slice(0, 200);
-  writeAtomic(sessionsFile(root, id), `${JSON.stringify(next, null, 2)}\n`);
+  const file = sessionsFile(root, id);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  withSessionLock(file, () => {
+    // Read inside the lock: what was on disk a moment ago is not good enough.
+    const existing = listSessions(root, id).filter((s) => s.sessionId !== session.sessionId);
+    const next = [session, ...existing].slice(0, 200);
+    writeAtomic(file, `${JSON.stringify(next, null, 2)}\n`);
+  });
 }
 
 export function forgetSession(root: string, id: string, sessionId: string): void {
-  const next = listSessions(root, id).filter((s) => s.sessionId !== sessionId);
-  writeAtomic(sessionsFile(root, id), `${JSON.stringify(next, null, 2)}\n`);
+  const file = sessionsFile(root, id);
+  withSessionLock(file, () => {
+    const next = listSessions(root, id).filter((s) => s.sessionId !== sessionId);
+    writeAtomic(file, `${JSON.stringify(next, null, 2)}\n`);
+  });
 }

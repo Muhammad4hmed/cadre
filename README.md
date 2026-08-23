@@ -129,6 +129,10 @@ the same id, so a project can pin its own version of something shared.
 Your workflow and its history are written by rename rather than in place, so a
 window closed at the wrong moment cannot leave either one half-written.
 
+Two windows open on one project can both record conversations without losing
+each other's — the list is locked for the moment it takes to update, and a lock
+left behind by a window that was killed is recognised and taken.
+
 Conversations always stay with the project, even for a global workflow — the same workflow
 used in three repositories has three separate histories, and one merged list would be
 misleading. Each is named by Claude's own summary of it, and resumes with the transcript

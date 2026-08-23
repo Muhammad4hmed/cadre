@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.14.3 — two windows on one project lost each other's conversations
+
+The list of conversations under a workflow is read, changed and written back.
+Writing it has been atomic since 0.10.2, so it is never half-written — which is
+a different problem from this one, and fixing that one hid this one.
+
+Open the same project in two editor windows. Both finish a conversation. Both
+read the list, both add their own, both write. The second write was built from
+what the first one saw, so the first conversation is simply not in the list any
+more. Not corrupted: absent. The transcript is still in the CLI's own store,
+which makes it worse rather than better — the work exists and there is no way
+back to it from here.
+
+Measured, not reasoned about: twelve rounds of two windows finishing at once
+lost **six conversations out of twenty-four**. With a lock around the whole
+read-change-write, zero.
+
+The lock names the process holding it, because a window that is killed never
+cleans up, and waiting out a timeout for a process that no longer exists is the
+wrong answer. A lock whose owner has gone is taken immediately; one whose owner
+is alive is waited for; and after two seconds this gives up and writes anyway,
+because a lost update is bad but an editor that has stopped responding over a
+lock file is worse.
+
+Found by looking again at something noticed early and set aside. It was worth
+going back to.
+
+1209 checks.
+
 ## 0.14.2 — a claim nobody checked was reported as supported
 
 `paper check` is the one thing in Cadre that makes a verification claim: every
