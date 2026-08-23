@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.7 — every download included a manual for a different product
+
+`docs/operating-model.md` is 563 lines describing the original three-agent
+product: a fixed Lead who is the only teammate you talk to, a Researcher, an
+Engineer. It opens with "A request lands with the Lead" and cites
+`src/session.ts`, which has not existed for a while.
+
+Nothing reads it. Nothing links to it. It was in the package anyway, because
+`.vscodeignore` is an allowlist by omission — so every user downloaded 59 KB of
+detailed documentation for a product they do not have, contradicting the README
+they were reading a moment earlier.
+
+It stays in the repository, with a note at the top saying what it is. The
+reasoning in it is still the reasoning: what a brief has to contain, why a
+coordinator with a shell stops coordinating, why a report is an index into work
+rather than a copy of it. Those survived the generalisation and are injected
+from the graph now instead of written into three fixed prompts. It is the
+argument, not the manual.
+
+978 checks, and the packaging suite now refuses it by name.
+
 ## 0.11.6 — the builder's own model runs could not be stopped
 
 Refining a prompt and designing a workflow are model runs. Both accepted a

@@ -1,3 +1,14 @@
+> **This describes the original three-agent product: a fixed Lead, Researcher and
+> Engineer.** Cadre is general now — a workflow is however many agents you draw and
+> the arrows between them, and no template has an agent called "Lead". The file
+> paths it cites have moved too (`src/session.ts` became `src/workflow/runner.ts`).
+>
+> It is kept because the reasoning is still the reasoning: what a brief has to
+> contain, why a coordinator with a shell stops coordinating, why a report is an
+> index into work rather than a copy of it. Those survived the generalisation and
+> are now injected from the graph instead of written into three fixed prompts. Read
+> it as the argument, not as the manual. The manual is the README.
+
 ## Operating model
 
 A request lands with the Lead, who is the only teammate the user talks to by default. The Lead orients — at most ten read-only calls with Read, Grep, Glob — and either answers from what it now knows or puts three lines on the record: the goal in one sentence, one thing explicitly out of scope, and the riskiest assumption it is carrying. It then delegates in the same turn; it does not stop to ask permission to start, because the user is watching each teammate work in its own lane and holds a stop button. Take a realistic task in this repo: *"the subagent lanes are empty — make the team's work actually show up, and let me pick which teammate I'm talking to."* The Lead greps `parent_tool_use_id`, reads `src/session.ts:230–260` and `src/team/events.ts`, and now knows the shape of it: `session.ts:240` and `:244` drop every message carrying a non-null `parent_tool_use_id`, and the UI vocabulary for lanes already exists. That is three calls and no research question — nothing here lives outside the repository — so it sends one Engineer brief, `AUTHORITY: PATCH` over `src/session.ts` and `src/team/events.ts`, `DONE WHEN: a Task-spawned subagent's tool calls appear under its own teammate id in the webview, shown by a run you paste`, `DECIDE YOURSELF: the event names, whether to key lanes off subagent_type or a local map, where the id-to-teammate resolution lives`. No Charter document, no spec file, no ticket ceremony: one delegation, one artifact.

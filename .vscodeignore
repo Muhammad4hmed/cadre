@@ -37,3 +37,9 @@ media/LAUNCH.md
 # into the working tree was packaged into the extension users download.
 .cadre/**
 .github/**
+
+# The operating model is a design document for the original three-agent product,
+# kept in the repository for its reasoning. Nothing reads it and nothing links to
+# it, so shipping it only gives the reader a detailed account of a product they
+# do not have.
+docs/**

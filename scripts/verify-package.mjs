@@ -25,7 +25,6 @@ const ALLOWED = [
   /^dist\/extension\.js$/,
   /^media\/(team\.js|team\.css|icon\.svg|icon\.png)$/,
   /^media\/screenshots\/[\w.-]+\.(png|jpg|gif)$/,
-  /^docs\/[\w./-]+\.md$/,
 ];
 
 /** Things that must never ship, named so the failure says why. */
@@ -42,6 +41,7 @@ const FORBIDDEN = [
   [/^media\/LAUNCH\.md$/, "the launch notes"],
   [/^media\/nano banana\//, "unused launch art"],
   [/^node_modules\//, "dependencies that are bundled instead"],
+  [/^docs\//, "the design document for the product this used to be"],
   [/\.vsix$/, "a package inside a package"],
 ];
 
