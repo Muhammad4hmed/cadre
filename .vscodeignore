@@ -23,3 +23,7 @@ LICENSE.md
 # override. The bundled build therefore uses .vscodeignore.bundled and drops
 # --no-dependencies. See `npm run package:bundled`.
 node_modules/**
+
+# The demo film is for the repo and the listing page, not the package.
+media/demo.mp4
+.shots/**
