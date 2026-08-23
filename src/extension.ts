@@ -329,9 +329,25 @@ async function onboard(controller: TeamController): Promise<void> {
     void vscode.window.showWarningMessage("Open a folder first.");
     return;
   }
+  // Onboarding is a message to a team, so there has to be one. Someone running
+  // this for the first time has most likely just installed the extension and
+  // opened a folder, which is exactly the state where no workflow is open —
+  // and without this the modal promises a survey, and then the prompt lands in
+  // the composer unsent with nothing to explain why.
+  const openOn = controller.openWorkflowName();
+  if (!openOn) {
+    const choice = await vscode.window.showWarningMessage(
+      "Onboarding is a job for a team, and none is open yet.",
+      { modal: true, detail: `Open a workflow in ${folder.name} first — or start one from a template — and run this again.` },
+      "Open a workflow",
+    );
+    if (choice === "Open a workflow") await vscode.commands.executeCommand("cadre.goHome");
+    return;
+  }
+
   const docs = vscode.workspace.getConfiguration("cadre", folder.uri).get<string>("docsPath") || "docs";
   const confirmed = await vscode.window.showInformationMessage(
-    `Onboard ${folder.name}?`,
+    `Onboard ${folder.name} with ${openOn}?`,
     {
       modal: true,
       detail:

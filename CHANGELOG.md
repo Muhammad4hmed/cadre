@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.14.4 — "Onboard this project" promised a survey and delivered a wall of text
+
+Onboarding surveys the repository and writes `PROJECT.md`. It does that by
+sending a message to the team — so there has to be a team.
+
+It only checked for an open folder. Someone running this for the first time has
+most likely just installed the extension and opened a folder, which is exactly
+the state where no workflow is open yet. So the modal said "the team will survey
+this project", they clicked Onboard, and the prompt landed in the composer,
+unsent, with nothing to explain why. Nothing was lost — the composer is where an
+unsendable message goes rather than being swallowed — but the promise was made
+and not kept, on what is for many people the first thing they try.
+
+It now says a team is what is missing and offers to take them to the workflow
+list, and the confirmation names the team it will use.
+
+Found by working through the commands nothing had ever exercised. Twenty-four of
+the twenty-seven were in that state a few releases ago.
+
+1223 checks.
+
 ## 0.14.3 — two windows on one project lost each other's conversations
 
 The list of conversations under a workflow is read, changed and written back.

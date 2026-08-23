@@ -1013,6 +1013,11 @@ export class TeamController implements vscode.Disposable {
     this.provisionalTitle = "";
   }
 
+  /** The workflow a conversation is open on, if any. */
+  openWorkflowName(): string | undefined {
+    return this.running?.name;
+  }
+
   /** Sends a message on the user's behalf, e.g. from the Onboard command. */
   submit(text: string): void {
     this.send(text);

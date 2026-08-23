@@ -1171,6 +1171,50 @@ if (serializer) {
     ignored.length === 0);
 }
 
+// ---- onboarding with nothing to onboard with -------------------------------
+// "Onboard this project" surveys the repo and writes PROJECT.md, which is a
+// message to a team. Someone running it for the first time has most likely just
+// installed the extension and opened a folder — the exact state where no
+// workflow is open. The modal promised a survey and the prompt then landed in
+// the composer, unsent, with nothing to say why.
+{
+  // The state a new install is in: a folder open, no workflow yet. Disposing a
+  // session does not produce it — the controller still remembers which workflow
+  // is open — so the open one is deleted, which does.
+  const open = fs.readdirSync(wfDir).filter((f) => f.endsWith(".json") && !f.endsWith(".sessions.json"));
+  vscodeStub.__warn = "Delete";
+  for (const f of open) {
+    receive({ kind: "deleteWorkflow", id: f.replace(/\.json$/, "") });
+    await settle();
+  }
+  check("no workflow is open, which is where a new install starts",
+    fs.readdirSync(wfDir).filter((f) => f.endsWith(".json") && !f.endsWith(".sessions.json")).length === 0);
+  vscodeStub.__warn = undefined;
+  const asked = [];
+  const realWarn = vscodeStub.window.showWarningMessage;
+  vscodeStub.window.showWarningMessage = async (msg, opts, ...choices) => {
+    asked.push({ msg, modal: Boolean(opts && opts.modal), choices });
+    return undefined;
+  };
+  const realInfo = vscodeStub.window.showInformationMessage;
+  let promised = false;
+  vscodeStub.window.showInformationMessage = async (msg) => { promised = true; return undefined; };
+
+  posted.length = 0;
+  await vscodeStub.__commands["cadre.onboard"]();
+
+  check("onboarding with no workflow open does not promise a survey", promised === false);
+  check("...it says a team is what is missing",
+    asked.some((a) => /team/i.test(a.msg) && a.modal));
+  check("...and offers a way to get one",
+    asked.some((a) => a.choices.some((c) => /workflow/i.test(String(c)))));
+  check("...and nothing is dumped into the composer",
+    !posted.some((m) => m.kind === "restoreInput"));
+
+  vscodeStub.window.showWarningMessage = realWarn;
+  vscodeStub.window.showInformationMessage = realInfo;
+}
+
 console.log("=== ui ===");
 let failed = false;
 for (const [label, ok] of checks) {
