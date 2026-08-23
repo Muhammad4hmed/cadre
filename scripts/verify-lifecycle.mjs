@@ -21,6 +21,12 @@ const vscodeStub = {
   window: {
     showWarningMessage: async (_msg, _opts, ...choices) => {
       answers.offered = choices;
+      // A native modal cannot be dismissed by the extension, so it can still be
+      // on screen after Stop. `answers.hold` leaves it open the way a real one
+      // stays open, and resolving the returned deferred is the user clicking.
+      if (answers.hold) {
+        return new Promise((resolve) => { answers.click = (choice) => resolve(choice); });
+      }
       return answers.pick(choices);
     },
     showQuickPick: async (items) => answers.pick(await items),
@@ -1197,6 +1203,85 @@ fake.__instances.length = 0;
   const abandoned = await third;
   check("T8 an interrupt settles an open question instead of hanging",
     abandoned.behavior === "deny");
+  session.dispose();
+}
+
+// ---- V. a lane must not go back to "working" after the run was stopped ----
+// A permission prompt is a native modal, so it stays on screen after Stop —
+// nothing can dismiss it. Answering it then ran the tidy-up that puts the agent
+// back to "working", after the interrupt had already set every lane idle. The
+// run was over, and the lane sat there with a pulsing light claiming otherwise.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  answers.hold = true;             // the modal stays on screen, as a real one does
+  const pending = gate("Bash", { command: "pytest -q" }, ctx);
+  await tick();
+  check("V0 the lane shows it is waiting on the user",
+    of("status").at(-1)?.status === "waiting");
+
+  await session.interrupt();
+  check("V1 stopping sets every lane idle",
+    of("status").at(-1)?.status === "idle");
+
+  // The modal is still on screen — nothing can take it away — but the tool call
+  // it was gating must not go on waiting for a click that can no longer matter.
+  const settledEarly = await Promise.race([
+    pending.then((r) => r.behavior),
+    new Promise((r) => setTimeout(() => r("STILL WAITING"), 200)),
+  ]);
+  check("V1b stopping resolves the call the modal was gating",
+    settledEarly === "deny");
+
+  // And the click, when it finally comes, changes nothing.
+  answers.click("Allow once");
+  answers.hold = false;
+  await pending.catch(() => {});
+  await tick();
+  const last = of("status").filter((e) => e.who === "lead").at(-1);
+  check("V2 answering a modal after Stop does not restart the lane",
+    last?.status !== "working");
+  session.dispose();
+}
+
+// ---- V2. switching teammate with a modal still on screen ------------------
+// The same tidy-up, on the path that does not set the lanes idle afterwards.
+// Switching who you are talking to drops the running query, but the native
+// modal it was waiting on is still on the screen — nothing can take it away.
+// The tidy-up then put the agent you just left back to "working", and nothing
+// came along after to correct it.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const gate = fake.__instances[0].options.canUseTool;
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+  answers.hold = true;
+  const pending = gate("Bash", { command: "pytest -q" }, ctx);
+  await tick();
+
+  session.setChannel("engineer");
+  await tick();
+  await tick();
+  answers.hold = false;
+  await pending.catch(() => {});
+  await tick();
+
+  const leadStatus = of("status").filter((e) => e.who === "lead").at(-1)?.status;
+  // This one self-corrects: dropping the query ends the stream, and that sets
+  // every lane idle. The check is here because nothing else pins that, and
+  // without it the correction could be removed without a test noticing.
+  check("V3 the agent you left ends up idle, not still working",
+    leadStatus === "idle");
   session.dispose();
 }
 

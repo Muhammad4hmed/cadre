@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.12.3 — Stop left the call it was asking about still waiting
+
+A permission prompt is a native dialog, which means nothing can take it off the
+screen — not even Stop. Closing the session, switching teammate and a stream
+that fails all settle the call the dialog was gating. Stop did not.
+
+So after Stop the tool call went on waiting, and when the click finally came it
+ran the tidy-up that puts the lane back to "working" — after Stop had set every
+lane idle. A pulsing light on a run that was already over.
+
+Stop now settles it like the other three, denying the call with a reason.
+
+1078 checks.
+
+**One thing I looked for and did not find.** Switching teammate with a dialog
+open leaves the same stale "working" briefly, and I went after it as a second
+bug. It corrects itself: dropping the query ends the stream, and that sets every
+lane idle. There is a check for that now, because nothing else pinned it.
+
+**And one guard removed rather than shipped.** I also added a condition to skip
+the tidy-up while stopping. With the fix above in place I could not write a test
+that fails without it — the two overlap completely — so it is gone. A guard no
+test can justify is a guess about the future, and this file has enough real
+constraints in it already.
+
 ## 0.12.2 — a question left open when the CLI died stayed open
 
 An agent can stop and ask you something, and the question waits in the lane

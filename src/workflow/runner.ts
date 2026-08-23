@@ -237,6 +237,9 @@ export class WorkflowSession implements vscode.Disposable {
     // Teammates first: the Lead is blocked on their tool call, so leaving them
     // running would keep editing files under a UI that says idle.
     this.settleAsks();
+    // The modal stays on screen either way, but the tool call it was gating
+    // should not go on waiting for a click that can no longer matter.
+    this.settlePermissions("The run was stopped before this was approved.");
     await this.stopNested();
     try {
       await this.stream?.interrupt();
