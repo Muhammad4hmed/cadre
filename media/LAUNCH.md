@@ -49,68 +49,82 @@ narration is there for anyone who unmutes.
 
 ### The launch post
 
-Your structure, four blocks in order. No markdown: LinkedIn has no bold or
-italics and renders asterisks literally, so the shape comes from line breaks
-alone. No dashes. Paste it as is.
+No markdown: LinkedIn renders asterisks literally, so the shape comes from line
+breaks alone. No dashes. Paste as is.
 
 > Today I'm making one of my weekend projects, Cadre, open source.
 >
-> Most people use AI like a single assistant. You ask, it answers. One brain, one
-> chat window.
+> Right now one AI agent does everything for you. Frontend, backend, database,
+> deployment, research, writing. One agent, every stack, one long conversation.
 >
-> Cadre gives you a team instead.
+> It works until it doesn't. The context fills up. It forgets a decision it made
+> twenty minutes ago. It is a specialist at nothing. And when the output is wrong
+> you have no idea which part of it to fix.
 >
-> You open VS Code, drop a few boxes on a canvas, and draw arrows between them.
-> Each box is an AI agent with a job. The arrows decide who hands work to whom.
-> Then you hit launch and watch all of them work at once, side by side.
+> Real work is not done by one person who knows everything. It is done by a team.
 >
-> Here is one that ships with it. A hiring team, six agents:
+> That is Cadre. You open VS Code, drop a few boxes on a canvas, and draw arrows
+> between them. Each box is an AI agent with a job. The arrows decide who hands
+> work to whom. Hit launch and watch all of them work at once, side by side.
+>
+> Don't want to draw it yourself? Click "Build with Claude", describe the team you
+> need in a sentence, and it builds the whole thing for you. Then you change
+> anything you like before it runs.
+>
+> Here is one. A hiring team:
 >
 > One decides whether the role should exist at all.
-> One goes and finds candidates.
+> One goes and finds the candidates.
 > One screens them against a written bar.
 > One designs an interview that tests the actual job.
+> One talks to the candidates, answers their questions and books the interviews in
+> your calendar.
 > One verifies what can be verified.
 > One plans the first ninety days.
+>
+> Look at the fifth one. Connect your email and your calendar to that agent and it
+> goes and does it. This does not stop at the edge of your editor.
 >
 > You describe the role once. They do the rest, and they push back on each other
 > while they do it.
 >
-> There is a marketing team too. An outreach team where one agent's only job is to
-> say no to anything that would embarrass you. Fourteen ready made teams in total,
-> or you build your own in about two minutes.
+> Then build whatever team you want. One that watches your competitors and writes
+> you a brief every Monday. One that reads every support ticket, works out which
+> are real bugs, reproduces them and drafts the reply. One that turns a research
+> paper into a blog post, a thread and a deck. If you can describe who does what,
+> you can build it.
 >
 > So how is this different from n8n or Zapier?
 >
 > Those automate steps. You draw the flow, you decide every branch, and it does
 > exactly what you drew. Perfect for "when a row is added, send a Slack message".
 >
-> But every one of those steps is a decision you had to make in advance. The moment
-> reality does something you did not predict, the flow either breaks or does
-> something stupid, confidently.
+> But every step is a decision you had to make in advance, and the moment reality
+> does something you did not predict, the flow breaks or does something stupid,
+> confidently. And you spend half your time on plumbing. Which node, which
+> credential, which field maps to which.
 >
-> Cadre is not a flowchart. You are not writing steps. You are describing people.
+> In Cadre every box is a Claude agent. It already knows the tools and it works out
+> the integration itself. You do not wire anything up. You describe the flow and
+> who does what, and they handle the rest.
 >
-> You say what each agent is for and what it is allowed to touch. Then they work it
-> out between themselves. They question the brief. They hand work over. They
-> disagree with each other, which is the part I did not expect to matter so much.
+> And what about Claude's own agents?
 >
-> And here is the bit no automation tool does. Every agent only gets the access you
-> give it. If you say an agent can read but not write, it cannot write. Not "please
-> don't". It genuinely cannot. Because the second one agent can do everything, it
-> stops asking anyone else, and your team turns into decoration.
+> Claude can already spin up helpers for a task. What it does not give you is a
+> team with a shape: who reports to whom, who hands work to whom, who is allowed to
+> touch what, and all of them running in front of you at the same time. In Cadre
+> that structure is the thing you design. You save it, you tune it, you run it
+> again next month.
 >
-> There are no API keys anywhere in this.
+> There are no API keys anywhere in this. It runs on Claude Code, Anthropic's own
+> CLI. If you already pay for Claude, you are done. Log in once inside VS Code,
+> either through Cadre or through the Claude CLI, and start.
 >
-> It runs on Claude Code, Anthropic's own CLI. If you already pay for Claude, you
-> are done. Log in once inside VS Code, either through Cadre or through the Claude
-> CLI, and start. Nothing to paste, nothing to configure, nothing to leak.
+> One more thing worth knowing: each agent only gets the access you give it, and
+> that is enforced rather than requested.
 >
-> And it is open source, MIT, completely free.
->
-> Install it from the Extensions tab in VS Code and you are running in under a
-> minute. If you want to add something, the repo is open and I will read every pull
-> request.
+> Open source, MIT, completely free. Install it from the Extensions tab in VS Code
+> and you are running in under a minute.
 >
 > Tell me one thing: what team would you hire?
 >
