@@ -265,6 +265,29 @@ check("leaving the builder flushes an autosave first",
 check("...before it navigates away",
   sent.findIndex((m) => m.kind === "saveWorkflow") < sent.findIndex((m) => m.kind === "goHome"));
 
+// A name typed and not yet left is still the name you meant.
+//
+// The field commits on a change event, which fires on blur. Every explicit save reads
+// the box directly, so Save and Launch were fine — but the autosave that runs
+// when the window is hidden or the builder is left refused to write anything
+// while the draft looked clean. Type a name, switch to another tab without
+// leaving the field, and the rename was read and then thrown away.
+send(editing());
+{
+  const nameBox = document.getElementById("builder-name");
+  const original = nameBox.value;
+  sent.length = 0;
+  nameBox.value = "Renamed but not blurred";
+  // Deliberately no change event: this is what mid-typing looks like.
+  document.dispatchEvent(new Event("visibilitychange"));
+  const saved = sent.find((m) => m.kind === "saveWorkflow");
+  check("a name typed but not committed is still saved", Boolean(saved));
+  check("...under the name that was typed",
+    saved && saved.workflow.name === "Renamed but not blurred");
+  check("...and it was not the old name that got written",
+    !saved || saved.workflow.name !== original);
+}
+
 // ---- the model picker follows what the CLI reported --------------------------
 // Model ids are the CLI's, not the API's, and not every model takes an effort
 // level — a hardcoded list gets both wrong.
@@ -1062,7 +1085,20 @@ fs.writeFileSync(file, page);
 
 const dom = execFileSync(
   CHROME,
-  ["--headless=new", "--disable-gpu", "--no-sandbox", "--virtual-time-budget=4000", "--dump-dom", `file://${file}`],
+  [
+    "--headless=new", "--disable-gpu", "--no-sandbox",
+    // Virtual time is only spent while something is pending, so headroom is
+    // nearly free — and the asynchronous checks (reading and re-encoding an
+    // image) need it. At 4000 they finished on an idle machine and were cut
+    // off on a loaded one, which is a suite that fails for the wrong reason
+    // and then gets ignored.
+    //
+    // Deliberately below the 45s autosave idle timer: raising it past that
+    // would start firing autosaves in the middle of tests that never expected
+    // one.
+    "--virtual-time-budget=20000",
+    "--dump-dom", `file://${file}`,
+  ],
   { encoding: "utf8", maxBuffer: 64_000_000 },
 );
 

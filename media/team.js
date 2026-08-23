@@ -1737,8 +1737,18 @@
    */
   function autosave() {
     cancelAutosave();
-    if (!state.draft || !state.dirty) return;
-    state.draft.name = el.builderName.value.trim() || state.draft.name;
+    if (!state.draft) return;
+    // The name field commits on blur, so a name being typed right now is not in
+    // the draft yet and the draft can look clean while the box says otherwise.
+    // Reading it here and then refusing to write, which is what happened, threw
+    // the rename away at exactly the moment it needed keeping: the window being
+    // hidden, or the builder being left.
+    const typed = el.builderName.value.trim();
+    if (typed && typed !== state.draft.name) {
+      state.draft.name = typed;
+      state.dirty = true;
+    }
+    if (!state.dirty) return;
     vscode.postMessage({ kind: "saveWorkflow", workflow: state.draft, auto: true });
   }
 

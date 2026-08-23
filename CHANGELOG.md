@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.11.13 — renaming a workflow and not clicking away lost the rename
+
+The name field commits on blur. Every explicit save reads the box directly, so
+Save and Launch were always fine. The autosave was not: it read the box, and
+then refused to write anything because the draft still looked clean.
+
+So a name typed and not yet left was thrown away at exactly the moment it needed
+keeping — the window being hidden, or the builder being left. The autosave now
+treats a name in the box that differs from the draft as the edit it plainly is.
+
+Also: the webview suite was flaky, and that is worth its own line. The
+asynchronous checks added last release finished on an idle machine and were cut
+off on a loaded one — one failure in eight runs with a build running alongside.
+A suite that fails for the wrong reason gets ignored, which is worse than not
+having it. Virtual time is only spent while something is pending, so the budget
+now has real headroom, and it is deliberately kept below the 45 second autosave
+timer so raising it cannot start firing autosaves inside tests that never
+expected one. Eight runs under load, no failures, and a stable check count.
+
+1008 checks.
+
 ## 0.11.12 — an image the API cannot read was sent labelled as one it can
 
 Attachments are passed straight through when they are small enough, and
