@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.3
+
+**Finding the `claude` binary no longer spawns a process every time.** Resolution falls
+back to `execFileSync("which")` — a synchronous subprocess on the extension host thread —
+and it ran on every readiness check, so every settings change, folder change and screen
+publish blocked the UI on it. Twelve unrelated setting changes spawned twelve processes;
+they now spawn one. Cached, keyed on the configured path, invalidated when that setting
+changes, and the cached path is re-checked with a stat rather than a spawn so a binary
+uninstalled underneath you is noticed.
+
 ## 0.9.2
 
 **The arrow carrying work is actually visible now.** At the width the live map is usually

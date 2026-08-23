@@ -234,7 +234,7 @@ changing.
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 722 checks, no API calls
+npm run verify:fast    # 725 checks, no API calls
 npm run verify:team    # a live run; costs tokens
 ```
 

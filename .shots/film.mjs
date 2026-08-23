@@ -120,7 +120,11 @@ card(opener.team(2), "a team — lit");
 card(opener.describe("Read incoming support tickets, work out which are real bugs,"), "describe (typing)");
 card(opener.describe("Read incoming support tickets, work out which are real bugs, reproduce them against our repo, and draft a reply for each one."), "describe (full)");
 card(opener.shape(), "shape an agent");
-card(opener.coordinate(), "they coordinate");
+card(opener.crew(0), "crew: brief in");
+card(opener.crew(1), "crew: two at once");
+card(opener.crew(2), "crew: asking each other");
+card(opener.crew(3), "crew: the deliverable");
+card(opener.uses(), "what you can build");
 card(opener.end(), "end card");
 
 // 1. The home screen: what you come back to.

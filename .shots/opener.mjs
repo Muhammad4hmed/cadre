@@ -209,37 +209,79 @@ export const shape = () => shell(`
 `);
 
 /**
- * They are a team, not a queue — the part people miss.
+ * A real team working one job, walked through four beats.
  *
- * Shown as several exchanges happening at once rather than one pair swapping
- * messages: two agents passing a note looks like a pipeline, which is exactly
- * the wrong impression.
+ * `beat` lights different agents and different arrows: the lead takes the
+ * brief, two agents work at the same time, one asks the other a question, and
+ * the deliverable comes out the far end. One picture animated through a job
+ * says "team" far better than a caption claiming it — and two boxes passing a
+ * note looks like a pipeline, which is exactly the wrong impression.
  */
-export const coordinate = () => shell(`
-  <div class="headline" style="top:56px">They work as a team.</div>
-  <svg>${DEFS}
-    <path class="wire live" marker-end="url(#a)" d="M 292 236 C 372 236, 404 178, 484 178"/>
-    <path class="wire live" marker-end="url(#a)" d="M 292 256 C 372 256, 404 330, 484 330"/>
-    <path class="wire dash" marker-end="url(#g)" d="M 692 178 C 772 178, 804 236, 884 236"/>
-    <path class="wire solid" marker-end="url(#b)" d="M 692 350 C 772 350, 804 420, 884 420"/>
-    <path class="wire solid" marker-end="url(#b)" d="M 484 400 C 424 400, 404 300, 484 300"/>
-    <path class="wire dash" marker-end="url(#g)" d="M 884 460 C 804 460, 772 396, 692 396"/>
-  </svg>
-  ${box(84, 204, "Lead", "", VIOLET, "lit")}
-  ${box(484, 136, "Architect", "", BLUE, "lit")}
-  ${box(484, 288, "Research", "", CYAN, "lit")}
-  ${box(484, 400, "Implementer", "", AMBER, "lit")}
-  ${box(884, 194, "Reviewer", "", PINK)}
-  ${box(884, 378, "Tests", "", GREEN)}
-  <div class="mono" style="position:absolute;left:300px;top:120px;font-size:14px;color:${AMBER}">
-    hands work over</div>
-  <div class="mono" style="position:absolute;left:706px;top:126px;font-size:14px;color:${GREEN}">
-    reports back</div>
-  <div class="mono" style="position:absolute;left:330px;top:492px;font-size:14px;color:${BLUE}">
-    asks a question, mid-task</div>
-  <div class="sub" style="top:600px">
-    Delegating, handing off, and pushing back — several at once, not one after another.</div>
-`);
+export const crew = (beat = 0) => {
+  const P = {
+    lead: { x: 60, y: 300 },
+    res: { x: 380, y: 132 },
+    eng: { x: 380, y: 452 },
+    rev: { x: 700, y: 300 },
+    doc: { x: 1010, y: 300 },
+  };
+  const on = [["lead"], ["lead", "res", "eng"], ["res", "eng"], ["rev", "doc"]][beat] ?? [];
+  const hot = [[], [["lead", "res"], ["lead", "eng"]], [["eng", "res"]], [["eng", "rev"], ["rev", "doc"]]][beat] ?? [];
+
+  const live = (a, b) => hot.some(([x, y]) => x === a && y === b);
+  const cls = (a, b, kind) => (live(a, b) ? "live" : `${kind} faint`);
+  const head = (a, b, kind) => (live(a, b) ? "a" : kind === "solid" ? "b" : "g");
+  const right = (k) => ({ x: P[k].x + 208, y: P[k].y + 42 });
+  const left = (k) => ({ x: P[k].x, y: P[k].y + 42 });
+  const state = (k) => (on.includes(k) ? "lit" : "");
+
+  return shell(`
+    <div class="headline" style="top:58px">A team, not a queue.</div>
+    <svg>${DEFS}
+      ${curve(right("lead"), left("res"), cls("lead", "res", "solid"), head("lead", "res", "solid"))}
+      ${curve(right("lead"), left("eng"), cls("lead", "eng", "solid"), head("lead", "eng", "solid"))}
+      ${curve(right("eng"), left("rev"), cls("eng", "rev", "solid"), head("eng", "rev", "solid"))}
+      ${curve(right("rev"), left("doc"), cls("rev", "doc", "dash"), head("rev", "doc", "dash"))}
+      <path class="wire ${live("eng", "res") ? "live" : "solid faint"}"
+        marker-end="url(#${live("eng", "res") ? "a" : "b"})"
+        d="M ${P.eng.x + 70} ${P.eng.y} C ${P.eng.x + 10} ${P.eng.y - 100}, ${P.res.x + 10} ${P.res.y + 190}, ${P.res.x + 70} ${P.res.y + 84}"/>
+    </svg>
+    ${box(P.lead.x, P.lead.y, "Lead", "Talks to you, assigns the work", VIOLET, state("lead"))}
+    ${box(P.res.x, P.res.y, "Researcher", "Reads the literature", CYAN, state("res"))}
+    ${box(P.eng.x, P.eng.y, "Engineer", "Runs the experiments", AMBER, state("eng"))}
+    ${box(P.rev.x, P.rev.y, "Reviewer", "Checks the numbers", PINK, state("rev"))}
+    ${box(P.doc.x, P.doc.y, "Writer", "Writes it up", GREEN, state("doc"))}
+    <div class="sub" style="top:606px">${[
+      "You brief the lead. It decides who does what.",
+      "Two of them work at the same time.",
+      "And they ask each other questions along the way.",
+      "Out the far end: a working model, and the report that explains it.",
+    ][beat]}</div>
+  `);
+};
+
+/** What people actually build with it. The point is that it is not only code. */
+export const uses = () => {
+  const card = (title, roles, accent) => `
+    <div style="flex:1;border:1px solid ${EDGE};border-radius:14px;background:${PANEL};
+                padding:20px 22px;box-shadow:0 12px 30px rgba(0,0,0,.4)">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="width:4px;height:22px;border-radius:3px;background:${accent};display:inline-block"></span>
+        <b style="font-size:19px">${title}</b>
+      </div>
+      ${roles.map((r) => `<div style="font-size:14.5px;color:${DIM};line-height:1.95">${r}</div>`).join("")}
+    </div>`;
+  return shell(`
+    <div class="headline" style="top:60px">Build any team you need.</div>
+    <div style="position:absolute;left:76px;right:76px;top:176px;display:flex;gap:20px">
+      ${card("A development team", ["Product · Architect", "Engineer · Reviewer", "Test engineer · Docs"], AMBER)}
+      ${card("A research lab", ["Lead · Researcher", "Experimenter", "Statistician · Writer"], CYAN)}
+      ${card("An HR department", ["Recruiter · Screener", "Interview designer", "Policy · Onboarding"], PINK)}
+    </div>
+    <div class="sub" style="top:556px">
+      Anything you would hand to a team of people, you can draw here.</div>
+  `);
+};
 
 /** The close. */
 export const end = () => shell(`
