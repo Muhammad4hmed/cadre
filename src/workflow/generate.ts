@@ -126,6 +126,8 @@ No emoji. No cheerleading. Write like documentation you would want to read.
 If the description is too vague to design from, still return a workflow — the user is looking at a builder, not a chat — but make the agents general and say so in the description field. Do not invent domain specifics you were not given.`;
 
 export interface GenerateRequest {
+  /** Overridable so a test does not have to wait three minutes. */
+  timeoutMs?: number;
   description: string;
   cwd: string;
   executablePath: string;
@@ -159,11 +161,25 @@ export interface RawWorkflow {
   edges?: { from?: string; to?: string; kind?: string; label?: string }[];
 }
 
+/**
+ * Designing a workflow is one call with no tools; three minutes is generous.
+ * Without a ceiling a wedged subprocess leaves "Designing…" on the button
+ * forever, with no way back except reloading the window.
+ */
+const GENERATE_TIMEOUT_MS = 180_000;
+
 export async function generateWorkflow(request: GenerateRequest): Promise<GenerateResult> {
   const description = request.description.trim();
   if (description.length < 12) {
     return { ok: false, note: "Describe the pipeline in a sentence or two first." };
   }
+
+  const abort = controllerFor(request.signal);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, request.timeoutMs ?? GENERATE_TIMEOUT_MS);
 
   let raw: RawWorkflow | undefined;
   try {
@@ -190,7 +206,7 @@ export async function generateWorkflow(request: GenerateRequest): Promise<Genera
         settingSources: [],
         persistSession: false,
         env: request.env,
-        ...(request.signal ? { abortController: controllerFor(request.signal) } : {}),
+        abortController: abort,
       },
     });
 
@@ -202,7 +218,19 @@ export async function generateWorkflow(request: GenerateRequest): Promise<Genera
       }
     }
   } catch (err) {
+    if (timedOut) {
+      return { ok: false, note: "Gave up waiting for Claude Code. Nothing was built — try again, or start from a template." };
+    }
+    if (request.signal?.aborted) {
+      return { ok: false, note: "Cancelled. Nothing was built." };
+    }
     return { ok: false, note: `Could not build it: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (timedOut) {
+    return { ok: false, note: "Gave up waiting for Claude Code. Nothing was built — try again, or start from a template." };
   }
 
   if (!raw?.agents?.length) {
@@ -333,8 +361,9 @@ function parse(text: string): RawWorkflow | undefined {
   }
 }
 
-function controllerFor(signal: AbortSignal): AbortController {
+function controllerFor(signal?: AbortSignal): AbortController {
   const controller = new AbortController();
+  if (!signal) return controller;
   if (signal.aborted) controller.abort();
   else signal.addEventListener("abort", () => controller.abort(), { once: true });
   return controller;

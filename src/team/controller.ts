@@ -470,6 +470,7 @@ export class TeamController implements vscode.Disposable {
         void this.publishScreen();
         return;
       case "goHome":
+        this.stopBuilderWork();
         this.screen = "home";
         void this.publishScreen();
         return;
@@ -824,6 +825,7 @@ export class TeamController implements vscode.Disposable {
       return;
     }
 
+    const signal = this.startBuilderWork();
     this.broadcastTo({ kind: "building", busy: true, note: "Designing the workflow…" });
     try {
       const cfg = vscode.workspace.getConfiguration("cadre", this.activeFolder()?.uri);
@@ -834,6 +836,7 @@ export class TeamController implements vscode.Disposable {
         model: cfg.get<string>("model") || "default",
         env: await this.billing.environment(),
         taken: workflows.listWorkflows(root).map((w) => w.id),
+        signal,
       });
 
       if (!result.ok || !result.workflow) {
@@ -860,6 +863,30 @@ export class TeamController implements vscode.Disposable {
    * Rewrites one agent's prompt into something a practitioner would recognise.
    * Runs as its own tool-less query, so it cannot touch the project.
    */
+  /**
+   * Refining a prompt and designing a workflow are model runs started from the
+   * builder, and both used to run unsupervised: no signal was passed, so
+   * nothing could stop one. A wedged CLI left the button saying "Refining…"
+   * until the window was reloaded, and leaving the builder abandoned the run
+   * rather than ending it — still spending, with nowhere to deliver.
+   *
+   * One at a time, and the newest wins: asking again supersedes the request you
+   * have already given up on.
+   */
+  private builderWork: AbortController | undefined;
+
+  private startBuilderWork(): AbortSignal {
+    this.builderWork?.abort();
+    this.builderWork = new AbortController();
+    return this.builderWork.signal;
+  }
+
+  /** Ends anything the builder started — leaving it, or shutting down. */
+  stopBuilderWork(): void {
+    this.builderWork?.abort();
+    this.builderWork = undefined;
+  }
+
   private async refine(workflow: Workflow, agent: Parameters<typeof refinePrompt>[0]["agent"]): Promise<void> {
     const root = this.root();
     const executablePath = resolveClaudeExecutable(this.log);
@@ -868,6 +895,7 @@ export class TeamController implements vscode.Disposable {
       return;
     }
 
+    const signal = this.startBuilderWork();
     this.broadcastTo({ kind: "refining", agent: agent.id, busy: true });
     try {
       const cfg = vscode.workspace.getConfiguration("cadre", this.activeFolder()?.uri);
@@ -878,6 +906,7 @@ export class TeamController implements vscode.Disposable {
         executablePath,
         model: agent.model || cfg.get<string>("model") || "opus",
         env: await this.billing.environment(),
+        signal,
       });
       this.broadcastTo({ kind: "refined", agent: agent.id, prompt: result.prompt, note: result.note });
     } catch (err) {
@@ -1161,6 +1190,10 @@ export class TeamController implements vscode.Disposable {
   dispose(): void {
     this.stopWatching?.();
     this.stopWatching = undefined;
+    // A refine or a design started from the builder outlives the session it
+    // was started from, so it has to be ended here too or it keeps running
+    // with nowhere to deliver.
+    this.stopBuilderWork();
     this.session?.dispose();
     this.session = undefined;
   }

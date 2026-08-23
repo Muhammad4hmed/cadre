@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.11.6 — the builder's own model runs could not be stopped
+
+Refining a prompt and designing a workflow are model runs. Both accepted a
+cancellation signal and neither was ever given one, so nothing could stop
+either. A wedged CLI never returned, the promise never settled, and the button
+went on saying "Refining…" or "Designing…" until the window was reloaded.
+Leaving the builder abandoned the run rather than ending it — still spending,
+with nowhere to deliver.
+
+Both now carry a signal and a ceiling: two minutes for a refine, three for a
+design, each with a message saying what happened rather than a raw error.
+Leaving the builder stops the run, asking again supersedes the request you had
+given up on, and shutting down ends both.
+
+Neither path had a single test before this.
+
+975 checks.
+
 ## 0.11.5 — the packaging check failed CI for a reason that was not a bug
 
 `verify-package` asks vsce what would ship. vsce reports what is on disk and

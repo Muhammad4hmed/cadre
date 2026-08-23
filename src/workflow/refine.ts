@@ -41,6 +41,8 @@ Hard rules:
 - No emoji. No cheerleading. Write like the best documentation you have ever read: direct, specific, and assuming an intelligent reader.`;
 
 export interface RefineRequest {
+  /** Overridable so a test does not have to wait two minutes. */
+  timeoutMs?: number;
   workflow: Workflow;
   agent: AgentSpec;
   cwd: string;
@@ -91,6 +93,15 @@ function situate(workflow: Workflow, agent: AgentSpec): string {
   return lines.join("\n");
 }
 
+/**
+ * How long to wait before giving up on the CLI.
+ *
+ * One model call with no tools should take seconds. Without a ceiling a wedged
+ * subprocess never returns, the promise never settles, and the button that said
+ * "Refining…" says it until the window is reloaded.
+ */
+const REFINE_TIMEOUT_MS = 120_000;
+
 export async function refinePrompt(request: RefineRequest): Promise<RefineResult> {
   const draft = (request.agent.rawPrompt || request.agent.prompt || "").trim();
   if (!draft) {
@@ -110,6 +121,13 @@ export async function refinePrompt(request: RefineRequest): Promise<RefineResult
     "Return the system prompt for this agent, and nothing else.",
   ].join("\n");
 
+  const abort = controllerFor(request.signal);
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    abort.abort();
+  }, request.timeoutMs ?? REFINE_TIMEOUT_MS);
+
   let text = "";
   try {
     const run = query({
@@ -128,7 +146,7 @@ export async function refinePrompt(request: RefineRequest): Promise<RefineResult
         settingSources: [],
         persistSession: false,
         env: request.env,
-        ...(request.signal ? { abortController: controllerFor(request.signal) } : {}),
+        abortController: abort,
       },
     });
 
@@ -136,10 +154,30 @@ export async function refinePrompt(request: RefineRequest): Promise<RefineResult
       if (message.type === "result" && message.subtype === "success") text = message.result ?? "";
     }
   } catch (err) {
+    if (timedOut) {
+      return {
+        ok: false,
+        prompt: "",
+        note: "Gave up waiting for Claude Code. Your prompt is unchanged — try again, or write it yourself.",
+      };
+    }
+    if (request.signal?.aborted) {
+      return { ok: false, prompt: "", note: "Refinement cancelled. Your prompt is unchanged." };
+    }
     return {
       ok: false,
       prompt: "",
       note: `Could not refine: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (timedOut) {
+    return {
+      ok: false,
+      prompt: "",
+      note: "Gave up waiting for Claude Code. Your prompt is unchanged — try again, or write it yourself.",
     };
   }
 
@@ -163,8 +201,9 @@ function strip(text: string): string {
   return out.trim();
 }
 
-function controllerFor(signal: AbortSignal): AbortController {
+function controllerFor(signal?: AbortSignal): AbortController {
   const controller = new AbortController();
+  if (!signal) return controller;
   if (signal.aborted) controller.abort();
   else signal.addEventListener("abort", () => controller.abort(), { once: true });
   return controller;

@@ -930,6 +930,63 @@ if (serializer) {
   vscodeStub.__pick = undefined;
 }
 
+// ---- the builder's own model runs can be stopped ---------------------------
+// Refining a prompt and designing a workflow are model runs, and neither was
+// given a signal — nothing could stop one. A wedged CLI left the button saying
+// "Refining…" until the window was reloaded, and walking away from the builder
+// abandoned the run rather than ending it: still spending, with nowhere to
+// deliver. Neither path had any test at all.
+{
+  const workflow = {
+    id: "software_team", name: "Software team", entry: "lead",
+    agents: [
+      { id: "lead", name: "Lead", role: "decides", prompt: "You decide and delegate.", preset: "readonly" },
+      { id: "engineer", name: "Engineer", role: "builds", prompt: "You build.", preset: "build" },
+    ],
+    edges: [{ from: "lead", to: "engineer", kind: "delegate" }],
+  };
+  const agent = { ...workflow.agents[0], rawPrompt: "you decide what matters and hand the rest on" };
+
+  fake.__instances.length = 0;
+  posted.length = 0;
+  receive({ kind: "refinePrompt", workflow, agent });
+  await settle();
+
+  const run = fake.__instances[0];
+  check("refining actually starts a model run", run !== undefined);
+  check("...told to use no tools, so it cannot wander off reading the repo",
+    (run?.options.tools ?? ["x"]).length === 0);
+  check("...and bounded to a single turn", run?.options.maxTurns === 1);
+  check("...with something that can stop it", run?.options.abortController !== undefined);
+  check("...and the button says it is working",
+    posted.some((m) => m.kind === "refining" && m.busy === true));
+
+  // Walking away has to end it, not orphan it.
+  posted.length = 0;
+  receive({ kind: "goHome" });
+  await settle();
+  check("leaving the builder stops the run rather than abandoning it",
+    run?.options.abortController?.signal.aborted === true);
+
+  // And asking again supersedes a request you have already given up on.
+  fake.__instances.length = 0;
+  receive({ kind: "refinePrompt", workflow, agent });
+  await settle();
+  const first = fake.__instances[0];
+  receive({ kind: "refinePrompt", workflow, agent });
+  await settle();
+  const second = fake.__instances[1];
+  check("asking again stops the request already in flight",
+    first?.options.abortController?.signal.aborted === true);
+  check("...and the new one is left running",
+    second !== undefined && second.options.abortController?.signal.aborted === false);
+
+  // Shutdown must not leave one running either.
+  controller.dispose();
+  check("shutting down stops the builder's work too",
+    second?.options.abortController?.signal.aborted === true);
+}
+
 console.log("=== ui ===");
 let failed = false;
 for (const [label, ok] of checks) {
