@@ -87,6 +87,64 @@ const canvas = document.getElementById("canvas");
 const nodes = () => [...canvas.querySelectorAll(".agent-node")];
 check("the builder draws a node per agent", nodes().length === 2);
 
+// ---- dragging a node, and letting go somewhere it cannot see --------------
+// The drag listens on window for pointermove and pointerup and removes both on
+// release. But pointerup only arrives if the pointer is released over the
+// webview. Let go outside the panel, over the editor or off the window, and the
+// release is never seen: the node goes on following the cursor with no button
+// held, and the only way out is to click again. Every click and no drag was
+// tested before this.
+{
+  const nodeAt = () => {
+    const n = nodes()[0];
+    return { x: Math.round(n.getBoundingClientRect().left), y: Math.round(n.getBoundingClientRect().top) };
+  };
+  const before = nodeAt();
+
+  nodes()[0].dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 60, clientY: 60, buttons: 1 }));
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 160, clientY: 130, buttons: 1 }));
+  const dragged = nodeAt();
+  check("a node follows the pointer while the button is held",
+    dragged.x !== before.x || dragged.y !== before.y);
+
+  // The release happened somewhere this document never hears about. The next
+  // movement carries no buttons, which is the only evidence there is.
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, clientY: 200, buttons: 0 }));
+  const settled = nodeAt();
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 400, clientY: 380, buttons: 0 }));
+  const after = nodeAt();
+  check("letting go outside the panel ends the drag rather than sticking the node to the cursor",
+    after.x === settled.x && after.y === settled.y);
+
+  // A cancelled pointer, which is what a touch drag interrupted by the system
+  // sends instead of a pointerup, has to end it too.
+  nodes()[0].dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 60, clientY: 60, buttons: 1 }));
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 120, clientY: 120, buttons: 1 }));
+  window.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
+  const cancelled = nodeAt();
+  window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 500, clientY: 460, buttons: 1 }));
+  check("a cancelled pointer ends the drag too",
+    nodeAt().x === cancelled.x && nodeAt().y === cancelled.y);
+
+  window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 60, clientY: 60 }));
+
+  // Dragging an arrow out of a port has exactly the same problem: a ghost wire
+  // trailing the cursor with nothing holding it.
+  // The real port, not a fallback: a fallback to .agent-node starts a node drag
+  // and creates no ghost, so the check would pass without testing anything.
+  const port = canvas.querySelector(".port.out");
+  const ghosts = () => document.getElementById("wires").querySelectorAll(".wire.ghost").length;
+  check("the canvas has an arrow port to drag from", port !== null);
+  if (port) {
+    port.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 70, clientY: 70, buttons: 1 }));
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 200, clientY: 150, buttons: 1 }));
+    check("dragging from a port draws an arrow that follows the pointer", ghosts() === 1);
+    window.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: 260, clientY: 190, buttons: 0 }));
+    check("an arrow let go outside the panel does not trail the cursor", ghosts() === 0);
+    window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 260, clientY: 190 }));
+  }
+}
+
 // ---- selecting an agent, then opening Advanced ----------------------------
 nodes()[0].dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 50, clientY: 50 }));
 window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 50, clientY: 50 }));

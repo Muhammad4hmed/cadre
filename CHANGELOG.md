@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.11.10 — a node you let go of outside the panel kept following the cursor
+
+Dragging an agent, or pulling an arrow out of a port, listens on the window for
+`pointermove` and `pointerup` and tidies up on release. But `pointerup` only
+arrives if the pointer is let go over the webview. Let go over the editor, or
+off the window entirely, and the release is never seen: the node goes on
+following the cursor with no button held, or a ghost arrow trails it, and the
+only way out is to click again somewhere harmless.
+
+A move carrying no buttons is the evidence that the release already happened, so
+both drags end there. Both also listen for `pointercancel`, which is what a
+touch drag sends when the system takes the pointer away; an arrow cancelled that
+way is dropped rather than guessing where it was aimed.
+
+The canvas had been clicked in tests many times and never actually dragged, so
+nothing here was covered.
+
+994 checks.
+
 ## 0.11.9 — the one blocking call left, and it had no ceiling
 
 Finding the `claude` binary can fall through to `execFileSync("which")`. That is

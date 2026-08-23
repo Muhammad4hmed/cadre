@@ -1906,7 +1906,23 @@
     const origin = { x: agent.x, y: agent.y };
     let moved = false;
 
+    /**
+     * A drag has to end even when the release is invisible to us.
+     *
+     * pointerup only arrives if the pointer is let go over this webview. Let go
+     * over the editor, or off the window entirely, and we never hear it: the
+     * node goes on following the cursor with no button held, and the only way
+     * out is to click again. A move carrying no buttons is the evidence that
+     * the release already happened, and pointercancel is what a touch drag
+     * sends when the system takes the pointer away.
+     */
+    const done = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
+    };
     const move = (m) => {
+      if (!m.buttons) { up(); return; }
       const at = canvasPoint(m);
       agent.x = Math.max(0, origin.x + (at.x - start.x));
       agent.y = Math.max(0, origin.y + (at.y - start.y));
@@ -1914,13 +1930,13 @@
       drawGraph();
     };
     const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+      done();
       if (moved) touch(true);
       else { drawGraph(); renderInspector(); }
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   }
 
   function startWire(ev, fromId, kind) {
@@ -1935,12 +1951,26 @@
     const a = { x: from.x + NODE_W, y: from.y + NODE_H / 2 };
 
     const move = (m) => {
+      // Same as dragging a node: a move with no button held means the release
+      // already happened somewhere we could not see it. Drop the wire rather
+      // than leave it trailing the cursor.
+      if (!m.buttons) { abandon(); return; }
       const at = canvasPoint(m);
       ghost.setAttribute("d", `M ${a.x} ${a.y} C ${a.x + 60} ${a.y}, ${at.x - 60} ${at.y}, ${at.x} ${at.y}`);
     };
-    const up = (m) => {
+    const done = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", abandon);
+    };
+    /** The pointer was taken away: drop the wire rather than guess a target. */
+    const abandon = () => {
+      done();
+      ghost.remove();
+      drawWires();
+    };
+    const up = (m) => {
+      done();
       ghost.remove();
 
       const dropped = document.elementFromPoint(m.clientX, m.clientY);
@@ -1954,6 +1984,7 @@
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", abandon);
   }
 
   function editEdge(edge) {
