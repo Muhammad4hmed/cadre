@@ -130,6 +130,50 @@ breaks alone. No dashes. Paste as is.
 >
 > Repo in the comments.
 
+### The comments
+
+Post the repo link as the first comment. These are the second and third.
+
+#### Comment: what I built with it
+
+> I have three things running on this right now, all of them unattended.
+>
+> streamrank.tv ranks what people in Pakistan are actually watching. It pulls the
+> charts across Netflix, Prime Video, HBO Max, Zee5, MUBI and the rest, plus what
+> is showing in cinemas, and scores every title on chart position, momentum,
+> staying power and rating. That gets rebuilt and republished every day. Nobody
+> touches it.
+>
+> luciastream.com is the same idea pointed at live streaming. It samples
+> concurrent viewers every sixty seconds across Kick, Twitch and YouTube, so at any
+> moment you can see the whole GTA audience in one place. Right now that is about
+> 207,000 people across 2,184 live channels, with the peak so far at 485K. It
+> breaks down into twelve language leaderboards, by country, and by what people are
+> actually doing on stream, roleplay, freeroam, speedruns, mods. It has been
+> collecting since late July, so the creator numbers are real history rather than a
+> snapshot. On 19 November it switches itself over to GTA VI.
+>
+> muhammad-ahmed.com/blog is a daily AI brief. Every night a team goes through what
+> actually shipped in AI that day, the models, the papers, the benchmarks, the
+> tooling, decides what is worth your time, writes it up and publishes it, then
+> emails it to subscribers. I have not written a post since the first one.
+>
+> Three different problems. Same tool. That is the part I want people to try.
+
+#### Comment: the teams that come with it
+
+> Fourteen teams ship with it, ready to run or to take apart.
+>
+> Six are complete: ship a feature, security review, bid response, hiring, marketing
+> and cold outreach.
+>
+> Eight are smaller shapes to build on: software team, research and report, review
+> board, incident review, content pipeline, contract review, data analysis, and a
+> single agent with every tool if you just want one.
+>
+> All of them open in the editor first. Change the agents, rewrite the prompts,
+> redraw the arrows, then launch. None of it is locked.
+
 ### Draft A — short, built around the one surprising fact
 
 > Most AI coding tools are one assistant doing everything.
