@@ -39,7 +39,7 @@ NEXT         the cheapest next action, and who should take it`;
  * recognisable in its own lane. Bounded for the same reason — a five thousand
  * character name is not a name, it is a way to bury the rest of the prompt.
  */
-function plain(text: string | undefined, limit = 80): string {
+export function plain(text: string | undefined, limit = 80): string {
   const flat = String(text ?? "").replace(/[\s\u0000-\u001f\u007f]+/g, " ").trim();
   return flat.length > limit ? `${flat.slice(0, limit - 1)}…` : flat;
 }

@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { plain } from "../workflow/protocol";
 
 export interface ProjectSnapshot {
   root: string;
@@ -45,6 +46,11 @@ const exists = (p: string): boolean => {
  * Cheap, synchronous look at what the project is and what previous sessions
  * left behind. Deliberately marker-based: no file is read, so this costs
  * nothing and cannot leak contents into a prompt.
+ *
+ * File *names* are read, though, and they do reach the prompt — which this
+ * comment said nothing about for a long time, and which is a different question
+ * from contents. A name is chosen by whoever wrote the repository, so anything
+ * from here is flattened before it is written into a line.
  */
 export function surveyProject(root: string, docsPath: string): ProjectSnapshot {
   const rel = (...parts: string[]) => path.join(root, ...parts);
@@ -69,7 +75,11 @@ export function surveyProject(root: string, docsPath: string): ProjectSnapshot {
     if (reports.length) {
       artifacts.push({
         rel: path.join(docsPath, "research"),
-        label: `${reports.length} existing research report${reports.length > 1 ? "s" : ""}: ${reports.slice(0, 6).join(", ")}`,
+        // A file name is chosen by whoever wrote the repository, and a newline
+        // is legal in one. This label goes into every agent's prompt, which is
+        // structured text: an unflattened name is a forged line of it.
+        label: `${reports.length} existing research report${reports.length > 1 ? "s" : ""}: ${
+          reports.slice(0, 6).map((f) => plain(f, 60)).join(", ")}`,
       });
     }
   } catch {
@@ -93,9 +103,10 @@ export function surveyProject(root: string, docsPath: string): ProjectSnapshot {
  * so the teammate decides what is worth reading.
  */
 export function contextPreamble(snapshot: ProjectSnapshot): string {
-  const lines: string[] = ["", "---", "", `## This project: ${snapshot.name}`, ""];
+  // The project's name is a directory name, and a clone chooses that too.
+  const lines: string[] = ["", "---", "", `## This project: ${plain(snapshot.name)}`, ""];
 
-  lines.push(`Working directory: \`${snapshot.root}\``);
+  lines.push(`Working directory: \`${plain(snapshot.root, 200)}\``);
   if (snapshot.stack.length) lines.push(`Markers present: ${snapshot.stack.join(", ")}.`);
   if (snapshot.hasClaudeMd) {
     lines.push("`CLAUDE.md` is loaded into your context already — its conventions are binding.");
