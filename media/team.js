@@ -2653,6 +2653,12 @@
     const node = el[id] ?? document.getElementById(id);
     if (node && (node.textContent || "").trim() === "—") node.hidden = true;
   }
+  // Decide the layout before the first paint rather than waiting for the
+  // observer's first callback. It arrives quickly in a real webview, so this
+  // only ever showed as a flicker — but it meant the board was built once in
+  // the wrong shape and immediately rebuilt, and it left the per-agent lanes
+  // unreachable to anything that reads the page synchronously.
+  applyLayout();
   el.body.dataset.layout = state.layout;
   showScreen("loading");
   buildFloor();

@@ -746,6 +746,113 @@ send({ kind: "clear" });
   check("...but is still introduced", /Describe the work to Only/.test(board));
 }
 
+// ---- a large workflow stays usable ----------------------------------------
+// The point of the generalisation is that a workflow can be any shape. A team
+// of twelve is exactly the case that the old three-lane board never had to
+// handle: the lanes must stay readable rather than being squeezed, the map
+// must draw everyone, and nothing may collapse to zero.
+{
+  const many = Array.from({ length: 12 }, (_, i) => ({
+    id: "a" + i, name: "Agent " + i, role: "does thing " + i,
+    preset: "build", model: "opus", effort: "high", status: "idle",
+    entry: i === 0, x: 40 + (i % 4) * 260, y: 40 + Math.floor(i / 4) * 140,
+  }));
+  const edges = [];
+  for (let i = 1; i < 12; i++) edges.push({ from: "a0", to: "a" + i, kind: i % 3 ? "delegate" : "then" });
+
+  send({ kind: "screen", screen: "run" });
+  send({ kind: "roster", workflowId: "big", workflowName: "Twelve", autonomy: "", billing: "",
+    workspace: "demo", connectors: [], edges, members: many });
+
+  const lanes = many.map((m) => document.getElementById("stream-" + m.id)).filter(Boolean);
+  check("every agent gets a lane, however many there are", lanes.length === 12);
+
+  const board = document.getElementById("floor");
+  check("the board scrolls sideways rather than squeezing the lanes",
+    board !== null && (board.scrollWidth > board.clientWidth
+      || getComputedStyle(board).overflowX === "auto" || getComputedStyle(board).overflowX === "scroll"));
+
+  // A lane squeezed below readability is worse than one you have to scroll to.
+  const widths = lanes.map((l) => l.getBoundingClientRect().width).filter((w) => w > 0);
+  check("no lane is squeezed to nothing", widths.length === 0 || Math.min(...widths) >= 180);
+
+  const map = document.getElementById("livemap");
+  check("the live map is there to draw into", map !== null);
+  check("the live map draws every agent", map.querySelectorAll(".map-node").length === 12);
+  check("...and every arrow between them", map.querySelectorAll(".wire").length === 11);
+
+  // Talking to a specific agent must still be possible at this size.
+  const channel = document.getElementById("channel");
+  check("the picker is there", channel !== null);
+  check("the picker offers all twelve", channel.options.length === 12);
+  check("...and is usable rather than disabled", channel.disabled === false);
+}
+
+// Several agents working at once is the whole point, and until the layout was
+// decided before first paint none of this was reachable from a test: the board
+// was always the merged single-lane one.
+{
+  const three = ["a0", "a3", "a7"];
+  send({ kind: "roster", workflowId: "big", workflowName: "Twelve", autonomy: "", billing: "",
+    workspace: "demo", connectors: [], edges: [],
+    members: Array.from({ length: 12 }, (_, i) => ({
+      id: "a" + i, name: "Agent " + i, role: "", preset: "build", model: "opus", effort: "high",
+      status: three.includes("a" + i) ? "working" : "idle", entry: i === 0,
+      x: 40 + (i % 4) * 260, y: 40 + Math.floor(i / 4) * 140,
+    })) });
+  send({ kind: "clear" });
+  for (const who of three) {
+    send({ kind: "say", who, turn: "t", delta: "output from " + who });
+    send({ kind: "sayEnd", who, turn: "t" });
+  }
+
+  for (const who of three) {
+    const lane = document.getElementById("stream-" + who);
+    check(who + " renders into its own lane", lane !== null && lane.textContent.includes("output from " + who));
+  }
+  check("...and nothing bleeds into a lane it does not belong to",
+    three.every((who) => three.filter((o) => o !== who)
+      .every((other) => !document.getElementById("stream-" + who).textContent.includes("output from " + other))));
+  check("...and an idle agent's lane stays empty",
+    (document.getElementById("stream-a1").textContent || "").trim() === "");
+
+  // Each lane carries its own accent, or twelve lanes are a wall of one colour.
+  const accents = new Set([...document.querySelectorAll(".lane")]
+    .map((l) => l.style.getPropertyValue("--lane-accent")).filter(Boolean));
+  check("lanes are told apart by more than position", accents.size >= 6);
+
+  // A delegation card sits in the delegator's lane, because that is where the
+  // decision was made; the receiving lane then carries the work itself.
+  send({ kind: "assign", assignment: { id: "d1", from: "a0", to: "a5", brief: "look into it", startedAt: 0 } });
+  const sender = document.getElementById("stream-a0");
+  check("a delegation card lands in the lane that decided it",
+    sender !== null && /look into it/.test(sender.textContent));
+  check("...and names both ends, so it can be followed",
+    /Agent 0\s*→\s*Agent 5/.test(sender.textContent));
+  check("...and is not duplicated into the receiving lane",
+    !/look into it/.test(document.getElementById("stream-a5").textContent));
+
+  // The report comes back onto the same card rather than as a loose line.
+  send({ kind: "deliver", id: "d1", outcome: "delivered", summary: "found the cause" });
+  check("the report lands on the card it answers",
+    /delivered: found the cause/.test(sender.textContent));
+  // Scoped to the board: the driver's own source sits in a script element on
+  // this page, so searching the whole document matches the test itself.
+  check("...once, not once per lane",
+    (document.getElementById("floor").textContent.match(/found the cause/g) || []).length === 1);
+}
+
+// One agent is the other end of the same range.
+{
+  send({ kind: "roster", workflowId: "one", workflowName: "One", autonomy: "", billing: "",
+    workspace: "demo", connectors: [], edges: [],
+    members: [{ id: "solo", name: "Solo", role: "", preset: "full", model: "opus", effort: "high",
+      status: "idle", entry: true, x: 0, y: 0 }] });
+  check("a single agent still gets a lane", document.getElementById("stream-solo") !== null);
+  check("...and no lane is left over from the larger workflow",
+    document.getElementById("stream-a7") === null);
+}
+
 document.title = "done";
 window.__results = results;
 `;

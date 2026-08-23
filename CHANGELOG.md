@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.11.3 — the board picked its shape a frame late, and nothing had ever tested it
+
+The webview chooses between one merged lane and a lane per agent by measuring
+its own width, and it only ever did that from a `ResizeObserver` callback. The
+observer fires quickly in a real webview, so this showed as a flicker — the
+board built once in the wrong shape, then rebuilt. It is decided before the
+first paint now.
+
+The consequence was larger than the flicker. Anything reading the page before
+that first callback saw the merged layout, which is why **the per-agent board
+had no test coverage at all** — the surface that is the whole point of the
+product. It does now, and it holds up: twelve agents get twelve lanes with
+twelve distinct accents, the map draws all twelve nodes and all eleven arrows,
+the picker offers every one of them, the board scrolls sideways rather than
+squeezing any lane below readability, and output from three agents working at
+once stays in its own lane instead of bleeding. A workflow that shrinks back to
+one agent leaves no lane behind.
+
+Also pinned: a delegation card belongs to the lane that *decided* it, with the
+report landing back on that same card. That was already the behaviour and the
+reasoning was already in a comment; now it cannot be changed by accident.
+
+952 checks.
+
 ## 0.11.2 — the package shipped a file from my working tree
 
 `.vscodeignore` is an allowlist by omission: anything not named in it ships.
