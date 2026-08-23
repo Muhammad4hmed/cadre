@@ -111,6 +111,13 @@ class InputQueue implements AsyncIterable<SDKUserMessage> {
   }
 }
 
+/**
+ * Below this there is no point starting a run: it would spend its first call
+ * and stop, having produced nothing and told the user nothing useful.
+ */
+const MIN_VIABLE_BUDGET = 0.05;
+
+
 export class WorkflowSession implements vscode.Disposable {
   private input = new InputQueue();
   private stream: Query | undefined;
@@ -408,6 +415,23 @@ export class WorkflowSession implements vscode.Disposable {
     const onSessionAbort = () => abort.abort();
     this.abort.signal.addEventListener("abort", onSessionAbort, { once: true });
 
+    // Held for as long as this run is going, so a sibling started in the same
+    // turn cannot be handed the same money.
+    const grant = this.claimBudget();
+    if (grant !== undefined && grant < MIN_VIABLE_BUDGET) {
+      this.releaseBudget(grant);
+      const text =
+        `The spend cap of $${(this.config.maxSpendUsd ?? 0).toFixed(2)} is committed to work already running, `
+        + `so ${this.nameOf(args.who)} was not started. Raise cadre.maxSpendUsd to let the rest of the team run.`;
+      this.emit({ kind: "notice", level: "error", who: args.who, text });
+      if (args.kind === "brief") {
+        this.emit({ kind: "deliver", id: args.id, outcome: "failed", summary: "the spend cap was reached" });
+      }
+      this.setStatus(args.who, "idle");
+      this.abort.signal.removeEventListener("abort", onSessionAbort);
+      return text;
+    }
+
     let handle: { query: Query; abort: AbortController } | undefined;
     try {
       /**
@@ -429,7 +453,7 @@ export class WorkflowSession implements vscode.Disposable {
       const limit = Math.max(0, this.config.maxContinues ?? 2);
 
       for (;;) {
-        const nestedQuery = query({ prompt, options: this.optionsFor(spec, abort, depth) });
+        const nestedQuery = query({ prompt, options: this.optionsFor(spec, abort, depth, grant) });
         handle = { query: nestedQuery, abort };
         this.nested.add(handle);
         outcomeOf = await this.consume(nestedQuery, args.who, false);
@@ -483,6 +507,7 @@ export class WorkflowSession implements vscode.Disposable {
       return `VERDICT: BLOCKED\nThe run failed before producing a report: ${describe(err)}`;
     } finally {
       if (handle) this.nested.delete(handle);
+      this.releaseBudget(grant);
       this.abort.signal.removeEventListener("abort", onSessionAbort);
     }
   }
@@ -745,6 +770,20 @@ export class WorkflowSession implements vscode.Disposable {
           // Spend accrues across every run in the session, main and nested.
           this.spentUsd += message.total_cost_usd ?? 0;
 
+          // Every run, not just the main one. A workflow's cost is mostly its
+          // teammates — a lead that delegates six times spends almost nothing
+          // itself — so reporting only the main run told the user they had
+          // spent a fraction of what they had. `totalUsd` is the session
+          // figure the spend cap is actually measured against.
+          this.emit({
+            kind: "spend",
+            who,
+            usd: message.total_cost_usd ?? 0,
+            totalUsd: this.spentUsd,
+            turns: message.num_turns ?? 0,
+            durationMs: message.duration_ms ?? 0,
+          });
+
           if (!isMain && message.subtype !== "success") {
             this.emit({
               kind: "notice",
@@ -758,12 +797,6 @@ export class WorkflowSession implements vscode.Disposable {
           }
           if (isMain) {
             const resultRun = this.runId;
-            this.emit({
-              kind: "spend",
-              usd: message.total_cost_usd ?? 0,
-              turns: message.num_turns ?? 0,
-              durationMs: message.duration_ms ?? 0,
-            });
             if (message.subtype !== "success") {
               this.emit({ kind: "notice", level: "error", text: `Run ended: ${message.subtype}` });
             }
@@ -896,7 +929,12 @@ export class WorkflowSession implements vscode.Disposable {
    * applied; it is threaded through so a nested delegate call knows how deep it
    * is when it in turn delegates.
    */
-  private optionsFor(spec: ResolvedAgent, abort?: AbortController, depth = 0): Options {
+  private optionsFor(
+    spec: ResolvedAgent,
+    abort?: AbortController,
+    depth = 0,
+    granted?: number,
+  ): Options {
     const policy = policyFor(this.config.autonomy);
     // Each agent gets its own server: the delegate tools it carries are exactly
     // the arrows leaving it, so one shared server would hand everyone
@@ -959,7 +997,11 @@ export class WorkflowSession implements vscode.Disposable {
       ...(this.config.fallbackModel ? { fallbackModel: this.config.fallbackModel } : {}),
       // The SDK's budget is per-query, so each teammate would otherwise get a
       // fresh ceiling. Hand every run only what is left of the session's.
-      ...(this.remainingBudget() !== undefined ? { maxBudgetUsd: this.remainingBudget() } : {}),
+      ...(granted !== undefined
+        ? { maxBudgetUsd: granted }
+        : this.remainingBudget() !== undefined
+          ? { maxBudgetUsd: this.remainingBudget() }
+          : {}),
       // Snapshots so rewindFiles() can put the workspace back.
       enableFileCheckpointing: this.config.checkpoints !== false,
       persistSession: this.config.persistSessions !== false,
@@ -1008,11 +1050,40 @@ export class WorkflowSession implements vscode.Disposable {
    * a subagent starts with an empty context, so orientation it would otherwise
    * spend tool calls rediscovering is the cheapest thing we can hand it.
    */
+  /**
+   * What has been handed to runs that are still going.
+   *
+   * A run's cost is only known when it ends, so two teammates started in the
+   * same turn both used to see the whole remaining ceiling and the pair could
+   * spend twice what the user allowed. Handing out a slice and holding it
+   * until that run reports keeps the total bounded.
+   */
+  private reservedUsd = 0;
+
   /** What is left of the user's ceiling, or undefined when uncapped. */
   private remainingBudget(): number | undefined {
     const cap = this.config.maxSpendUsd ?? 0;
     if (cap <= 0) return undefined;
     return Math.max(0.01, cap - this.spentUsd);
+  }
+
+  /**
+   * Take a slice of the ceiling for a teammate about to start, and hold it
+   * until that run reports what it actually cost. `undefined` means uncapped;
+   * a number below {@link MIN_VIABLE_BUDGET} means there is nothing left to
+   * give and the run should not start at all.
+   */
+  private claimBudget(): number | undefined {
+    const cap = this.config.maxSpendUsd ?? 0;
+    if (cap <= 0) return undefined;
+    const grant = Math.max(0, cap - this.spentUsd - this.reservedUsd);
+    this.reservedUsd += grant;
+    return grant;
+  }
+
+  private releaseBudget(grant: number | undefined): void {
+    if (grant === undefined) return;
+    this.reservedUsd = Math.max(0, this.reservedUsd - grant);
   }
 
   private projectPreamble(): string {

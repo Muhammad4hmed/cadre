@@ -650,6 +650,72 @@ send({ kind: "sayEnd", who: "one", turn: "q" });
     link !== null && link.getAttribute("href") === "https://example.com/a?b=1&c=2");
 }
 
+// ---- the run footer and the compaction notice reach a lane at all ---------
+// These were placed in a lane hardcoded as "lead" — a leftover from the fixed
+// Lead/Researcher/Engineer roster this used to be. place() returns silently
+// when the lane does not exist, and after the generalisation no template has an
+// agent slugged "lead", so the per-run cost card and the "history was
+// summarised" notice were both dropped on the floor for every real workflow.
+send({ kind: "screen", screen: "run" });
+send({ kind: "roster", workflowId: "z", workflowName: "No Lead Here", autonomy: "", billing: "",
+  workspace: "demo", connectors: [], edges: [],
+  members: [
+    { id: "alpha", name: "Alpha", role: "", preset: "readonly", model: "opus", effort: "high",
+      status: "idle", entry: true, x: 0, y: 0 },
+    { id: "beta", name: "Beta", role: "", preset: "build", model: "opus", effort: "high",
+      status: "idle", entry: false, x: 300, y: 0 },
+  ] });
+send({ kind: "clear" });
+send({ kind: "spend", usd: 0.1234, totalUsd: 0.5, turns: 7, durationMs: 4500 });
+send({ kind: "compacted", before: 190000, after: 40000 });
+send({ kind: "notice", level: "info", text: "a notice with no agent named" });
+{
+  const board = document.getElementById("floor") || document.body;
+  const text = board.textContent;
+  check("the run's cost card is not dropped on the floor", /7 turns/.test(text));
+  check("...and reports what the run cost", /0\.1234/.test(text));
+  check("the compaction notice is not dropped either", /history was summarised/.test(text));
+  check("a notice with no agent named still reaches a lane",
+    /a notice with no agent named/.test(text));
+
+  // Specifically the entry agent's lane, since that is who the user is talking
+  // to and where they are looking.
+  const entryLane = document.getElementById("stream-alpha") || document.getElementById("stream-all");
+  check("...and they land in the entry agent's lane",
+    entryLane !== null && /7 turns/.test(entryLane.textContent)
+    && /history was summarised/.test(entryLane.textContent));
+}
+
+// A compaction sits in the replay log, so it is re-rendered every time the
+// board is rebuilt. When it threw, the loop aborted and every event after it
+// went unrendered — the lane went blank from the compaction onwards, and only
+// for users whose context had filled.
+send({ kind: "say", who: "alpha", turn: "post", delta: "work after the compaction" });
+send({ kind: "sayEnd", who: "alpha", turn: "post" });
+send({ kind: "roster", workflowId: "z", workflowName: "No Lead Here", autonomy: "", billing: "",
+  workspace: "demo", connectors: [], edges: [],
+  members: [
+    { id: "alpha", name: "Alpha", role: "", preset: "readonly", model: "opus", effort: "high",
+      status: "idle", entry: true, x: 0, y: 0 },
+    { id: "beta", name: "Beta", role: "", preset: "build", model: "opus", effort: "high",
+      status: "idle", entry: false, x: 300, y: 0 },
+    { id: "gamma", name: "Gamma", role: "", preset: "build", model: "opus", effort: "high",
+      status: "idle", entry: false, x: 600, y: 0 },
+  ] });
+{
+  const board = (document.getElementById("floor") || document.body).textContent;
+  check("a rebuild replays the compaction notice", /history was summarised/.test(board));
+  check("...and everything that came after it", /work after the compaction/.test(board));
+  check("...with the token counts formatted for reading", /190K/.test(board));
+}
+
+// The header total is a session figure, not the last run's — the spend cap it
+// is measured against applies to the whole session, and a teammate's cost is
+// part of it.
+send({ kind: "spend", usd: 0.1, totalUsd: 0.6, turns: 1, durationMs: 100 });
+check("the header shows the session total, not just the last run",
+  document.getElementById("spend").textContent === "$0.6000");
+
 document.title = "done";
 window.__results = results;
 `;

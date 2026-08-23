@@ -1027,6 +1027,121 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- S2. what the user is told they have spent ----------------------------
+// The header shows a running total. It is the only place the cost of a run is
+// visible while it is happening, and `cadre.maxSpendUsd` exists because that
+// cost is real money.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession({ ...CONFIG, maxSpendUsd: 100 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+
+  const brief = main.options.mcpServers.team.tools.find((t) => t.name === "brief_engineer");
+  const running = brief.handler({
+    objective: "x", done_when: "y", decide_yourself: ["z"], context: [],
+    authority: "EXPLORE", paths: [],
+  });
+  await tick();
+  const teammate = fake.__instances[1];
+  teammate.emit(fake.initMessage());
+  teammate.emit(fake.resultMessage({ total_cost_usd: 3 }));
+  teammate.end();
+  await running.catch(() => {});
+  await tick();
+  main.emit(fake.resultMessage({ total_cost_usd: 1 }));
+  await tick();
+
+  const spendEvents = of("spend");
+  const reported = spendEvents.reduce((sum, m) => sum + m.usd, 0);
+  check("S3 the running total includes what teammates cost, not just the lead",
+    Math.abs(reported - 4) < 1e-9);
+  session.dispose();
+}
+
+// ---- S4. two teammates started together cannot each spend the whole cap ---
+// A run's cost is only known when it ends, so two briefs issued in the same
+// turn are both built before either reports. They used to read the same
+// remaining figure and the pair could spend twice the ceiling; with N teammates
+// and a chain of delegations, N times it.
+//
+// A slice is now held for each run that is still going. Sequential delegation
+// is unaffected — the first releases before the second starts — but siblings
+// started together share one ceiling, so the second is refused rather than
+// handed money that is already committed.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession({ ...CONFIG, maxSpendUsd: 10 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const tools = main.options.mcpServers.team.tools;
+  const args = {
+    objective: "x", done_when: "y", decide_yourself: ["z"], context: [],
+    authority: "EXPLORE", paths: [],
+  };
+  const a = tools.find((t) => t.name === "brief_engineer").handler({ ...args });
+  const b = tools.find((t) => t.name === "brief_researcher").handler({ ...args });
+  await tick();
+
+  const granted = fake.__instances.slice(1).map((i) => i.options.maxBudgetUsd);
+  check("S5 concurrent teammates cannot between them be granted more than the ceiling",
+    granted.reduce((x, y) => x + y, 0) <= 10);
+  check("S6 the one that could not be funded is refused rather than started",
+    granted.length === 1);
+  check("S7 ...and is told the cap is what stopped it",
+    of("notice").some((n) => /spend cap of \$10\.00 is committed/.test(n.text)));
+  check("S8 ...and its brief comes back failed rather than silently empty",
+    of("deliver").some((d) => d.outcome === "failed" && /spend cap/.test(d.summary)));
+
+  for (const inst of fake.__instances.slice(1)) inst.end();
+  await Promise.allSettled([a, b]);
+  session.dispose();
+}
+
+// ---- S9. a slice is released when its run ends ---------------------------
+// Otherwise the first delegation would permanently consume the whole ceiling
+// and every later one would be refused, which is the same bug pointing the
+// other way.
+fake.__instances.length = 0;
+{
+  const { session } = makeSession({ ...CONFIG, maxSpendUsd: 10 });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  const tools = main.options.mcpServers.team.tools;
+  const args = {
+    objective: "x", done_when: "y", decide_yourself: ["z"], context: [],
+    authority: "EXPLORE", paths: [],
+  };
+
+  const first = tools.find((t) => t.name === "brief_engineer").handler({ ...args });
+  await tick();
+  fake.__instances[1].emit(fake.initMessage());
+  fake.__instances[1].emit(fake.resultMessage({ total_cost_usd: 2 }));
+  fake.__instances[1].end();
+  await first.catch(() => {});
+  await tick();
+
+  const second = tools.find((t) => t.name === "brief_researcher").handler({ ...args });
+  await tick();
+  check("S10 a second delegation after the first finished still runs",
+    fake.__instances.length === 3);
+  check("S11 ...and gets what is genuinely left, not a fresh ceiling",
+    fake.__instances[2]?.options.maxBudgetUsd === 8);
+
+  fake.__instances[2]?.end();
+  await second.catch(() => {});
+  session.dispose();
+}
+
 // ---- T. questions render in the lane and wait for a real answer -----------
 fake.__instances.length = 0;
 {

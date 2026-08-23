@@ -106,7 +106,8 @@ sideways rather than squeezing every lane past readability.
 
 Status lights that pulse only while an agent is genuinely working, delegation cards showing
 what was handed to whom, tool calls that resolve to ✓ or ✕ **with the reason when they
-fail**, collapsed reasoning, running cost.
+fail**, collapsed reasoning, and a running cost that counts the whole team rather than
+just the agent you are talking to.
 
 ## Requirements
 
@@ -228,7 +229,7 @@ changing.
 | `cadre.billing` | Subscription, or an API key in encrypted storage |
 | `cadre.model` / `.effort` | Defaults for agents that do not override them. **Cadre: Settings → Default model** lists exactly what your CLI offers |
 | `cadre.maxDelegationDepth` | How far a chain of briefs may go |
-| `cadre.maxSpendUsd` | Hard ceiling per run |
+| `cadre.maxSpendUsd` | Hard ceiling for the whole conversation — every agent in it, not just the one you are talking to |
 | `cadre.playbooks` / `.connectors` / `.plugins` | Narrows the skills an agent may use, MCP servers, local plugins. The skill list itself is read from your Claude Code — you do not have to type it |
 | `cadre.checkpoints` | Snapshots so Rewind Files works |
 
@@ -247,7 +248,7 @@ changing.
 ```sh
 npm install
 npm run build
-npm run verify:fast    # 865 checks, no API calls
+npm run verify:fast    # 881 checks, no API calls
 npm run verify:team    # a live run; costs tokens
 ```
 

@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "Build a team of AI agents, wire them together with arrows, and watch them work.",
-  "version": "0.10.3",
+  "version": "0.11.0",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -368,7 +368,7 @@
           "default": 0,
           "minimum": 0,
           "scope": "resource",
-          "markdownDescription": "Hard spend ceiling for a single run, in USD. The run stops when it is exceeded. `0` means no cap."
+          "markdownDescription": "Hard spend ceiling for the whole conversation, in USD — every agent in it, not just the one you are talking to. Work stops when it is reached. `0` means no cap."
         },
         "cadre.checkpoints": {
           "type": "boolean",

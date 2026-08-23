@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.11.0 — what a run costs, and two things that were never drawn
+
+**The running total left out the team.** A run's cost is reported when it ends,
+and only the main run's figure was emitted — so a lead that delegates six times
+and spends little itself showed a number that was a fraction of what had been
+spent. The header also *replaced* that figure each turn rather than accumulating,
+so it never showed a session total at all. It does now, and every agent's cost
+counts towards it.
+
+**Two teammates started in the same turn could each spend the whole ceiling.**
+A cost is only known at the end of a run, so briefs issued together were both
+built against the same remaining figure. With a chain of delegations the ceiling
+could be exceeded several times over. A slice of the ceiling is now held for each
+run while it is going and released when it reports. Sequential delegation is
+unaffected — the common case, and the first releases before the second starts —
+but siblings started together share one ceiling, so a teammate that cannot be
+funded is refused with a message saying so rather than handed money already
+committed.
+
+`cadre.maxSpendUsd` is now described as what it is: a ceiling for the whole
+conversation, every agent in it. It always behaved that way.
+
+**The per-run cost card and the "history was summarised" notice were never
+drawn.** Both were placed into a lane hardcoded as `lead` — a leftover from the
+fixed Lead/Researcher/Engineer roster this used to be — and placing into a lane
+that does not exist fails silently. No template has an agent slugged `lead`, so
+for every real workflow both were dropped on the floor. They go to the entry
+agent's lane now.
+
+**A compaction could blank the board.** The notice called `fmtTokens`, which was
+never defined anywhere, so it threw every time. The event stays in the replay
+log, so each later rebuild threw again — and because that loop had no guard, the
+lane went blank from the compaction onwards. The formatter exists now, and one
+bad event can no longer take the rest of the board with it.
+
+881 checks.
+
 ## 0.10.3 — a link in agent output could smuggle attributes into the lane
 
 Messages are rendered as markdown, and a link's `href` and `title` are built as

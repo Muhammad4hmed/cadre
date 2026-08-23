@@ -87,7 +87,7 @@ export type TeamEvent =
 
   | { kind: "userSaid"; to: AgentId; text: string; images?: { name: string; dataUrl: string }[] }
   | { kind: "notice"; level: "info" | "warn" | "error"; text: string; who?: AgentId }
-  | { kind: "spend"; usd: number; turns: number; durationMs: number }
+  | { kind: "spend"; who?: AgentId; usd: number; totalUsd: number; turns: number; durationMs: number }
   /** Context window filled and the CLI summarised the history to keep going. */
   | { kind: "compacted"; trigger: "auto" | "manual"; before: number; after?: number }
   /** Live context-window usage, so filling up is visible before it happens. */

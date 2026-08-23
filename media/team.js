@@ -225,6 +225,26 @@
 
   const atBottom = (c) => c.scrollHeight - c.scrollTop - c.clientHeight < 48;
 
+  /**
+   * The lane a session-wide event belongs in: the entry agent's, because that
+   * is who the user is talking to. This used to be hardcoded as "lead" from
+   * the fixed roster this started as — and place() fails silently, so once
+   * workflows could be any shape those events were simply dropped.
+   */
+  /**
+   * A token count, for reading at a glance: 190000 -> "190K". Only ever shown
+   * to convey scale, so the rounding is deliberate.
+   */
+  function fmtTokens(n) {
+    const value = Number(n);
+    if (!Number.isFinite(value) || value <= 0) return "0";
+    return value >= 1000 ? Math.round(value / 1000) + "K" : String(Math.round(value));
+  }
+
+  function mainLane() {
+    return state.runGraph?.entry || [...state.members.keys()][0] || "";
+  }
+
   function place(who, element) {
     const container = laneContainers()[who];
     if (!container) return;
@@ -651,20 +671,24 @@
       }
 
       case "notice":
-        place(e.who || "lead", node("div", "notice " + e.level, e.text));
+        place(e.who || mainLane(), node("div", "notice " + e.level, e.text));
         return;
 
       case "compacted": {
         const shrunk = e.after ? ` — ${fmtTokens(e.before)} → ${fmtTokens(e.after)}` : "";
-        place("lead", node("div", "notice compacted",
+        place(mainLane(), node("div", "notice compacted",
           `Context was full, so the history was summarised${shrunk}. The team keeps going; older detail is gone.`));
         return;
       }
 
       case "spend": {
-        state.spendUsd = e.usd;
+        // The header is a session total — the spend cap is measured against
+        // the session, and a teammate's cost counts towards it. The card below
+        // is what this one run cost.
+        state.spendUsd = typeof e.totalUsd === "number" ? e.totalUsd : e.usd;
         const seconds = (e.durationMs / 1000).toFixed(1);
-        place("lead", node("div", "spend", e.turns + " turns · " + seconds + "s · $" + e.usd.toFixed(4)));
+        place(e.who || mainLane(),
+          node("div", "spend", e.turns + " turns · " + seconds + "s · $" + e.usd.toFixed(4)));
         el.spend.textContent = "$" + state.spendUsd.toFixed(4);
         return;
       }
@@ -681,7 +705,16 @@
     state.assignments.clear();
     state.asks.clear();
     if (!state.log.length) { showEmpty(); return; }
-    for (const e of state.log) renderEvent(e);
+    for (const e of state.log) {
+      // A live event that throws costs one message; the same event replayed
+      // here would abort the loop and leave every later event unrendered — the
+      // board would go blank from that point on. Report it and carry on.
+      try {
+        renderEvent(e);
+      } catch (err) {
+        console.error("Cadre: could not render a " + e.kind + " event", err);
+      }
+    }
   }
 
   function showEmpty() {
