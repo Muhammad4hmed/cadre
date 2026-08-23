@@ -12,6 +12,28 @@ import type { TeamEvent } from "./events";
 /** Enough for a long session; a transcript longer than this is trimmed at the front. */
 export const REPLAY_LIMIT = 400;
 
+/**
+ * Who the transcript belongs to.
+ *
+ * A stored transcript records one agent's conversation and the briefs it sent.
+ * It does not say which agent that was, because the CLI does not know about
+ * workflows — so the caller has to. This used to be assumed to be an agent
+ * called "lead" with teammates called "researcher" and "engineer", which was
+ * true of the roster this started as and of two of the fourteen templates.
+ * Everywhere else replay addressed lanes that did not exist, and placing into a
+ * lane that does not exist fails silently: the board came back empty.
+ */
+export interface ReplayRoster {
+  /** The agent whose conversation this is — the one the user was talking to. */
+  entry: string;
+  /**
+   * Every agent in the workflow, so a `brief_<id>` can be attributed to a real
+   * lane. Empty means "do not check", for callers replaying a transcript
+   * without a workflow to hand.
+   */
+  agents: string[];
+}
+
 export interface SessionMessage {
   type: "user" | "assistant" | "system";
   parent_tool_use_id: string | null;
@@ -68,7 +90,14 @@ function normaliseContent(content: unknown): Block[] {
   return Array.isArray(content) ? (content as Block[]) : [];
 }
 
-export function transcriptToEvents(messages: SessionMessage[], summary: string): TeamEvent[] {
+export function transcriptToEvents(
+  messages: SessionMessage[],
+  summary: string,
+  roster: ReplayRoster = { entry: "lead", agents: [] },
+): TeamEvent[] {
+  // Not `entry`: the loop below already binds that to a transcript message.
+  const entryAgent = roster.entry || "lead";
+  const knows = (id: string): boolean => !roster.agents.length || roster.agents.includes(id);
   const out: TeamEvent[] = [];
   if (!messages.length) {
     out.push({
@@ -111,7 +140,7 @@ export function transcriptToEvents(messages: SessionMessage[], summary: string):
         out.push({ kind: "notice", level: "warn", text: text.slice(1, -1) });
         continue;
       }
-      out.push({ kind: "userSaid", to: "lead", text });
+      out.push({ kind: "userSaid", to: entryAgent, text });
       continue;
     }
 
@@ -120,14 +149,14 @@ export function transcriptToEvents(messages: SessionMessage[], summary: string):
     const thought = blocks.filter((b) => b.type === "thinking").map((b) => b.thinking ?? "").join("").trim();
     if (thought) {
       const id = `replay-${turn++}`;
-      out.push({ kind: "think", who: "lead", turn: id, delta: thought });
+      out.push({ kind: "think", who: entryAgent, turn: id, delta: thought });
     }
 
     const said = blocks.filter((b) => b.type === "text").map((b) => b.text ?? "").join("").trim();
     if (said) {
       const id = `replay-${turn++}`;
-      out.push({ kind: "say", who: "lead", turn: id, delta: said });
-      out.push({ kind: "sayEnd", who: "lead", turn: id });
+      out.push({ kind: "say", who: entryAgent, turn: id, delta: said });
+      out.push({ kind: "sayEnd", who: entryAgent, turn: id });
     }
 
     for (const block of blocks) {
@@ -137,15 +166,19 @@ export function transcriptToEvents(messages: SessionMessage[], summary: string):
       const result = block.id ? results.get(block.id) : undefined;
       const id = `replay-${block.id ?? turn++}`;
 
-      if (short === "brief_researcher" || short === "brief_engineer") {
+      // Any delegate arrow, not the two the fixed roster happened to have.
+      // A brief naming an agent the workflow no longer has is a stale
+      // transcript: showing it as the tool call it was beats inventing a lane.
+      const briefed = short.startsWith("brief_") ? short.slice("brief_".length) : "";
+      if (briefed && knows(briefed)) {
         delegated = true;
         const outcome = result ? verdictOf(result.text, result.failed) : "failed";
         out.push({
           kind: "assign",
           assignment: {
             id,
-            from: "lead",
-            to: short === "brief_researcher" ? "researcher" : "engineer",
+            from: entryAgent,
+            to: briefed,
             brief: String(input.objective ?? ""),
             startedAt: 0,
             finishedAt: 0,
@@ -163,10 +196,10 @@ export function transcriptToEvents(messages: SessionMessage[], summary: string):
         continue;
       }
 
-      out.push({ kind: "act", who: "lead", act: id, tool: short, summary: describeTool(block.name, input) });
+      out.push({ kind: "act", who: entryAgent, act: id, tool: short, summary: describeTool(block.name, input) });
       out.push({
         kind: "actEnd",
-        who: "lead",
+        who: entryAgent,
         act: id,
         ok: !result?.failed,
         summary: result ? firstLine(result.text) : "",

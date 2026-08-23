@@ -1121,8 +1121,10 @@ export class TeamController implements vscode.Disposable {
    *
    * The CLI resumes the model's memory either way; this is so the user can see
    * what was said. Only the main thread is stored here — a teammate's run was
-   * its own session — so history lands in the Lead's lane, which is where it
-   * was addressed.
+   * its own session — so history lands in the entry agent's lane, which is
+   * where it was addressed. Which agent that is comes from the workflow: the
+   * transcript does not record it, because the CLI has never heard of
+   * workflows.
    */
   private async replayTranscript(sessionId: string, summary: string): Promise<void> {
     const dir = this.activeFolder()?.uri.fsPath;
@@ -1132,7 +1134,15 @@ export class TeamController implements vscode.Disposable {
     } catch (err) {
       this.log.warn(`could not replay transcript: ${describeError(err)}`);
     }
-    for (const event of transcriptToEvents(messages, summary)) this.broadcast(event);
+    // Which workflow this conversation belongs to. Without it replay addresses
+    // a lane called "lead", which most workflows do not have — and placing into
+    // a lane that does not exist fails silently, so the board comes back empty.
+    const workflow = this.running;
+    const roster = {
+      entry: workflow?.entry ?? "",
+      agents: (workflow?.agents ?? []).map((a) => a.id),
+    };
+    for (const event of transcriptToEvents(messages, summary, roster)) this.broadcast(event);
   }
 
   history(): { id: string; text: string; at: number }[] {

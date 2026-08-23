@@ -716,6 +716,36 @@ send({ kind: "spend", usd: 0.1, totalUsd: 0.6, turns: 1, durationMs: 100 });
 check("the header shows the session total, not just the last run",
   document.getElementById("spend").textContent === "$0.6000");
 
+// ---- the empty board explains itself ---------------------------------------
+// The placeholder was pinned to a lane called "lead" and named the Researcher
+// and the Engineer. Two of fourteen templates have an agent slugged "lead";
+// everywhere else it was placed into a lane that does not exist and dropped,
+// leaving a blank board with nothing to explain it.
+send({ kind: "clear" });
+{
+  const board = (document.getElementById("floor") || document.body).textContent;
+  check("an empty board says what to do", /Describe the work to Alpha/.test(board));
+  check("...and names the teammates that actually exist", /Beta/.test(board));
+  check("...and not agents from a roster this workflow does not have",
+    !/Researcher|Engineer|the Lead/.test(board));
+  const entryLane = document.getElementById("stream-alpha") || document.getElementById("stream-all");
+  check("...in the entry agent's lane",
+    entryLane !== null && /Describe the work to Alpha/.test(entryLane.textContent));
+}
+
+// A one-agent workflow has nobody to put to work, and saying otherwise is a
+// small lie the user can see through immediately.
+send({ kind: "roster", workflowId: "solo", workflowName: "Solo", autonomy: "", billing: "",
+  workspace: "demo", connectors: [], edges: [],
+  members: [{ id: "only", name: "Only", role: "", preset: "full", model: "opus", effort: "high",
+    status: "idle", entry: true, x: 0, y: 0 }] });
+send({ kind: "clear" });
+{
+  const board = (document.getElementById("floor") || document.body).textContent;
+  check("a single agent is not told to put anyone to work", !/to work/.test(board));
+  check("...but is still introduced", /Describe the work to Only/.test(board));
+}
+
 document.title = "done";
 window.__results = results;
 `;

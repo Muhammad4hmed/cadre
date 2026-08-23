@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.11.1 — the fixed roster was still wired into four places
+
+This started as three agents called Lead, Researcher and Engineer. When
+workflows became any shape, four things kept talking to that roster — and every
+one of them fails *silently*, which is why they survived.
+
+**Reopening a conversation showed an empty board.** Replay addressed every event
+to a lane called `lead`, and recognised exactly two delegate tools:
+`brief_researcher` and `brief_engineer`. Placing into a lane that does not exist
+is a no-op, so for a workflow whose entry agent is called anything else, the
+whole transcript went nowhere. Two of the fourteen templates have an agent
+slugged `lead`. The other twelve, and every workflow drawn by hand, came back
+blank — and the test suite only ever replayed the one template where the
+hardcoding happened to be right. Replay now takes the workflow's roster, so any
+entry agent works and a brief to any teammate comes back as a delegation card
+rather than a raw tool call. A brief naming an agent that has since been deleted
+stays a tool call, because inventing a lane for it would be worse.
+
+**The empty board never explained itself.** The placeholder was pinned to the
+same missing lane and named the Researcher and the Engineer. It now names the
+agents the workflow actually has, and a one-agent workflow is no longer told to
+put its teammates to work.
+
+**Project profiles silently half-applied.** Sandbox, Balanced and Production
+each wrote `engineer.model`, `researcher.model`, `lead.effort` and
+`engineer.effort` — settings removed when workflows became general. VS Code
+throws on an unregistered key and the loop awaited each in turn, so the first
+dead key took the rest of the profile with it: **Production promised a spend cap
+and never wrote one.** The profiles now set the workspace-wide model and effort
+that do exist, and a setting that will not take is reported instead of costing
+the user everything after it.
+
+912 checks, including the first tests these profiles have ever had.
+
 ## 0.11.0 — what a run costs, and two things that were never drawn
 
 **The running total left out the team.** A run's cost is reported when it ends,

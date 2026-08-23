@@ -7,3 +7,4 @@ export * as templates from "../src/workflow/templates";
 export * as tools from "../src/workflow/tools";
 export * as generate from "../src/workflow/generate";
 export * as models from "../src/models";
+export * as replay from "../src/team/replay";

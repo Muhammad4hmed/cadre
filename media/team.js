@@ -717,15 +717,32 @@
     }
   }
 
+  /**
+   * The placeholder shown before anything has happened.
+   *
+   * It was pinned to a lane called "lead" and named the Researcher and the
+   * Engineer — the fixed roster this started as. Two of fourteen templates have
+   * an agent slugged "lead", so everywhere else this was placed into a lane
+   * that does not exist and silently dropped: an empty board with nothing to
+   * explain it.
+   */
   function showEmpty() {
-    const container = laneContainers().lead;
+    const who = mainLane();
+    const container = laneContainers()[who];
     if (!container) return;
+    const entry = state.members.get(who);
+    const others = [...state.members.values()].filter((m) => m.id !== who);
     const empty = node("div", "empty");
     empty.appendChild(node("span", "glyph", "◈"));
-    empty.appendChild(node("div", null, "Describe your project to the Lead."));
-    empty.appendChild(
-      node("div", null, "They'll question the brief, then put the Researcher and Engineer to work."),
-    );
+    empty.appendChild(node("div", null,
+      entry ? "Describe the work to " + (entry.name || entry.id) + "." : "Describe the work to start."));
+    if (others.length) {
+      const names = others.map((m) => m.name || m.id);
+      const listed = names.length > 2
+        ? names.slice(0, -1).join(", ") + " and " + names[names.length - 1]
+        : names.join(" and ");
+      empty.appendChild(node("div", null, "They can put " + listed + " to work."));
+    }
     container.appendChild(empty);
   }
 

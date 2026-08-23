@@ -348,31 +348,40 @@ async function onboard(controller: TeamController): Promise<void> {
   );
 }
 
+/**
+ * Whole-project presets.
+ *
+ * These used to write `engineer.model`, `researcher.model`, `lead.effort` and
+ * `engineer.effort` — per-agent settings from the fixed roster this started as,
+ * which no longer exist. Writing an unregistered key throws, and because the
+ * loop below awaited each one in turn, the first dead key aborted the rest: the
+ * Production profile promised a spend cap and never wrote it. Model and effort
+ * are workspace-wide defaults now, and an individual agent overrides them in
+ * its own Advanced panel.
+ */
 const PROFILES: { label: string; detail: string; settings: Record<string, unknown> }[] = [
   {
     label: "Sandbox",
-    detail: "Throwaway work. Autonomous, cheap models, no documentation duty.",
+    detail: "Throwaway work. Autonomous, cheap and fast, no documentation duty.",
     settings: {
-      autonomy: "autonomous", documentation: "off", "engineer.model": "haiku",
-      "researcher.model": "haiku", "lead.effort": "medium", "engineer.effort": "medium",
-      maxSpendUsd: 0,
+      autonomy: "autonomous", documentation: "off",
+      model: "haiku", effort: "medium", maxSpendUsd: 0,
     },
   },
   {
     label: "Balanced",
     detail: "The default. Edits flow, risky commands ask, substantial work gets documented.",
     settings: {
-      autonomy: "standard", documentation: "substantial", "engineer.model": "",
-      "researcher.model": "", "lead.effort": "", "engineer.effort": "", maxSpendUsd: 0,
+      autonomy: "standard", documentation: "substantial",
+      model: "default", effort: "", maxSpendUsd: 0,
     },
   },
   {
     label: "Production",
     detail: "Code that matters. Supervised, highest effort, everything documented, spend capped.",
     settings: {
-      autonomy: "supervised", documentation: "always", "engineer.model": "opus",
-      "researcher.model": "opus", "lead.effort": "xhigh", "engineer.effort": "max",
-      maxSpendUsd: 5,
+      autonomy: "supervised", documentation: "always",
+      model: "opus", effort: "xhigh", maxSpendUsd: 5,
     },
   },
 ];
@@ -390,15 +399,30 @@ async function applyProfile(controller: TeamController): Promise<void> {
   if (!picked) return;
 
   const cfg = vscode.workspace.getConfiguration("cadre", folder.uri);
+  const refused: string[] = [];
   for (const [key, value] of Object.entries(picked.settings)) {
-    // WorkspaceFolder scope writes into that folder's .vscode/settings.json, so
-    // the profile travels with the project rather than the machine.
-    await cfg.update(key, value, vscode.ConfigurationTarget.WorkspaceFolder);
-    // Chosen here, so approved here — otherwise the trust layer clamps it back.
-    if (key === "autonomy") await controller.trust.approve("autonomy", value);
+    try {
+      // WorkspaceFolder scope writes into that folder's .vscode/settings.json,
+      // so the profile travels with the project rather than the machine.
+      await cfg.update(key, value, vscode.ConfigurationTarget.WorkspaceFolder);
+      // Chosen here, so approved here — otherwise the trust layer clamps it back.
+      if (key === "autonomy") await controller.trust.approve("autonomy", value);
+    } catch (err) {
+      // One setting that will not take must not silently cost the user the
+      // rest of the profile — a spend cap that was never written is worse than
+      // a model that was not changed.
+      refused.push(key);
+      log.error(`profile ${picked.label}: could not set cadre.${key}: ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
   controller.forgetShownWarnings();
   await controller.refreshSendability();
+  if (refused.length) {
+    void vscode.window.showWarningMessage(
+      `${picked.label} profile applied to ${folder.name}, except ${refused.join(", ")} — see the Cadre log.`,
+    );
+    return;
+  }
   void vscode.window.showInformationMessage(
     `${picked.label} profile applied to ${folder.name}. It is written to that folder's settings, so it travels with the project.`,
   );

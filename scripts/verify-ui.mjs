@@ -99,6 +99,12 @@ const vscodeStub = {
         return settings[`${prefix}.${key}`];
       },
       update: async (key, value, target) => {
+        // Real VS Code throws on a key that is not a registered configuration
+        // property. The stub can be told to do the same, so the code that has
+        // to survive it is actually exercised.
+        if (vscodeStub.__rejectKey && `${prefix}.${key}` === vscodeStub.__rejectKey) {
+          throw new Error(`Unable to write to Workspace Folder Settings because ${prefix}.${key} is not a registered configuration`);
+        }
         if (target === 3 && scope) {
           (folderSettings[scope.fsPath] ??= {})[`${prefix}.${key}`] = value;
           return;
@@ -567,6 +573,31 @@ check("the end of the replayed history is marked",
   posted.some((m) => m.kind === "notice" && /end of the earlier conversation/.test(m.text)));
 check("empty teammate lanes above the line are explained, not left to imply idleness",
   posted.some((m) => m.kind === "notice" && /own session/.test(m.text)));
+
+// The same, in a workflow whose entry agent is not called "lead". This is the
+// case that was broken: replay addressed a lane the workflow does not have, and
+// placing into a missing lane fails silently, so the board came back empty.
+// The suite only ever exercised the one template where the old hardcoding
+// happened to be right.
+receive({ kind: "newWorkflow", template: "marketing-department" });
+await settle();
+fs.writeFileSync(path.join(wfDir, "marketing_team.sessions.json"), JSON.stringify([
+  { sessionId: "s-2", title: "positioning pass", when: 2 },
+]));
+receive({ kind: "openWorkflow", id: "marketing_team" });
+await settle();
+posted.length = 0;
+receive({ kind: "resumeSession", id: "s-2", title: "positioning pass" });
+await settle();
+{
+  const lanes = new Set(posted.filter((m) => m.who).map((m) => m.who));
+  const addressed = posted.filter((m) => m.kind === "userSaid").map((m) => m.to);
+  check("resuming addresses this workflow's entry agent, not one called lead",
+    addressed.length > 0 && addressed.every((to) => to === "head"));
+  check("...and no event is addressed to a lane this workflow does not have",
+    [...lanes].every((who) => ["head", "audience", "positioning", "writer", "distribution", "analyst"].includes(who)));
+  check("...and there is something to show at all", posted.some((m) => m.kind === "say"));
+}
 // The composer must lock while history streams in, or a reply lands above the
 // conversation it answers.
 const gates = posted.filter((m) => m.kind === "sendability");
@@ -842,6 +873,58 @@ if (serializer) {
   check("...and the new one is what reveal now finds", second.revealed === 1);
 }
 
+
+// ---- project profiles write settings that exist ---------------------------
+// These wrote per-agent keys from the fixed roster — engineer.model,
+// lead.effort — which were removed when workflows became arbitrary. VS Code
+// throws on an unregistered key, and the loop awaited each in turn, so the
+// first dead key took the rest of the profile with it: Production promised a
+// spend cap and never wrote one.
+{
+  const declared = new Set(
+    Object.keys(JSON.parse(fs.readFileSync("package.json", "utf8"))
+      .contributes.configuration.properties),
+  );
+  const folderPath = state.workspaceFolders?.[0]?.uri.fsPath;
+
+  for (const wanted of ["Sandbox", "Balanced", "Production"]) {
+    vscodeStub.__pick = (items) => items.find((i) => i.label === wanted);
+    for (const key of Object.keys(folderSettings[folderPath] ?? {})) {
+      delete folderSettings[folderPath][key];
+    }
+    await vscodeStub.__commands["cadre.saveProfile"]();
+
+    const written = Object.keys(folderSettings[folderPath] ?? {});
+    check(`the ${wanted} profile only writes settings that exist`,
+      written.length > 0 && written.every((key) => declared.has(key)));
+    check(`...and it names the ones it does not, rather than half-applying`,
+      !written.some((key) => /^cadre\.(engineer|researcher|lead)\./.test(key)));
+  }
+
+  // The cap is the one that matters: it is written last, so it was the one
+  // lost when an earlier key threw.
+  vscodeStub.__pick = (items) => items.find((i) => i.label === "Production");
+  await vscodeStub.__commands["cadre.saveProfile"]();
+  check("the Production profile actually writes the spend cap it promises",
+    folderSettings[folderPath]?.["cadre.maxSpendUsd"] === 5);
+  check("...and the autonomy it promises", folderSettings[folderPath]?.["cadre.autonomy"] === "supervised");
+
+  // And if one setting will not take, the user must not silently lose the rest
+  // of the profile — least of all the cap.
+  for (const key of Object.keys(folderSettings[folderPath] ?? {})) {
+    delete folderSettings[folderPath][key];
+  }
+  vscodeStub.__rejectKey = "cadre.model";
+  let threw = false;
+  try { await vscodeStub.__commands["cadre.saveProfile"](); } catch { threw = true; }
+  vscodeStub.__rejectKey = undefined;
+  check("a setting that will not take does not abort the profile", !threw);
+  check("...and the spend cap is still written", folderSettings[folderPath]?.["cadre.maxSpendUsd"] === 5);
+  check("...and the autonomy is still written",
+    folderSettings[folderPath]?.["cadre.autonomy"] === "supervised");
+
+  vscodeStub.__pick = undefined;
+}
 
 console.log("=== ui ===");
 let failed = false;

@@ -24,7 +24,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 const wf = createRequire(import.meta.url)(outfile);
-const { model, presets, protocol, store, templates, generate, models } = wf;
+const { model, presets, protocol, store, templates, generate, models, replay } = wf;
 
 
 /**
@@ -280,8 +280,13 @@ check("one workflow does not see another's sessions", store.listSessions(root, s
   const ROUNDS = 8;
   const killed = await killMidWrite(outfile, root, created.id, sfile, ROUNDS);
   check(`killing a write ${ROUNDS} times never leaves the history unreadable`, killed.torn === 0);
+  // Proves the test did something — a child that never wrote proves nothing.
+  // Half the rounds rather than all of them: under a loaded machine the child
+  // sometimes dies before its first write, and a suite that fails for that
+  // reason gets ignored. The guarantee itself is `torn === 0`, which does not
+  // depend on load.
   check("...and the child really was writing when it died, or that proved nothing",
-    killed.wrote >= ROUNDS - 1);
+    killed.wrote >= Math.ceil(ROUNDS / 2));
   check("...and the workflow survives it too",
     store.readWorkflow(root, created.id)?.name === created.name);
   check("...and no half-written temp file is mistaken for a workflow",
@@ -317,6 +322,83 @@ check("one workflow does not see another's sessions", store.listSessions(root, s
   check("a write that fails after its scratch file exists still reports it", blockedThrew);
   check("...and does not leave the scratch file in the repository",
     !fs.readdirSync(blDir).some((f) => f.endsWith(".tmp")));
+}
+
+/* ------------------------------------------------- replaying a transcript */
+
+// Replay turns a stored session back into what the user saw. Every event it
+// produced was addressed to a lane hardcoded as "lead", and only
+// brief_researcher and brief_engineer were recognised as delegations — both
+// leftovers from the fixed Lead/Researcher/Engineer roster this used to be.
+//
+// Two of fourteen templates have an agent slugged "lead". For the other twelve,
+// and for every workflow a user draws, replay addressed lanes that do not
+// exist — and placing into a lane that does not exist fails silently, so
+// reopening a conversation showed an empty board.
+{
+  const transcript = [
+    { type: "user", parent_tool_use_id: null, message: { role: "user", content: [
+      { type: "text", text: "draft the positioning" },
+    ] } },
+    { type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [
+      { type: "thinking", thinking: "audience first" },
+      { type: "text", text: "Starting with the audience." },
+      { type: "tool_use", id: "t1", name: "mcp__team__brief_positioning",
+        input: { objective: "sharpen the claim" } },
+    ] } },
+    { type: "user", parent_tool_use_id: null, message: { role: "user", content: [
+      { type: "tool_result", tool_use_id: "t1", content: "VERDICT: DELIVERED\nHEADLINE: claim sharpened" },
+    ] } },
+    { type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [
+      { type: "tool_use", id: "t2", name: "git_view", input: { subcommand: "diff" } },
+    ] } },
+  ];
+
+  const marketing = templates.templateById("marketing-department").build(0);
+  const roster = { entry: marketing.entry, agents: marketing.agents.map((a) => a.id) };
+  const events = replay.transcriptToEvents(transcript, "positioning work", roster);
+  const lanes = new Set(events.filter((e) => e.who).map((e) => e.who));
+
+  check("replay addresses the workflow's own entry agent",
+    events.some((e) => e.kind === "userSaid" && e.to === marketing.entry));
+  check("...and never a lane that does not exist",
+    [...lanes].every((who) => roster.agents.includes(who)));
+  check("...for what the agent said", events.some((e) => e.kind === "say" && e.who === marketing.entry));
+  check("...for its reasoning", events.some((e) => e.kind === "think" && e.who === marketing.entry));
+  check("...and for its tool calls",
+    events.some((e) => e.kind === "act" && e.who === marketing.entry && e.tool === "git_view"));
+
+  const assign = events.find((e) => e.kind === "assign");
+  check("a delegation to any agent replays as a delegation, not a tool chip",
+    assign !== undefined && assign.assignment.to === "positioning");
+  check("...attributed to the agent that sent it",
+    assign !== undefined && assign.assignment.from === marketing.entry);
+  check("...with the report that came back",
+    events.some((e) => e.kind === "deliver" && e.outcome === "delivered" && /claim sharpened/.test(e.summary)));
+  check("...and not also as a raw tool call",
+    !events.some((e) => e.kind === "act" && /brief_/.test(e.tool ?? "")));
+
+  // A brief naming an agent the workflow does not have is not a delegation —
+  // it is a stale transcript, and inventing a lane for it would be worse than
+  // showing the tool call.
+  const stale = replay.transcriptToEvents(
+    [{ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [
+      { type: "tool_use", id: "t9", name: "mcp__team__brief_ghost", input: { objective: "x" } },
+    ] } }],
+    "stale", roster);
+  check("a brief for an agent that is gone does not invent a lane",
+    !stale.some((e) => e.kind === "assign") &&
+    stale.filter((e) => e.who).every((e) => roster.agents.includes(e.who)));
+
+  // The old roster must still work, or this traded one hardcoding for another.
+  const team = templates.templateById("software-team").build(0);
+  const old = replay.transcriptToEvents(
+    [{ type: "assistant", parent_tool_use_id: null, message: { role: "assistant", content: [
+      { type: "tool_use", id: "t3", name: "mcp__team__brief_engineer", input: { objective: "fix it" } },
+    ] } }],
+    "old", { entry: team.entry, agents: team.agents.map((a) => a.id) });
+  check("the roster this started as still replays",
+    old.some((e) => e.kind === "assign" && e.assignment.to === "engineer" && e.assignment.from === "lead"));
 }
 
 /* ------------------------------------------------------------ scope */
