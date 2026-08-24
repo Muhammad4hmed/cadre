@@ -169,9 +169,10 @@ export function resolveAgent(
   const defaults = workflow.defaults ?? {};
   const base = agent.tools ?? preset.tools;
 
-  const delegateTools = (opts.mayDelegate ?? true)
-    ? delegatesTo(workflow, agent.id).flatMap((edge) => [ns(`brief_${edge.to}`), ns(`ask_${edge.to}`)])
-    : [];
+  const ownDelegateTools = delegatesTo(workflow, agent.id)
+    .flatMap((edge) => [ns(`brief_${edge.to}`), ns(`ask_${edge.to}`)]);
+  const mayDelegate = opts.mayDelegate ?? true;
+  const delegateTools = mayDelegate ? ownDelegateTools : [];
 
   const tools = [...new Set([...base, ...delegateTools, ...(opts.speaksToUser ? ["AskUserQuestion"] : [])])];
 
@@ -192,6 +193,17 @@ export function resolveAgent(
     ...(agent.disallowedTools ?? []),
   ]);
   if (!opts.speaksToUser) denied.add("AskUserQuestion");
+
+  // At the depth cap, denied rather than merely not allowed.
+  //
+  // The server registers a brief tool for every arrow the agent has, whatever
+  // depth it is at — so leaving it out of the allow list only meant the call
+  // was not pre-approved, and fell through to the permission prompt. On
+  // `autonomous` there is no prompt to fall through to: that level sets
+  // `bypassPermissions` precisely so nothing asks. The counter that bounds a
+  // delegate cycle therefore held on every level except the one built to run
+  // unattended, which is the one where an unbounded loop costs real money.
+  if (!mayDelegate) for (const tool of ownDelegateTools) denied.add(tool);
 
   return {
     id: agent.id,

@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.16.0 — the depth cap did not hold on the one level that runs unattended
+
+A delegate arrow may loop: A briefs B, B briefs A back. That is how a peer asks
+a question, so nothing about the graph's shape bounds the recursion — a counter
+does. At the cap an agent was meant to lose its delegate tools.
+
+It lost them from the **allow** list. The server registers a brief tool for
+every arrow an agent has, whatever depth it is at, so leaving one out of the
+allow list did not remove it: it meant the call was not pre-approved and fell
+through to the permission prompt. Which works — on the three autonomy levels
+that prompt.
+
+`autonomous` sets `bypassPermissions`, precisely so that nothing asks. So the
+bound that stops a two-agent loop recursing held everywhere except the level
+built to run without a person watching, where an unbounded loop is also an
+unbounded bill. The default spend cap is `0`, meaning no cap.
+
+The tools are denied at the cap now, not merely unlisted, so the bound does not
+depend on there being someone to ask. Everything else the agent has is
+untouched — it simply cannot go deeper.
+
+Nothing exercised this before: `maxDepth` appeared in a test config and no test
+followed a cycle down. Five checks do now, on `autonomous` specifically, and
+going back to omitting rather than denying turns three of them red.
+
+1318 checks.
+
 ## 0.15.2 — the README described the wrong half of what happens to a loop
 
 It said a `then` arrow that comes back on itself is refused a save. The builder

@@ -447,6 +447,71 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- I2. a cycle of briefs stops at the cap --------------------------------
+// A delegate arrow may loop: A briefs B, B briefs A back. That is how a peer
+// asks a question, so the shape of the graph cannot bound the recursion — a
+// counter does.
+//
+// The server registers a brief tool for every arrow an agent has, at any depth.
+// So dropping it from the allow list at the cap only meant the call was not
+// pre-approved and fell to the permission prompt — and `autonomous` sets
+// bypassPermissions precisely so nothing asks. The bound held everywhere except
+// the level built to run unattended. It has to be a denial, not an omission.
+fake.__instances.length = 0;
+{
+  const cyclic = {
+    ...WORKFLOW,
+    edges: [
+      { from: "lead", to: "engineer", kind: "delegate" },
+      { from: "engineer", to: "lead", kind: "delegate" },
+    ],
+  };
+  const { session } = makeSession({ ...CONFIG, workflow: cyclic, maxDepth: 3, autonomy: "autonomous" });
+  await session.prepare();
+  session.send("go");
+  await tick();
+
+  const briefsOf = (inst) => (inst?.options?.mcpServers?.team?.tools ?? [])
+    .filter((t) => t.name.startsWith("brief_"));
+  const allowed = (inst) => (inst?.options?.allowedTools ?? []).filter((t) => t.includes("brief_"));
+  const denied = (inst) => (inst?.options?.disallowedTools ?? []).filter((t) => t.includes("brief_"));
+
+  const running = [];
+  const trail = [];
+  let inst = fake.__instances[0];
+  for (let step = 0; step < 6; step += 1) {
+    trail.push({ allowed: allowed(inst).length, denied: denied(inst).length });
+    const offered = briefsOf(inst);
+    if (!offered.length || denied(inst).length) break;
+    running.push(offered[0].handler({
+      objective: "keep going", done_when: "y", decide_yourself: ["z"],
+      context: [], authority: "EXPLORE", paths: [],
+    }));
+    await tick();
+    const next = fake.__instances.at(-1);
+    if (next === inst) break;
+    inst = next;
+  }
+
+  check(`I6 the loop is stopped by depth ${CONFIG.maxDepth}, not left to run`,
+    trail.length === 4 && trail.at(-1).allowed === 0);
+  check("I7 ...and the agent at the cap is denied the tool, not merely unapproved",
+    trail.at(-1).denied > 0);
+  check("I8 ...while every level above it could still delegate",
+    trail.slice(0, -1).every((t) => t.allowed > 0 && t.denied === 0));
+
+  // Denied at the cap must not mean crippled: everything else still works.
+  const deepest = fake.__instances.at(-1);
+  check("I9 the agent at the cap keeps its other tools",
+    (deepest?.options?.mcpServers?.team?.tools ?? []).some((t) => t.name === "git_view"));
+  check("I10 ...and no prompt is what stands between the loop and going deeper",
+    deepest?.options?.permissionMode === "bypassPermissions" && denied(deepest).length > 0);
+
+  for (const i of fake.__instances) i.end();
+  await Promise.allSettled(running);
+  session.dispose();
+}
+
 // ---- J. rewind needs a turn to aim at --------------------------------------
 fake.__instances.length = 0;
 {

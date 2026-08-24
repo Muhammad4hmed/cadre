@@ -42,7 +42,7 @@ dropped it you have already forgotten which one you meant.
 
 | | |
 |---|---|
-| **A → B** *delegate* | B becomes a tool on A. A writes a brief, B runs with an empty context, returns one report, A carries on. **Cycles are fine** — A→B→A is how a peer asks back — so depth is bounded by a counter rather than by the shape of the graph. |
+| **A → B** *delegate* | B becomes a tool on A. A writes a brief, B runs with an empty context, returns one report, A carries on. **Cycles are fine** — A→B→A is how a peer asks back — so depth is bounded by a counter rather than by the shape of the graph. At the cap the delegate tools are denied outright, so the bound holds on `autonomous` too, where nothing prompts. |
 | **A ⇥ B** *then* | B starts automatically when A finishes, with A's output as its input. No tool call, no decision. These must be acyclic: a loop is kept — a half-drawn workflow is a normal state to be in — but Launch is refused until you break it. |
 
 You talk to the **entry agent** by default, and a dropdown switches to any other — it has
