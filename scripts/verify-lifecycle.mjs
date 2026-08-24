@@ -698,6 +698,80 @@ for (const level of ["standard", "supervised", "plan", "autonomous"]) {
   session.dispose();
 }
 
+// ---- I1f. the confinement has to survive a symlink -------------------------
+// `path.resolve` is lexical: it collapses `..` and stops there. A `.cadre/`
+// entry that is a link somewhere else therefore reads as inside the scratchpad
+// and is not, so a read-only agent could write anywhere on the machine through
+// one. A cloned repository can ship such a link, and a build agent in the same
+// workflow has a shell to make one with — and on `autonomous` nothing prompts,
+// so nobody would see it happen.
+//
+// Real directories and a real symlink, because this is precisely the part that
+// no string test can see.
+fake.__instances.length = 0;
+{
+  const home = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cadre-home-")));
+  const repo = path.join(home, "repo");
+  const outside = path.join(home, "outside");
+  fs.mkdirSync(path.join(repo, ".cadre"), { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  fs.writeFileSync(path.join(outside, "authorized_keys"), "original\n");
+  fs.symlinkSync(outside, path.join(repo, ".cadre", "escape"));
+
+  const ESCAPE = ".cadre/escape/authorized_keys";
+  const hookOf = (o) => {
+    const fn = o.hooks?.PreToolUse?.[0]?.hooks?.[0];
+    return typeof fn === "function" ? fn : async () => ({});
+  };
+  const writeEvent = (file) => ({
+    hook_event_name: "PreToolUse", tool_name: "Write",
+    tool_input: { file_path: file, content: "x" }, tool_use_id: "t",
+  });
+
+  for (const level of ["standard", "autonomous"]) {
+    const { session } = makeSession({ ...CONFIG, cwd: repo, autonomy: level });
+    await session.prepare();
+    session.send("x");
+    await tick();
+    const o = fake.__instances.at(-1).options;
+    const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+
+    const gate = await o.canUseTool("Write", { file_path: ESCAPE, content: "x" }, ctx);
+    check(`I1f a write through a symlink out of the workspace is refused on ${level}`,
+      gate.behavior === "deny");
+
+    // The half that actually runs on `autonomous`, where nothing prompts.
+    const viaHook = await hookOf(o)(writeEvent(ESCAPE), "t", { signal: ctx.signal });
+    check(`...and the hook refuses it too on ${level}`,
+      viaHook?.hookSpecificOutput?.permissionDecision === "deny");
+
+    const ordinary = await hookOf(o)(writeEvent(".cadre/notes.md"), "t", { signal: ctx.signal });
+    check(`...while the scratchpad itself is left alone on ${level}`,
+      ordinary?.hookSpecificOutput === undefined);
+    session.dispose();
+  }
+
+  // The other half, or the fix is a new bug: a workspace reached THROUGH a link
+  // is how every macOS temp directory behaves, and refusing those would confine
+  // every agent on that platform to nothing at all.
+  const viaLink = path.join(home, "linked");
+  fs.symlinkSync(repo, viaLink);
+  const { session } = makeSession({ ...CONFIG, cwd: viaLink, autonomy: "standard" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const linkedHook = hookOf(fake.__instances.at(-1).options);
+  const allowed = await linkedHook(writeEvent(".cadre/notes.md"), "t", { signal: new AbortController().signal });
+  check("I1g a workspace reached through a symlink can still write its own scratchpad",
+    allowed?.hookSpecificOutput === undefined);
+  const blocked = await linkedHook(writeEvent(ESCAPE), "t", { signal: new AbortController().signal });
+  check("...and the escape is still refused from there",
+    blocked?.hookSpecificOutput?.permissionDecision === "deny");
+  session.dispose();
+
+  fs.rmSync(home, { recursive: true, force: true });
+}
+
 // ---- I2. a cycle of briefs stops at the cap --------------------------------
 // A delegate arrow may loop: A briefs B, B briefs A back. That is how a peer
 // asks a question, so the shape of the graph cannot bound the recursion — a

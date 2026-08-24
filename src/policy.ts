@@ -1,3 +1,5 @@
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Options, PermissionMode, Settings } from "@anthropic-ai/claude-agent-sdk";
 
 /**
@@ -69,6 +71,48 @@ const PROTECTED = [
   /(^|\/)\.npmrc$/i,
   /(^|\/)\.pypirc$/i,
 ];
+
+/**
+ * Resolves a path through symlinks, including one that does not exist yet.
+ *
+ * `path.resolve` is purely lexical: it collapses `..` and stops there. So a
+ * containment check built on it is defeated by a symlink — `.cadre/escape`
+ * pointing at `~/.ssh` reads as inside the scratchpad and is not. That is not
+ * hypothetical here: a cloned repository can ship one, and a build agent in the
+ * same workflow has a shell to make one with.
+ *
+ * The file being written may not exist, so the longest existing ancestor is
+ * resolved and the remaining segments re-appended.
+ */
+export function realPath(candidate: string): string {
+  let current = path.resolve(candidate);
+  const tail: string[] = [];
+
+  for (;;) {
+    try {
+      return tail.length ? path.join(fs.realpathSync(current), ...tail) : fs.realpathSync(current);
+    } catch {
+      const parent = path.dirname(current);
+      // Reached the filesystem root without finding anything that exists.
+      if (parent === current) return path.resolve(candidate);
+      tail.unshift(path.basename(current));
+      current = parent;
+    }
+  }
+}
+
+/**
+ * Whether `candidate` really is inside `root`, symlinks and all.
+ *
+ * Both sides are resolved: the workspace itself is often reached through one
+ * (`/tmp` on macOS, a home directory on a network mount), and comparing a real
+ * path against a lexical one would then refuse writes that are perfectly fine.
+ */
+export function isInside(root: string, candidate: string): boolean {
+  const base = realPath(root);
+  const target = realPath(candidate);
+  return target === base || target.startsWith(base + path.sep);
+}
 
 export function isProtectedPath(candidate: string): boolean {
   const normalised = candidate.replace(/\\/g, "/").replace(/^\.\//, "");

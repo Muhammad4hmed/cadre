@@ -20,7 +20,7 @@ import { composeSystemPrompt } from "./protocol";
 import * as templates from "./templates";
 import { createWorkflowServer, toolAliases } from "./tools";
 import { contextPreamble, surveyProject } from "../team/project";
-import { policyFor, settingSourcesFor, type Autonomy } from "../policy";
+import { isInside, policyFor, settingSourcesFor, type Autonomy } from "../policy";
 import type { Billing } from "../billing";
 import { TEAM_PREFIX, describeTool, shortToolName } from "../team/describe";
 
@@ -1525,9 +1525,12 @@ export class WorkflowSession implements vscode.Disposable {
       roots.push(this.config.docsPath);
     }
 
-    const workspace = path.resolve(this.config.cwd);
-    const inside = (candidate: string): boolean =>
-      candidate === workspace || candidate.startsWith(workspace + path.sep);
+    // Symlink-aware on both sides. A lexical check collapses `..` and stops
+    // there, so `.cadre/escape -> ~/.ssh` reads as inside the scratchpad and is
+    // not — and a build agent in the same workflow has a shell to create one
+    // with. Resolving the workspace too matters because it is frequently
+    // reached through a symlink itself.
+    const inside = (candidate: string): boolean => isInside(this.config.cwd, candidate);
 
     const allowed = roots.some((root) => {
       const base = path.resolve(this.config.cwd, root);
@@ -1537,7 +1540,7 @@ export class WorkflowSession implements vscode.Disposable {
       // to have no editor a write anywhere on the machine, with no prompt at
       // all on `autonomous`.
       if (!inside(base)) return false;
-      return resolved === base || resolved.startsWith(base + path.sep);
+      return isInside(base, resolved);
     });
     if (allowed) return undefined;
 

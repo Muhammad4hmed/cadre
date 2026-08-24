@@ -1,5 +1,4 @@
 import { execFile } from "node:child_process";
-import * as fs from "node:fs";
 import * as path from "node:path";
 import { promisify } from "node:util";
 import * as z from "zod";
@@ -9,7 +8,7 @@ import type { AgentId, Workflow } from "./model";
 import { agentById, delegatesTo } from "./model";
 import { TEAM_SERVER } from "./presets";
 import { buildPaper, checkClaims } from "../paper";
-import { PROTECTED_EXCLUDES, isProtectedPath } from "../policy";
+import { PROTECTED_EXCLUDES, isInside, isProtectedPath } from "../policy";
 
 const run = promisify(execFile);
 
@@ -91,30 +90,6 @@ const CONSULT_FIELDS = {
   question: z.string().describe("One specific question. If you are asking them to figure something out, that is a brief, not a question."),
   why: z.string().describe("What you will do differently depending on the answer."),
 };
-
-/**
- * A path with its existing part resolved through symlinks and the rest left as
- * written.
- *
- * `fs.realpathSync` throws on anything that is not there yet, and a paper
- * directory usually is not, so the deepest ancestor that does exist is resolved
- * and the missing tail appended to it. That makes a link out of the workspace
- * visible without refusing directories that have simply not been created.
- */
-function resolveLinks(target: string): string {
-  const tail: string[] = [];
-  let cursor = target;
-  for (;;) {
-    try {
-      return path.join(fs.realpathSync(cursor), ...tail.slice().reverse());
-    } catch {
-      const parent = path.dirname(cursor);
-      if (parent === cursor) return target;   // reached the root; nothing resolved
-      tail.push(path.basename(cursor));
-      cursor = parent;
-    }
-  }
-}
 
 export interface WorkflowToolContext {
   /**
@@ -323,19 +298,12 @@ export function createWorkflowServer(
         // tool takes a directory, so it is the one place a team tool can be
         // aimed somewhere, and `check` reports whether a quoted line is present
         // in a file — escaping reads, not only writes.
-        const root = path.resolve(ctx.cwd);
-        const inside = (child: string, parent: string): boolean =>
-          child === parent || child.startsWith(parent + path.sep);
-        if (!inside(dir, root)) {
-          return text("The paper must live inside the workspace.");
-        }
-        // And again through symlinks, because `path.resolve` is string work: a
-        // `docs/paper` that is a link to /etc passes the test above while every
-        // read and write lands outside. Both sides are resolved or neither is —
-        // a workspace under /tmp is itself a link on macOS, and comparing a
-        // resolved child against an unresolved parent would refuse every
-        // legitimate paper there.
-        if (!inside(resolveLinks(dir), resolveLinks(root))) {
+        // Symlinks and all: `path.resolve` is string work, so a `docs/paper`
+        // that links to /etc passes a lexical test while every read and write
+        // lands outside. `isInside` resolves both sides — the workspace is
+        // frequently reached through a link itself — and is the same check the
+        // scratchpad confinement uses, so the two cannot drift apart.
+        if (!isInside(ctx.cwd, dir)) {
           return text("The paper must live inside the workspace.");
         }
 

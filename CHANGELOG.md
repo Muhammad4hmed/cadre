@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.20.1 — a read-only agent could write anywhere through a symlink
+
+`path.resolve` is lexical. It collapses `..` and stops there, so a containment
+check built on it does not see a link at all. A `.cadre/escape` pointing
+somewhere else read as inside the scratchpad and was not — which meant a
+read-only agent, whose entire confinement is "you may write in `.cadre/` and the
+docs folder", could write anywhere on the machine through one.
+
+Not hypothetical: a cloned repository can ship such a link, and a build agent in
+the same workflow has a shell to make one with. On `autonomous` nothing prompts,
+so nobody would have seen it happen.
+
+Demonstrated before it was fixed. Against the previous release, a write to
+`.cadre/escape/authorized_keys` came back ALLOWED; with the fix it is refused,
+and `.cadre/notes.md` still goes through.
+
+Both sides are resolved, not just the target. A workspace is frequently reached
+through a link itself — every macOS temp directory is — and comparing a real
+path against a lexical one would refuse every legitimate write on that platform.
+The mutation that resolves only the target is caught by that check rather than
+passing as a fix.
+
+The same containment now backs the `paper` tool, which had grown its own copy in
+0.19.0. Two implementations of one security check is how one of them ends up
+wrong, so there is a single `isInside` in `policy.ts` and both call it. Both
+suites exercise it independently with real directories and real symlinks, and
+each of the three mutations is caught in both.
+
+Eight checks here, on top of the two the paper tool already had.
+
+1510 checks.
+
 ## 0.20.0 — two windows, one file
 
 **A second VS Code window could silently destroy your work.** Workflows are plain files in
