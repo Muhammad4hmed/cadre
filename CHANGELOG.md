@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.18.5 — two core paths that ran in no test, and a correction
+
+No bug in this one. Two paths that nothing exercised, now held down, and a
+number from 0.18.2 that was wrong.
+
+**A `then` arrow chaining at all.** Handoffs were tested only for what happens
+when Stop is pressed: that a chain does not start the next agent after an
+interrupt. Whether a chain runs when nothing goes wrong — on the arrow most
+people draw first, leaving the agent they are talking to — was covered nowhere.
+Ten checks now: the next agent starts, it is handed the previous one's output
+and told who it came from, the composer stays shut until the chain finishes and
+reopens after, the card is drawn once rather than twice, and on a two-hop chain
+the third agent reads the second's output rather than the trigger's. That last
+one is a fix from an earlier release that had no test under it.
+
+**A tool chip closing.** The runner's handling of tool results — the half that
+closes the chip the `act` event opened — ran in no suite at all. A chip that
+never resolves is the panel claiming something is still working minutes after it
+finished. Ten checks: the result closes the chip it belongs to, a failed tool is
+closed as failed, whitespace is collapsed, a five-thousand-character result is
+cut to something a lane can hold, and a result carrying no text at all still
+closes the chip instead of leaving it spinning.
+
+**The correction.** 0.18.2 said 145 functions in `src/` are never executed by
+any suite. That number was too high. The analysis keyed each function on a
+snippet of its compiled body, and esbuild renames locals per bundle — so one
+function tested through one entry point was counted as dead when seen through
+another. It also suffixes a function whose name collides with another module's
+in the same bundle, splitting the key a second way. Keyed properly, the figure
+is 79, of which 55 are named functions and 27 of those are editor command
+handlers. The two findings that came out of that sweep stand on their own: both
+were confirmed by writing tests that failed against the shipped code.
+
+1446 checks.
+
 ## 0.18.4 — the live end-to-end test had not built for months
 
 Chasing the last release's finding — a module invisible to every suite — every

@@ -1293,6 +1293,151 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- Y. a `then` arrow actually chains ------------------------------------
+// Handoffs were tested only for what happens when Stop is pressed. Whether a
+// chain runs at all — on the arrow most people draw first, leaving the agent
+// they are talking to — was covered nowhere, and neither was which output the
+// second hop reads.
+fake.__instances.length = 0;
+{
+  const chained = {
+    ...WORKFLOW,
+    agents: [...WORKFLOW.agents, agent("publisher", "Publisher", "build")],
+    edges: [{ from: "lead", to: "publisher", kind: "then" }],
+  };
+  const { session, of, lastBusy } = makeSession({ ...CONFIG, workflow: chained });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const main = fake.__instances[0];
+  main.emit(fake.initMessage());
+  main.emit(fake.resultMessage({ result: "THE DRAFT" }));
+  await tick();
+
+  check("Y1 a then arrow leaving the agent you talk to starts the next agent",
+    fake.__instances.length === 2);
+  const handed = fake.__instances[1]?.prompt ?? "";
+  check("Y2 ...handing it that agent's output as its input", handed.includes("THE DRAFT"));
+  check("Y3 ...and saying who it came from", /HANDOFF from Lead/.test(handed));
+  check("Y4 the composer stays shut while the chain is still running", lastBusy() === true);
+
+  fake.__instances[1]?.emit(fake.resultMessage({ result: "PUBLISHED" }));
+  fake.__instances[1]?.end();
+  await tick();
+  await tick();
+  check("Y5 ...and reopens once the chain is done", lastBusy() === false);
+  check("Y6 the handoff is drawn as a card, once", of("assign").length === 1);
+  session.dispose();
+}
+
+// Two hops. C reads B's output, not A's — the chain is a breadth-first order,
+// so the trigger stops being the sender after the first hop.
+fake.__instances.length = 0;
+{
+  const twoHop = {
+    ...WORKFLOW,
+    agents: [...WORKFLOW.agents, agent("writer", "Writer", "build"), agent("publisher", "Publisher", "build")],
+    edges: [
+      { from: "lead", to: "writer", kind: "then" },
+      { from: "writer", to: "publisher", kind: "then" },
+    ],
+  };
+  const { session } = makeSession({ ...CONFIG, workflow: twoHop });
+  await session.prepare();
+  session.send("go");
+  await tick();
+  fake.__instances[0].emit(fake.initMessage());
+  fake.__instances[0].emit(fake.resultMessage({ result: "OUTLINE" }));
+  await tick();
+
+  const first = fake.__instances[1];
+  check("Y7 the first hop is handed the trigger's output", (first?.prompt ?? "").includes("OUTLINE"));
+  first?.emit(fake.resultMessage({ result: "ARTICLE" }));
+  first?.end();
+  await tick();
+  await tick();
+
+  const second = fake.__instances[2];
+  check("Y8 the second hop runs", Boolean(second));
+  check("Y9 ...and reads the hop before it, not the trigger",
+    (second?.prompt ?? "").includes("ARTICLE") && !(second?.prompt ?? "").includes("OUTLINE"));
+  check("Y10 ...and is attributed to the agent that actually handed it on",
+    /HANDOFF from Writer/.test(second?.prompt ?? ""));
+  session.dispose();
+}
+
+// ---- Z. a tool chip has to stop spinning ----------------------------------
+// The runner's handling of tool results — the half that closes the chip the
+// `act` event opened — ran in no suite at all. A chip that never resolves is
+// the UI saying "still working" about something that finished minutes ago.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("go");
+  await tick();
+  const cli = fake.__instances[0];
+  cli.emit(fake.initMessage());
+
+  const used = (id, name) => cli.emit({
+    type: "assistant", parent_tool_use_id: null,
+    message: { role: "assistant", content: [{ type: "tool_use", id, name, input: { file_path: "/repo/x.ts" } }] },
+  });
+  const resulted = (id, extra) => cli.emit({
+    type: "user", parent_tool_use_id: null,
+    message: { role: "user", content: [{ type: "tool_result", tool_use_id: id, ...extra }] },
+  });
+
+  used("t1", "Read");
+  await tick();
+  check("Z1 a tool call opens a chip", of("act").some((e) => e.act === "t1"));
+
+  resulted("t1", { is_error: false, content: [{ type: "text", text: "40   lines\nread" }] });
+  await tick();
+  const first = of("actEnd").find((e) => e.act === "t1");
+  check("Z2 ...and its result closes that same chip", Boolean(first));
+  check("Z3 ...marked as having worked", first?.ok === true);
+  check("Z4 ...carrying the result, with the whitespace collapsed",
+    first?.summary === "40 lines read");
+
+  used("t2", "Bash");
+  resulted("t2", { is_error: true, content: [{ type: "text", text: "not a git repository" }] });
+  await tick();
+  check("Z5 a failed tool is closed as failed, not left open",
+    of("actEnd").find((e) => e.act === "t2")?.ok === false);
+
+  // A string result, which is what most tools actually return.
+  used("t3", "Read");
+  resulted("t3", { content: "plain string result" });
+  await tick();
+  check("Z6 a string result is carried as it is",
+    of("actEnd").find((e) => e.act === "t3")?.summary === "plain string result");
+  check("Z7 ...and a result with no error flag counts as having worked",
+    of("actEnd").find((e) => e.act === "t3")?.ok === true);
+
+  // Long output must not be pasted whole into a chip.
+  used("t4", "Read");
+  resulted("t4", { content: [{ type: "text", text: "x".repeat(5000) }] });
+  await tick();
+  const long = of("actEnd").find((e) => e.act === "t4")?.summary ?? "";
+  check("Z8 a huge result is cut down rather than pasted into the lane",
+    long.length <= 201 && long.endsWith("…"));
+
+  // A result that carries no text at all — an image, or nothing.
+  used("t5", "Read");
+  resulted("t5", { content: [{ type: "image", source: { type: "base64", data: "AAA" } }] });
+  await tick();
+  check("Z9 a result with no text closes the chip anyway",
+    of("actEnd").some((e) => e.act === "t5"));
+
+  // A whole message that is a plain string rather than blocks.
+  cli.emit({ type: "user", parent_tool_use_id: null, message: { role: "user", content: "just text" } });
+  await tick();
+  check("Z10 a string message body is ignored rather than throwing",
+    of("notice").every((n) => !/error/i.test(n.text)));
+  session.dispose();
+}
+
 // ---- R6b. the guard itself, not the accident -------------------------------
 // The tests above pass even without the guard, because aborting the query makes
 // the run throw and the chain never reaches its next node. That is the accident
