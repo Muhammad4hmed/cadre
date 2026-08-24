@@ -135,7 +135,14 @@ export type TeamEvent =
   /** A refined prompt coming back for the user to accept, edit or reject. */
   | { kind: "refined"; agent: AgentId; prompt: string; note: string }
   /** A workflow reached disk. `auto` distinguishes a background save. */
-  | { kind: "saved"; workflowId: string; at: number; auto: boolean }
+  | {
+      kind: "saved";
+      workflowId: string;
+      at: number;
+      auto: boolean;
+      /** Nothing was written: the file on disk had moved. */
+      conflict?: boolean;
+    }
   | { kind: "refining"; agent: AgentId; busy: boolean }
   /** Progress for the "build it for me" flow. */
   | { kind: "building"; busy: boolean; note?: string }

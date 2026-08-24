@@ -454,6 +454,7 @@
     "verify:fast": "node scripts/run-suites.mjs",
     "verify:team": "node scripts/verify-team.mjs",
     "verify:team:dry": "node scripts/verify-team.mjs --dry",
+    "verify:committed": "node scripts/verify-committed.mjs",
     "verify:auth": "node scripts/verify-auth.mjs",
     "publish": "vsce publish --no-dependencies",
     "verify:trust": "node scripts/verify-trust.mjs",
