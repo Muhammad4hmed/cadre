@@ -709,6 +709,93 @@ check("a link is a link", /<a href="https:\/\/example\.com\/docs"/.test(html));
 check("a pasted URL becomes one too", /<a href="https:\/\/example\.com\/raw"/.test(html));
 check("no raw markdown punctuation is left behind", !/###|\*\*/.test(rendered ? rendered.textContent : "x**"));
 
+// ---- a long reply must not be re-parsed on every token ---------------------
+// Rendering re-parses the whole message, and it ran on every delta: a reply of
+// n tokens cost n parses, each longer than the last, with a full subtree
+// rebuild behind every one. That is the view people sit and watch, and a team
+// streams several lanes into it at once, so the cost is multiplied by the size
+// of the team. Coalesced to one repaint per frame, with the first delta painted
+// straight away so a reply still appears the moment it starts.
+//
+// Counted through the innerHTML setter, because the number of parses is the
+// whole point and no amount of reading the final text can see it.
+send({ kind: "clear" });
+{
+  const own = Object.getOwnPropertyDescriptor(Element.prototype, "innerHTML");
+  let writes = 0;
+  Object.defineProperty(Element.prototype, "innerHTML", {
+    configurable: true,
+    enumerable: own.enumerable,
+    get: own.get,
+    set(value) { writes++; own.set.call(this, value); },
+  });
+
+  const CHUNKS = 40;
+  try {
+    for (let i = 0; i < CHUNKS; i++) {
+      send({ kind: "say", who: "one", turn: "long", delta: "chunk" + i + " " });
+    }
+    // sayEnd paints whatever is still owed, so the last tokens are never left
+    // waiting on a frame — which is also what makes this measurable in a
+    // synchronous driver.
+    send({ kind: "sayEnd", who: "one", turn: "long" });
+  } finally {
+    Object.defineProperty(Element.prototype, "innerHTML", own);
+  }
+
+  check("forty tokens do not cost forty renders", writes < 5);
+  const lane = document.querySelector(".stream .body") || document.querySelector(".body");
+  const text = lane ? lane.textContent : "";
+  check("...and every token is still there", text.includes("chunk0 ") && text.includes("chunk39"));
+  check("...in the order they arrived",
+    text.indexOf("chunk0 ") < text.indexOf("chunk7 ") && text.indexOf("chunk7 ") < text.indexOf("chunk39"));
+}
+
+// Markdown split across deltas has to be parsed as the whole message, not as
+// the fragments it arrived in. Appending each delta as it lands would render
+// "**bo" and "ld**" as literal asterisks and read as a rendering bug.
+send({ kind: "clear" });
+for (const piece of ["A **bo", "ld** word and \`in", "line\` code"]) {
+  send({ kind: "say", who: "one", turn: "split", delta: piece });
+}
+send({ kind: "sayEnd", who: "one", turn: "split" });
+{
+  const lane = document.querySelector(".stream .body") || document.querySelector(".body");
+  const out = lane ? lane.innerHTML : "";
+  check("markdown split across deltas is parsed as one message",
+    /<strong>bold<\/strong>/.test(out) && /<code>inline<\/code>/.test(out));
+}
+
+// ---- reasoning, which no test had ever rendered ---------------------------
+// Thinking arrives as deltas like everything else and is folded into a
+// collapsible block. Nothing had ever sent one, so this path took the
+// coalescing above completely on trust.
+send({ kind: "clear" });
+for (const piece of ["weighing ", "two ", "options"]) {
+  send({ kind: "think", who: "one", turn: "r", delta: piece });
+}
+send({ kind: "sayEnd", who: "one", turn: "r" });
+{
+  const details = document.querySelector("details.reasoning");
+  check("reasoning renders as a foldable block", details !== null);
+  check("...saying whose reasoning it is",
+    /reasoning/i.test(details ? (details.querySelector("summary") || {}).textContent || "" : ""));
+  check("...folded by default, so it cannot bury the reply", details ? details.open !== true : false);
+  const body = details ? details.querySelector(".body") : null;
+  check("...carrying every delta, in the order they arrived",
+    (body ? body.textContent : "") === "weighing two options");
+}
+
+// Reasoning is the model's raw text and is never markup.
+send({ kind: "clear" });
+send({ kind: "think", who: "one", turn: "r2", delta: "<b>not bold</b>" });
+send({ kind: "sayEnd", who: "one", turn: "r2" });
+{
+  const body = document.querySelector("details.reasoning .body");
+  check("reasoning is escaped, not rendered",
+    Boolean(body) && body.textContent === "<b>not bold</b>" && body.querySelector("b") === null);
+}
+
 // Escaping must survive all of it.
 send({ kind: "clear" });
 send({ kind: "say", who: "one", turn: "x", delta: "<img src=x onerror=alert(1)> and \`a**b**c\`" });

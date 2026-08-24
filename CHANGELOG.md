@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.19.2 — a reply was re-parsed on every token
+
+Rendering re-parses the whole message, and it ran on every delta. A reply of two
+thousand tokens meant two thousand parses, each one longer than the last, with a
+full subtree rebuild behind every one — quadratic in the length of the reply.
+That is the view people sit and watch, and a team streams several lanes into it
+at once, so the cost is multiplied by the size of the team. Long replies
+stuttered, and scrolling fought back, while the agent was still writing.
+
+One repaint per frame now. The first delta still paints immediately, because a
+reply has to appear the moment it starts, and everything after it is coalesced.
+`sayEnd` paints whatever is still owed, so the last tokens are never left
+waiting on a frame a hidden panel will not run. The text is identical either
+way; it is simply not rebuilt on every token. Forty deltas cost two renders.
+
+Reasoning got the same treatment. `textContent +=` reads the whole run back and
+writes it again, which has the same shape of cost as the markdown path, just
+cheaper per token.
+
+Seven checks. The count is measured through the `innerHTML` setter, because the
+number of parses is the entire point and no amount of reading the final text can
+see it. Markdown split across deltas is checked too: "\*\*bo" and "ld\*\*"
+arriving separately have to be parsed as one message, which is what rules out
+the obvious optimisation of appending each delta as it lands.
+
+And reasoning had never been rendered in a test at all — not one event of that
+kind had ever been sent — so this went in blind on that path until five checks
+were written for it.
+
+Six mutations. The one that never paints the first delta synchronously is caught
+by two tests that already existed, which is what makes that part of the design
+load-bearing rather than incidental.
+
+1481 checks.
+
 ## 0.19.1 — a button that quietly did nothing
 
 Every command from the panel was fire-and-forget. `void this.deleteWorkflow(id)`,

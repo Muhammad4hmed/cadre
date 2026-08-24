@@ -53,6 +53,15 @@ export class TeamController implements vscode.Disposable {
   private editing: Workflow | undefined;
   /** The workflow whose page is open, which need not be either of the above. */
   private viewing: Workflow | undefined;
+  /**
+   * The revision we last put on disk, per workflow.
+   *
+   * Tracked here rather than trusting the draft the webview sends back: the
+   * draft is whatever the user is editing, and its revision is whatever it was
+   * when the builder opened. What matters for a conflict is whether the FILE
+   * has moved since we last wrote it, and only the host knows that.
+   */
+  private readonly onDisk = new Map<string, number>();
   /** Set by "Resume Session"; consumed by the next session that starts. */
   private pendingResume: string | undefined;
   /** True while a stored transcript is being written into the lanes. */
@@ -747,8 +756,16 @@ export class TeamController implements vscode.Disposable {
     // rejection surface as an unhandled promise nobody sees.
     let saved: Workflow;
     try {
-      saved = workflows.writeWorkflow(root, workflow, workflow.scope);
+      // Refuse to clobber a file someone else moved — another window, a pull,
+      // or a hand edit. Unknown means we have not written it yet, so there is
+      // nothing to conflict with.
+      const expect = this.onDisk.get(workflow.id);
+      saved = workflows.writeWorkflow(root, workflow, workflow.scope, expect);
     } catch (err) {
+      if (err instanceof workflows.WorkflowConflict) {
+        await this.resolveConflict(workflow, err, launch, auto);
+        return;
+      }
       this.log.error(`refused to save workflow: ${describeError(err)}`);
       this.broadcastTo({ kind: "saved", workflowId: workflow.id, at: Date.now(), auto });
       this.broadcast({
@@ -759,6 +776,7 @@ export class TeamController implements vscode.Disposable {
       return;
     }
     this.editing = saved;
+    this.onDisk.set(saved.id, saved.revision);
     if (this.viewing?.id === saved.id) this.viewing = saved;
     this.log.info(`${auto ? "autosaved" : "saved"} workflow ${saved.id} (${saved.agents.length} agents, ${saved.edges.length} arrows)`);
     this.broadcastTo({ kind: "saved", workflowId: saved.id, at: saved.updatedAt, auto });
@@ -783,6 +801,78 @@ export class TeamController implements vscode.Disposable {
     }
     // An autosave must not move the user, redraw the canvas, or steal focus.
     if (!auto) await this.publishScreen();
+  }
+
+  /**
+   * Someone else changed the file while it was open here.
+   *
+   * An autosave never asks and never overwrites: it fires while the user is
+   * typing, and a modal every 45 seconds is its own kind of data loss. It says
+   * so once and leaves the choice for a deliberate save, where the user is
+   * actually present to make it.
+   */
+  private async resolveConflict(
+    workflow: Workflow,
+    conflict: workflows.WorkflowConflict,
+    launch: boolean,
+    auto: boolean,
+  ): Promise<void> {
+    this.log.warn(conflict.message);
+    this.broadcastTo({ kind: "saved", workflowId: workflow.id, at: Date.now(), auto, conflict: true });
+
+    if (auto) {
+      this.broadcast({
+        kind: "notice",
+        level: "warn",
+        text: `"${workflow.name}" changed on disk since you opened it — another window, a pull, or an edit by hand. Nothing was overwritten. Save deliberately to decide what happens to it.`,
+      });
+      return;
+    }
+
+    const KEEP = "Keep mine, overwrite theirs";
+    const THEIRS = "Discard mine, reload theirs";
+    const choice = await vscode.window.showWarningMessage(
+      `"${workflow.name}" changed on disk since you opened it.`,
+      {
+        modal: true,
+        detail:
+          "Another VS Code window, a git pull, or an edit by hand got there first.\n\n" +
+          "Keeping yours overwrites their version. Reloading discards the edits you have made here.",
+      },
+      KEEP,
+      THEIRS,
+    );
+
+    const root = this.root();
+    if (!root) return;
+
+    if (choice === KEEP) {
+      // Unconditional: the user has looked at the choice and made it.
+      const saved = workflows.writeWorkflow(root, workflow, workflow.scope);
+      this.onDisk.set(saved.id, saved.revision);
+      this.editing = saved;
+      this.broadcastTo({ kind: "saved", workflowId: saved.id, at: saved.updatedAt, auto: false });
+      this.broadcast({ kind: "notice", level: "info", text: "Saved. The other version was overwritten." });
+      if (launch) await this.openWorkflow(saved.id);
+      else await this.publishScreen();
+      return;
+    }
+
+    if (choice === THEIRS) {
+      const fresh = workflows.readWorkflow(root, workflow.id);
+      if (!fresh) return;
+      this.onDisk.set(fresh.id, fresh.revision);
+      await this.intoBuilder(fresh);
+      this.broadcast({ kind: "notice", level: "info", text: "Reloaded the version from disk." });
+      return;
+    }
+
+    // Dismissed: nothing was written, and the edits are still on screen.
+    this.broadcast({
+      kind: "notice",
+      level: "warn",
+      text: "Not saved — the version on disk is newer. Your edits are still here.",
+    });
   }
 
   private async deleteWorkflow(id: string): Promise<void> {

@@ -446,6 +446,43 @@
     if (pinned && container) container.scrollTop = container.scrollHeight;
   }
 
+  /**
+   * One repaint per frame, not one per token.
+   *
+   * A streamed reply was re-rendered on every delta, and rendering re-parses
+   * the whole message — so a reply cost the square of its own length: two
+   * thousand tokens meant two thousand parses, each one longer than the last,
+   * with a full subtree rebuild behind every one. That is the view people
+   * actually sit and watch, and a team streams several lanes into it at once.
+   *
+   * The first delta still paints immediately, because a reply has to appear the
+   * moment it starts. Everything after it is coalesced into the next frame. The
+   * text ends up identical; it is simply not rebuilt on every token.
+   */
+  const scheduled = new Set();
+
+  function paint(who, entry) {
+    if (!entry.painted) return void flushPaint(who, entry);
+    if (scheduled.has(entry)) return;
+    scheduled.add(entry);
+    requestAnimationFrame(() => {
+      // Deleted already means something flushed it in the meantime.
+      if (scheduled.delete(entry)) flushPaint(who, entry);
+    });
+  }
+
+  function flushPaint(who, entry) {
+    entry.painted = true;
+    pinnedScroll(who, entry.draw);
+  }
+
+  /** Paints anything still owed for a turn, so the last tokens are never left
+   *  waiting on a frame that a hidden panel will not run. */
+  function flushPending(who, key) {
+    const entry = state.live.get(key);
+    if (entry && scheduled.delete(entry)) flushPaint(who, entry);
+  }
+
   /** Streamed deltas are merged, and the log is capped. See the host's copy. */
   const LOG_CAP = 4000;
 
@@ -487,19 +524,25 @@
         let entry = state.live.get(key);
         if (!entry) {
           entry = { body: utterance(e.who, NAME(e.who)), raw: "" };
+          entry.draw = () => { entry.body.innerHTML = markdown(entry.raw); };
           state.live.set(key, entry);
         }
-        pinnedScroll(e.who, () => {
-          entry.raw += e.delta;
-          entry.body.innerHTML = markdown(entry.raw);
-        });
+        entry.raw += e.delta;
+        paint(e.who, entry);
         return;
       }
 
-      case "sayEnd":
-        state.live.delete(e.who + ":" + e.turn);
-        state.live.delete("think:" + e.who + ":" + e.turn);
+      case "sayEnd": {
+        // Whatever is owed is painted before the entry goes, or a reply that
+        // ended mid-frame keeps its last tokens forever.
+        const said = e.who + ":" + e.turn;
+        const thought = "think:" + e.who + ":" + e.turn;
+        flushPending(e.who, said);
+        flushPending(e.who, thought);
+        state.live.delete(said);
+        state.live.delete(thought);
         return;
+      }
 
       case "think": {
         const key = "think:" + e.who + ":" + e.turn;
@@ -510,10 +553,15 @@
           const body = node("div", "body");
           details.appendChild(body);
           place(e.who, details);
-          entry = { body };
+          entry = { body, raw: "" };
+          // `textContent +=` reads the whole run back and writes it again, so
+          // it has the same shape of cost as the markdown path, just cheaper
+          // per token. Same treatment.
+          entry.draw = () => { entry.body.textContent = entry.raw; };
           state.live.set(key, entry);
         }
-        pinnedScroll(e.who, () => { entry.body.textContent += e.delta; });
+        entry.raw += e.delta;
+        paint(e.who, entry);
         return;
       }
 

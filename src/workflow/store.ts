@@ -245,8 +245,49 @@ export function readWorkflow(root: string, id: string, scope?: Scope): Workflow 
   return undefined;
 }
 
-export function writeWorkflow(root: string, workflow: Workflow, scope?: Scope): Workflow {
+/**
+ * Raised when the file moved underneath the writer.
+ *
+ * Named rather than a bare Error so a caller can tell "someone else changed
+ * this" apart from "the disk is full", and offer the user a real choice
+ * instead of an apology.
+ */
+export class WorkflowConflict extends Error {
+  constructor(readonly id: string, readonly expected: number, readonly found: number) {
+    super(`"${id}" changed on disk: expected revision ${expected}, found ${found}`);
+    this.name = "WorkflowConflict";
+  }
+}
+
+/**
+ * Writes a workflow, optionally refusing to overwrite a newer one.
+ *
+ * `expect` is the revision the caller believes is on disk. Workflows live in
+ * the project as plain files, so the other writer is not hypothetical: a second
+ * VS Code window, a `git pull`, or the user editing the JSON by hand — all
+ * three of which this product actively encourages. Without the check the last
+ * writer wins silently, which is how an afternoon's work disappears.
+ *
+ * Omit `expect` to write unconditionally. Creating a workflow does that, and so
+ * does an explicit overwrite the user has chosen.
+ */
+export function writeWorkflow(
+  root: string,
+  workflow: Workflow,
+  scope?: Scope,
+  expect?: number,
+): Workflow {
   const where = scope ?? workflow.scope ?? "local";
+
+  if (expect !== undefined) {
+    const onDisk = readWorkflow(root, workflow.id, where);
+    // A missing file is not a conflict: it was deleted, and re-creating what
+    // the user is actively editing loses nothing.
+    if (onDisk && (onDisk.revision ?? 0) !== expect) {
+      throw new WorkflowConflict(workflow.id, expect, onDisk.revision ?? 0);
+    }
+  }
+
   const saved: Workflow = {
     ...workflow,
     scope: where,

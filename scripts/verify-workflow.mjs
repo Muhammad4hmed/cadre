@@ -55,6 +55,16 @@ async function killMidWrite(bundle, root, id, file, rounds) {
   return { torn, wrote };
 }
 
+/**
+ * Anything that rejects with nobody listening. Node exits the process on an
+ * unhandled rejection, so without this a fire-and-forget failure takes the
+ * suite down and prints nothing at all: detected, and unreadable.
+ */
+const escaped = [];
+process.on("unhandledRejection", (reason) => {
+  escaped.push(reason instanceof Error ? reason.message : String(reason));
+});
+
 const checks = [];
 const check = (label, ok) => checks.push([label, ok]);
 
@@ -1321,6 +1331,13 @@ check("the fallback knows Haiku takes no effort level",
   models.FALLBACK_MODELS.find((m) => m.value === "haiku").efforts.length === 0);
 
 console.log("=== workflow model ===");
+// Last, so it covers everything above: no promise in this suite may reject with
+// nobody listening.
+await new Promise((r) => setTimeout(r, 30));
+check(escaped.length
+  ? `nothing rejected unhandled (${escaped.slice(0, 3).join(" | ")})`
+  : "nothing rejected unhandled", escaped.length === 0);
+
 let failed = false;
 for (const [label, ok] of checks) {
   if (!ok) failed = true;
