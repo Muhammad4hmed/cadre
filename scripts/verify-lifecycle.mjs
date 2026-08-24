@@ -895,6 +895,77 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- W. a refusal, and the error codes a user is left to decode ------------
+// `refusal` is not one of the assistant frame's error codes. The only thing the
+// CLI sends when the model declines and nothing retries is a system message on
+// a subtype nothing read — so the agent stopped mid-run and said nothing at
+// all, which is indistinguishable from a hang.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const cli = fake.__instances[0];
+  cli.emit({
+    type: "system", subtype: "model_refusal_no_fallback", original_model: "claude-opus-5",
+    request_id: null, content: "I can't help with that.",
+    api_refusal_explanation: "the request asked for disallowed content",
+    uuid: "u", session_id: "s",
+  });
+  await tick();
+  const refusal = of("notice").at(-1);
+  check("W1 a refusal with nothing retried is surfaced rather than silence",
+    Boolean(refusal) && refusal.level === "error" && /declined/i.test(refusal.text));
+  check("W2 ...naming the model that declined", /claude-opus-5/.test(refusal?.text ?? ""));
+  check("W3 ...and the reason it gave", /disallowed content/.test(refusal?.text ?? ""));
+  check("W4 ...and pointing at the setting that would have retried it",
+    /fallback/i.test(refusal?.text ?? ""));
+
+  // The plain error codes, which are shown but not explained.
+  cli.emit({ type: "assistant", parent_tool_use_id: null, error: "model_not_found",
+    message: { role: "assistant", content: [] } });
+  await tick();
+  const missing = of("notice").at(-1);
+  check("W5 an unavailable model says what to do about it",
+    /not available|does not have access|choose another/i.test(missing?.text ?? ""));
+  check("W6 ...while still showing the code itself, which support asks for",
+    /model_not_found/.test(missing?.text ?? ""));
+
+  // Nothing is invented for a code we have no wording for. Matched exactly:
+  // a regex on the prefix passes happily with an explanation appended, which
+  // is the one thing this is here to rule out. The second code stands in for a
+  // CLI newer than this extension.
+  for (const code of ["unknown", "some_future_code"]) {
+    cli.emit({ type: "assistant", parent_tool_use_id: null, error: code,
+      message: { role: "assistant", content: [] } });
+    await tick();
+    check(`W7 ${code} is shown plainly rather than explained wrongly`,
+      of("notice").at(-1)?.text === `Model error: ${code}`);
+  }
+  session.dispose();
+}
+
+// A refusal when a fallback model IS configured means the retry was declined
+// for some other reason. Telling that user to set a fallback is nonsense.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession({ ...CONFIG, fallbackModel: "claude-sonnet-5" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  fake.__instances[0].emit({
+    type: "system", subtype: "model_refusal_no_fallback", original_model: "claude-opus-5",
+    request_id: null, content: "no", uuid: "u", session_id: "s",
+  });
+  await tick();
+  check("W8 a user who already set a fallback is not told to set one",
+    !/set a fallback/i.test(of("notice").at(-1)?.text ?? ""));
+  check("W9 ...but is still told the turn was declined",
+    /declined/i.test(of("notice").at(-1)?.text ?? ""));
+  session.dispose();
+}
+
 // ---- P. the production ordering: send() WITHOUT awaiting prepare() ---------
 // Every other test in this file awaits prepare() first, which is exactly why
 // this defect survived: the real controller does not.

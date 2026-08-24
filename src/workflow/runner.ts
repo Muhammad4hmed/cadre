@@ -691,6 +691,31 @@ export class WorkflowSession implements vscode.Disposable {
             }
             break;
           }
+          /**
+           * The model declined, and nothing retried it.
+           *
+           * `refusal` is not one of the assistant frame's error codes, so this
+           * system message is the only thing the CLI sends about it. Dropped,
+           * the agent stopped mid-run and said nothing — indistinguishable
+           * from a hang, and the one failure a user cannot even report well.
+           */
+          if (message.subtype === "model_refusal_no_fallback") {
+            const reason = message.api_refusal_explanation || message.content;
+            // Only worth suggesting to someone who has not already set one:
+            // with a fallback configured, the retry was declined for some
+            // other reason and the advice would be nonsense.
+            const retry = this.config.fallbackModel
+              ? ""
+              : " Set a fallback model to have a refused turn retried automatically.";
+            this.emit({
+              kind: "notice",
+              level: "error",
+              who,
+              text: `${message.original_model} declined this turn${reason ? `: ${reason}` : ""}.${retry}`,
+            });
+            break;
+          }
+
           if (message.subtype !== "init") break;
           // The id the CLI assigned, so the workflow can record which
           // conversations belong to it.
@@ -801,7 +826,15 @@ export class WorkflowSession implements vscode.Disposable {
               // has a whole screen for saying so properly.
               this.emit({ kind: "authProblem", detail: auth });
             } else {
-              this.emit({ kind: "notice", level: "error", who, text: `Model error: ${message.error}` });
+              // The code is kept: it is what support asks for and what a
+              // search finds. The sentence after it is for the person reading.
+              const plain = MODEL_ERRORS[message.error];
+              this.emit({
+                kind: "notice",
+                level: "error",
+                who,
+                text: `Model error: ${message.error}${plain ? ` — ${plain}` : ""}`,
+              });
             }
           }
           break;
@@ -1568,6 +1601,21 @@ const AUTH_ERRORS: Record<string, string> = {
   oauth_org_not_allowed: "Your organisation does not permit this login for Claude Code.",
   account_on_hold: "This Claude account is on hold.",
   billing_error: "Billing could not be authorised for this account.",
+};
+
+/**
+ * Plain language for the error codes that are not a credential problem.
+ *
+ * Nothing is invented for a code that is not listed — an unexplained code beats
+ * a confidently wrong explanation.
+ */
+const MODEL_ERRORS: Record<string, string> = {
+  model_not_found: "that model is not available on this account. Choose another one for this agent.",
+  overloaded: "Claude is busy right now. Nothing is wrong with the workflow; try again in a moment.",
+  server_error: "Claude's API failed on its own side. The turn did not finish.",
+  rate_limit: "the account's usage limit was reached.",
+  invalid_request: "the request was rejected as malformed, which is a bug in Cadre rather than in your workflow.",
+  max_output_tokens: "the reply hit the model's output limit and was cut off.",
 };
 
 /** The shape AskUserQuestion sends; validated defensively since it is model output. */

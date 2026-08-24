@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.18.1 — the model declined and the agent just stopped
+
+`refusal` is not one of the error codes an assistant frame can carry. When the
+model declines a turn and nothing retries it, the CLI says so once, on a system
+subtype nothing here read. So the agent stopped mid-run and said nothing —
+indistinguishable from a hang, and the one failure a user cannot even report
+properly, because there is nothing to report.
+
+It is an error in the transcript now, naming the model that declined and the
+reason it gave. It also points at the fallback-model setting, which would have
+retried the turn automatically — but only for someone who has not already set
+one, because with a fallback configured the retry was declined for some other
+reason and that advice would be nonsense.
+
+The plain error codes are explained too, without hiding them. `model_not_found`
+is the one that matters: pick Opus for an agent on an account without Opus and
+the panel used to say `Model error: model_not_found` and nothing else. Now it
+says which account limitation that is and what to do, with the code still there
+because that is what a search finds and what support asks for. Nothing is
+invented for a code that is not listed, including codes from a CLI newer than
+this extension.
+
+Nine checks. Five mutations. One of them — inventing an explanation for an
+unlisted code — walked straight through the check meant to forbid it, because
+the assertion was a regex on the prefix and passed happily with an explanation
+appended. Matched exactly now.
+
+1394 checks.
+
 ## 0.18.0 — the usage limit a subscription actually hits
 
 Cadre's premise is that you sign in and go: no API key, one Claude
