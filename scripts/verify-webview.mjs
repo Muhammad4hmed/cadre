@@ -1131,6 +1131,60 @@ send({ kind: "projects", roots: [], active: "", items: [
   check("a short path is left alone", shown[3] === "/opt/app");
 }
 
+// ---- every screen shows something ------------------------------------------
+// Six screens, and the host decides which is up. One that fails to render is a
+// blank panel with no error the user can see — and an unknown name, which is
+// what a version mismatch between the host and the webview looks like, must not
+// leave every screen hidden at once.
+{
+  const screenKinds = ["auth", "projects", "home", "workflow", "builder", "run"];
+  const noiseAt = (window.__noise || []).length;
+  const visible = () => [...document.querySelectorAll("[data-active='true']")].length;
+
+  for (const name of screenKinds) {
+    send({ kind: "screen", screen: name });
+    check("the " + name + " screen becomes the visible one", visible() === 1);
+    const shown = document.querySelector("[data-active='true']");
+    check("...and it has something in it", (shown?.textContent ?? "").trim().length > 0);
+  }
+
+  check("no screen produced an error: " + JSON.stringify((window.__noise || []).slice(noiseAt, noiseAt + 2)),
+    (window.__noise || []).length === noiseAt);
+
+  // The chips that describe a running team belong to the run screen alone.
+  send({ kind: "screen", screen: "home" });
+  const chipHidden = ["autonomy", "billing", "spend"].every((id) => {
+    const n = document.getElementById(id);
+    return !n || n.style.display === "none";
+  });
+  check("chips about a running team are put away off the run screen", chipHidden);
+  send({ kind: "screen", screen: "run" });
+  check("...and come back on it",
+    ["autonomy", "billing"].every((id) => {
+      const n = document.getElementById(id);
+      return !n || n.style.display !== "none";
+    }));
+
+  // Signing in is reachable from every screen, because a token can expire while
+  // the gate never fires.
+  for (const name of screenKinds) {
+    send({ kind: "screen", screen: name });
+    const account = document.getElementById("account");
+    check("the account control is reachable on " + name,
+      account !== null && account.style.display !== "none");
+  }
+  // A name that matches nothing hides everything, and that is deliberate: it is
+  // how the panel waits before the host has said what to show. Pinned here so
+  // it reads as the design rather than as a screen that failed to draw.
+  send({ kind: "screen", screen: "loading" });
+  check("a name matching no screen leaves the panel waiting, as at startup",
+    visible() === 0);
+  send({ kind: "screen", screen: "run" });
+  check("...and the next real screen brings it back", visible() === 1);
+
+  window.__noise.length = noiseAt;
+}
+
 // ---- every event, well formed, handled without error ----------------------
 // The context meter never worked because the function that drew it did not
 // exist, and the compaction notice threw for the same reason before it. Both
