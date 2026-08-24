@@ -43,7 +43,14 @@ const js = fs.readFileSync("media/team.js", "utf8");
  * pattern like /a\.b/ silently becomes /a.b/ — which matches, so the test
  * passes and proves nothing.
  */
+const eventsSrc = fs.readFileSync("src/team/events.ts", "utf8");
+const outboundKinds = [...new Set(
+  [...eventsSrc.slice(eventsSrc.indexOf("export type TeamEvent ="), eventsSrc.indexOf("export type Screen ="))
+    .matchAll(/kind:\s*"([a-zA-Z]+)"/g)].map((m) => m[1]),
+)];
+
 const DRIVER = String.raw`
+const outboundKinds = ${JSON.stringify(outboundKinds)};
 const results = [];
 window.__partial = results;
 const check = (label, ok) => results.push([label, Boolean(ok)]);
@@ -1122,6 +1129,82 @@ send({ kind: "projects", roots: [], active: "", items: [
   check("...and still uses forward slashes",
     shown[2] !== undefined && !shown[2].includes("\\"));
   check("a short path is left alone", shown[3] === "/opt/app");
+}
+
+// ---- every event, well formed, handled without error ----------------------
+// The context meter never worked because the function that drew it did not
+// exist, and the compaction notice threw for the same reason before it. Both
+// were reachable by simply sending the event — no malformed input needed. So
+// every kind is sent here once, properly filled in, and the page must handle
+// all of them without a single error.
+//
+// The table has to cover the union: a new event kind with no entry fails the
+// first check rather than quietly going unexercised.
+{
+  const agent = { id: "one", name: "One", role: "does things", preset: "build",
+    model: "opus", effort: "high", status: "idle", entry: true, x: 0, y: 0 };
+  const wf = { id: "w", name: "Team", entry: "one", agents: [
+    { id: "one", name: "One", role: "r", prompt: "p", preset: "build", x: 0, y: 0 }], edges: [] };
+
+  const WELL_FORMED = {
+    screen: { screen: "run" },
+    roster: { workflowId: "w", workflowName: "Team", autonomy: "Standard", billing: "Subscription",
+      workspace: "…/p", connectors: [{ name: "kaggle", ok: true, status: "connected" }],
+      edges: [], members: [agent] },
+    clear: {},
+    busy: { busy: true },
+    status: { who: "one", status: "working", activity: "reading" },
+    userSaid: { to: "one", text: "hello", images: [] },
+    say: { who: "one", turn: "t1", delta: "some words" },
+    sayEnd: { who: "one", turn: "t1" },
+    think: { who: "one", turn: "t1", delta: "thinking" },
+    act: { who: "one", act: "a1", tool: "Read", summary: "src/a.ts" },
+    actEnd: { who: "one", act: "a1", ok: true, summary: "read 40 lines" },
+    assign: { assignment: { id: "d1", from: "one", to: "one", brief: "look", startedAt: 0 } },
+    deliver: { id: "d1", outcome: "delivered", summary: "found it" },
+    active: { agents: ["one"], edge: undefined },
+    spend: { who: "one", usd: 0.12, totalUsd: 0.5, turns: 3, durationMs: 4200 },
+    context: { percent: 44, tokens: 88000, max: 200000 },
+    compacted: { before: 190000, after: 40000 },
+    notice: { level: "info", text: "something happened" },
+    ask: { id: "q1", who: "one", questions: [{ question: "Which?", header: "Pick",
+      multiSelect: false, options: [{ label: "A", description: "first" }] }] },
+    askClosed: { id: "q1", answered: true },
+    sendability: { ok: true },
+    restoreInput: { text: "typed", images: [] },
+    channel: { to: "one" },
+    auth: { signedIn: true, detail: "you@example.com", usingApiKey: false },
+    authProblem: { detail: "not signed in" },
+    sessionStarted: { sessionId: "s1" },
+    sessions: { workflowId: "w", items: [{ id: "s1", title: "a chat", when: 1 }] },
+    workflows: { project: "p", templates: [], items: [{ id: "w", name: "Team", description: "d",
+      scope: "local", agents: 1, edges: 0, updatedAt: 1700000000000, sessions: 1,
+      agentNames: ["One"], problems: 0 }] },
+    detail: { workflow: wf, sessions: [], problems: [] },
+    editing: { authoritative: true, workflow: wf, problems: [] },
+    projects: { roots: [], active: "", items: [{ path: "/p", name: "p", open: true,
+      known: true, stack: ["Node"], lastTouched: 0 }] },
+    saved: { workflowId: "w", at: 1700000000000, auto: false },
+    refining: { agent: "one", busy: true },
+    refined: { agent: "one", prompt: "a refined prompt", note: "Expanded to 200 words." },
+    building: { busy: false, note: "Built 2 agents." },
+  };
+
+  const declaredKinds = outboundKinds;
+  const uncovered = declaredKinds.filter((k) => !(k in WELL_FORMED));
+  check("every event kind has a well-formed example to send" +
+    (uncovered.length ? " (" + uncovered.join(", ") + ")" : ""), uncovered.length === 0);
+
+  const noiseAt = (window.__noise || []).length;
+  for (const kind of declaredKinds) {
+    const payload = WELL_FORMED[kind];
+    if (!payload) continue;
+    send({ kind, ...payload });
+  }
+  const raised = (window.__noise || []).slice(noiseAt);
+  check("no well-formed event produces an error: " + JSON.stringify(raised.slice(0, 3)),
+    raised.length === 0);
+  window.__noise.length = noiseAt;
 }
 
 // ---- how full the context window is ---------------------------------------
