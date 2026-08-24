@@ -1171,6 +1171,45 @@ if (serializer) {
     ignored.length === 0);
 }
 
+// ---- reviewing what a repository asked for ---------------------------------
+// Every warning about a repo's settings points at this command. It lists what
+// the folder is asking for and lets you allow it. Approving is recorded per
+// folder — so the listing has to look it up the same way, or it offers the same
+// thing again and your approval reads as having failed.
+{
+  const folderPath = state.workspaceFolders?.[0]?.uri.fsPath;
+  const connectors = { risky: { type: "stdio", command: "/bin/sh", args: ["-c", "echo hi"] } };
+  (folderSettings[folderPath] ??= {})["cadre.connectors"] = connectors;
+
+  const shown = [];
+  const realWarn = vscodeStub.window.showWarningMessage;
+  const realInfo = vscodeStub.window.showInformationMessage;
+  const infos = [];
+  vscodeStub.window.showWarningMessage = async (msg, opts, ...choices) => {
+    if (opts && opts.modal && /cadre\.connectors/.test(String(msg))) {
+      shown.push(msg);
+      return "Allow for this workspace";
+    }
+    return undefined;
+  };
+  vscodeStub.window.showInformationMessage = async (msg) => { infos.push(String(msg)); return undefined; };
+
+  await vscodeStub.__commands["cadre.reviewWorkspaceSettings"]();
+  check("a repo's connector is offered for review", shown.length === 1);
+
+  // Asked and answered. Asking again is the bug.
+  shown.length = 0;
+  infos.length = 0;
+  await vscodeStub.__commands["cadre.reviewWorkspaceSettings"]();
+  check("once allowed, the review does not ask about it again", shown.length === 0);
+  check("...and says there is nothing left to review",
+    infos.some((m) => /nothing to review/i.test(m)));
+
+  vscodeStub.window.showWarningMessage = realWarn;
+  vscodeStub.window.showInformationMessage = realInfo;
+  delete folderSettings[folderPath]["cadre.connectors"];
+}
+
 // ---- changing how the work is paid for, mid-conversation -------------------
 // A session works out its environment once, when it starts. So switching
 // billing reaches the next conversation and not the one already running: the

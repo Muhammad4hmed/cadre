@@ -295,7 +295,10 @@ async function chooseAutonomy(controller: TeamController): Promise<void> {
  */
 async function reviewWorkspaceSettings(controller: TeamController): Promise<void> {
   const cfg = controller.configForActiveFolder();
-  const pending = controller.trust.pending(cfg);
+  // Same folder the approval is recorded against, or this lists things the user
+  // has already allowed and their answer reads as having been ignored.
+  const scope = controller.activeFolder()?.uri.fsPath;
+  const pending = controller.trust.pending(cfg, scope);
   if (!pending.length) {
     void vscode.window.showInformationMessage(
       "Nothing to review — this folder's settings ask for no extra permissions.",
@@ -321,7 +324,7 @@ async function reviewWorkspaceSettings(controller: TeamController): Promise<void
     if (choice === "Allow for this workspace") {
       // For this workspace, as the button says: an approval belongs to the
       // folder it was given in.
-      await controller.trust.approve(setting, value, controller.activeFolder()?.uri.fsPath);
+      await controller.trust.approve(setting, value, scope);
     }
   }
   controller.forgetShownWarnings();

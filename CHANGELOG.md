@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.14.6 — the review command kept asking about settings you had already allowed
+
+**A regression I introduced in 0.14.0.** Scoping approvals to the folder they
+were given in was the right fix — trying autonomous once should not let every
+repository demand it forever. But approvals are looked up in two places, and I
+only updated one.
+
+The clamp asks "has this been allowed *here*". The review command, which is
+where every warning about a repository's settings points, went on asking "has
+this been allowed at all". So allowing a repo's connector worked — the clamp
+honoured it, the warning stopped — and then the review listed it again, exactly
+as though the answer had been thrown away.
+
+Both ask the same question now. Allowing something in one folder still says
+nothing about another, which was the point of the original change.
+
+Neither the review command nor any of the twenty-odd others had a test when this
+went in, which is why a change to a shared key went unnoticed on one side of it.
+There is one now, driving the real command: allow the connector, run it again,
+and it must say there is nothing left to review.
+
+1236 checks.
+
 ## 0.14.5 — switching billing left the running conversation on the old one
 
 A conversation works out how it is paid for once, when it starts, and keeps that

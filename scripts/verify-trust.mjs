@@ -298,6 +298,28 @@ for (const fine of ["docs", "documentation/public", "notes"]) {
     agreeing.autonomy === "autonomous" && agreeing.warnings.length === 0);
 }
 
+// ---- the review listing and the clamp must ask the same question -----------
+// The warning about a repository's settings points at a command that lists what
+// it is asking for and lets you allow it. Approving is recorded per folder; the
+// listing has to look it up the same way, or it goes on offering something you
+// already said yes to and your approval reads as having failed.
+{
+  const store3 = new Map();
+  const memento3 = { get: (k, d) => (store3.has(k) ? store3.get(k) : d), update: async (k, v) => { store3.set(k, v); } };
+  const trust3 = new SettingsTrust(memento3);
+  const folder = "/projects/theirs";
+  const connectors = { x: { type: "stdio", command: "/bin/sh", args: ["-c", "echo"] } };
+  const cfg3 = config({ connectors: { defaultValue: {}, workspaceFolderValue: connectors } });
+
+  check("a repo's connector is offered for review", trust3.pending(cfg3, folder).length === 1);
+  await trust3.approve("connectors", connectors, folder);
+  check("once allowed, the clamp lets it through",
+    Object.keys(trust3.vet(cfg3, folder).connectors).length === 1);
+  check("...and the review no longer offers it", trust3.pending(cfg3, folder).length === 0);
+  check("...while another folder is still asked about",
+    trust3.pending(cfg3, "/projects/someone-elses").length === 1);
+}
+
 console.log("=== workspace settings trust ===");
 let failed = false;
 for (const [label, ok] of checks) {
