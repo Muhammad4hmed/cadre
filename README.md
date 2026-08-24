@@ -264,6 +264,15 @@ changing.
   your shell would matter, do not run an agent with a shell in that shell. Under a
   subscription, `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are removed rather than
   passed on.
+- **A read-only agent's confinement runs through the permission handler.** It has
+  `Write` and `Edit` — it needs them for `.cadre/` and your docs folder — and what
+  keeps it out of everything else is a check the CLI calls before each tool. On
+  `autonomous` the CLI is asked for `bypassPermissions`, which its own documentation
+  describes as bypassing all permission checks. Whether the handler is still consulted
+  there is the CLI's behaviour and is not something this project can establish. If you
+  rely on role separation holding — the coordinator not quietly doing the work itself —
+  prefer `standard`. Credential files stay denied at every level either way, because
+  that is a deny rule rather than a prompt.
 - `hooks` and sandboxing are not wired up.
 
 ## Development

@@ -447,6 +447,35 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- I1b. where the read-only confinement actually lives -------------------
+// A read-only agent HAS Write and Edit — it needs them for `.cadre/` and the
+// docs folder. What makes it read-only for everything else is the check inside
+// `canUseTool`, and that is worth stating plainly in a test because it is a
+// dependency, not an implementation detail: the confinement holds only for as
+// long as the CLI consults our permission handler.
+//
+// On `autonomous` the SDK is asked for `bypassPermissions`, documented as
+// "bypass all permission checks", and it offers a tighten-only per-server
+// override that exists because that mode auto-allows. Whether our handler is
+// still consulted there is the CLI's behaviour and cannot be established from
+// here — so this pins our side of it: the handler is supplied at every level,
+// and it refuses. If the handler ever stops being passed, this goes red.
+fake.__instances.length = 0;
+for (const level of ["standard", "supervised", "plan", "autonomous"]) {
+  const { session } = makeSession({ ...CONFIG, autonomy: level });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const o = fake.__instances.at(-1).options;
+  check(`I1b a permission handler is supplied on ${level}`, typeof o.canUseTool === "function");
+
+  const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  const outside = await o.canUseTool("Write", { file_path: "/repo/src/app.ts" }, ctx);
+  check(`...and it refuses a read-only agent writing outside its roots on ${level}`,
+    outside.behavior === "deny");
+  session.dispose();
+}
+
 // ---- I2. a cycle of briefs stops at the cap --------------------------------
 // A delegate arrow may loop: A briefs B, B briefs A back. That is how a peer
 // asks a question, so the shape of the graph cannot bound the recursion — a
