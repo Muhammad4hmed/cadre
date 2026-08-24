@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.17.1 — on `autonomous`, your team's questions reached nobody
+
+The same callback, one more thing hanging off it.
+
+`AskUserQuestion` is how a teammate asks you something only you know: which
+database, which corpus, paid API or self-hosted. It is not a permission prompt
+and it was never meant to be gated — but it was collected inside `canUseTool`,
+because that is where the tool call surfaces. `autonomous` does not call
+`canUseTool`. So on the one level built to run unwatched, the card never
+rendered, nobody was asked, and the run carried on without an answer.
+
+`autonomous` means "stop asking me to approve tools". It does not mean "never
+speak to me". The question now comes through the same PreToolUse hook as the
+confinement, so it reaches you whatever the mode, and the answer rides back on
+the tool input exactly as before. The permission handler still sees the call and
+now says allow without asking, so the two paths cannot put the same question up
+twice on the levels where both run.
+
+Found by reading the SDK bundle for what else sits beside the warning that
+turned up 0.17.0 — the same file also says bare `allowedTools` entries shadow
+the callback, which is already how this repo uses them and why only `mcp__`
+names are listed there.
+
+Twenty-two checks at all four levels: the question reaches the user, carries its
+own text, comes back as an allow with the answer attached, and is refused rather
+than silently answered when dismissed.
+
+Three of them could not fail when first written. Probing the handler with an
+empty question list never reached the branch under test, and the honest version
+deadlocked instead of reporting — a suite that hangs prints nothing at all. Both
+are raced or guarded now, so a fault shows up as a failed check with a name.
+
+1369 checks.
+
 ## 0.17.0 — a read-only agent could write anywhere on `autonomous`
 
 A read-only agent has `Write` and `Edit`. It needs them: `.cadre/` is its

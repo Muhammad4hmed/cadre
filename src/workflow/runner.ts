@@ -1057,16 +1057,38 @@ export class WorkflowSession implements vscode.Disposable {
        * one built to run unwatched — where a coordinator quietly doing the
        * work itself is exactly the failure the roles exist to prevent. This is
        * that hook, and it runs whatever the mode.
+       *
+       * It carries the team's questions for the same reason: `askUser` hung off
+       * the same callback, so on `autonomous` a question reached nobody.
        */
       hooks: {
         PreToolUse: [{
           hooks: [async (event) => {
             if (event.hook_event_name !== "PreToolUse") return {};
-            const refusal = this.checkScratchpadOnly(
-              spec.id,
-              event.tool_name,
-              (event.tool_input ?? {}) as Record<string, unknown>,
-            );
+            const input = (event.tool_input ?? {}) as Record<string, unknown>;
+
+            // A question is not a permission prompt. It is the agent needing
+            // something only you know, and it has to reach you at every level:
+            // `autonomous` means "stop asking me to approve tools", not "never
+            // speak to me". It hung off `canUseTool`, which that mode does not
+            // call, so on the one level built to run unwatched the question
+            // reached nobody and the run carried on without an answer.
+            if (shortToolName(event.tool_name) === "AskUserQuestion") {
+              const answered = await this.askUser(spec.id, input);
+              return answered.behavior === "allow"
+                ? { hookSpecificOutput: {
+                    hookEventName: "PreToolUse" as const,
+                    permissionDecision: "allow" as const,
+                    updatedInput: answered.updatedInput as Record<string, unknown>,
+                  } }
+                : { hookSpecificOutput: {
+                    hookEventName: "PreToolUse" as const,
+                    permissionDecision: "deny" as const,
+                    permissionDecisionReason: answered.message,
+                  } };
+            }
+
+            const refusal = this.checkScratchpadOnly(spec.id, event.tool_name, input);
             if (!refusal) return {};
             return {
               hookSpecificOutput: {
@@ -1218,8 +1240,11 @@ export class WorkflowSession implements vscode.Disposable {
 
     // AskUserQuestion is not a permission decision — it is the question itself.
     // The CLI has no renderer here, so the host collects the answers and hands
-    // them back on the tool input.
-    if (shortToolName(name) === "AskUserQuestion") return this.askUser(who, input);
+    // them back on the tool input. That is done by the PreToolUse hook, which
+    // runs whatever the permission mode; this callback does not run at all on
+    // `autonomous`. Asking again here would put the same question up twice on
+    // the levels where both do run.
+    if (shortToolName(name) === "AskUserQuestion") return { behavior: "allow", updatedInput: input };
 
     // The Lead's scratchpad confinement. Its prompt says it has no editor outside
     // .cadre/, but a prompt is not an enforcement mechanism — without this the

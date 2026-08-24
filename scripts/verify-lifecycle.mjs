@@ -462,7 +462,7 @@ fake.__instances.length = 0;
 // PreToolUse hook now, which runs whatever the mode.
 fake.__instances.length = 0;
 for (const level of ["standard", "supervised", "plan", "autonomous"]) {
-  const { session } = makeSession({ ...CONFIG, cwd: "/repo", autonomy: level });
+  const { session, of } = makeSession({ ...CONFIG, cwd: "/repo", autonomy: level });
   await session.prepare();
   session.send("x");
   await tick();
@@ -502,6 +502,67 @@ for (const level of ["standard", "supervised", "plan", "autonomous"]) {
   );
   check(`...and does not interfere with reading on ${level}`,
     reading.hookSpecificOutput === undefined);
+
+  // I1d. A question is not a permission decision — it is the agent needing
+  // something only the user knows. It hung off the same callback, so on
+  // `autonomous` it reached nobody: no card, no answer, and the agent carried
+  // on without one. `autonomous` means "stop asking me to approve tools", not
+  // "never speak to me".
+  const before = of("ask").length;
+  const asked = ask(
+    { hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_use_id: "t",
+      tool_input: { questions: [{ question: "Which database?", header: "DB", options: [
+        { label: "Postgres", description: "" }, { label: "SQLite", description: "" }] }] } },
+    "t", { signal: ctx.signal },
+  );
+  await tick();
+  const card = of("ask").at(-1);
+  check(`I1d the question reaches the user on ${level}`, of("ask").length === before + 1);
+  check(`...carrying the question itself on ${level}`,
+    card?.questions?.[0]?.question === "Which database?");
+  session.answer(card?.id, { DB: "Postgres" });
+  const settled = await asked;
+  check(`...and the answer rides back on the tool input on ${level}`,
+    settled?.hookSpecificOutput?.updatedInput?.answers?.DB === "Postgres");
+  check(`...as an allow, not a second prompt on ${level}`,
+    settled?.hookSpecificOutput?.permissionDecision === "allow");
+
+  // Both run on the levels that prompt. The handler must not put the same
+  // question up a second time now that the hook owns it.
+  const viaHandler = await Promise.race([
+    o.canUseTool("AskUserQuestion", {
+      questions: [{ question: "Which database?", header: "DB", options: [
+        { label: "Postgres", description: "" }, { label: "SQLite", description: "" }] }],
+    }, ctx),
+    new Promise((r) => setTimeout(() => r({ behavior: "HUNG" }), 250)),
+  ]);
+  check(`...while the handler does not ask it over again on ${level}`,
+    viaHandler.behavior === "allow" && of("ask").length === before + 1);
+
+  session.dispose();
+}
+
+// Dismissing the card refuses the call rather than answering it with nothing.
+{
+  const { session, of } = makeSession({ ...CONFIG, cwd: "/repo", autonomy: "autonomous" });
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const hook = fake.__instances.at(-1).options.hooks?.PreToolUse?.[0]?.hooks?.[0];
+  const ask = typeof hook === "function" ? hook : async () => ({});
+  const pending = ask(
+    { hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_use_id: "t",
+      tool_input: { questions: [{ question: "Ship it?", header: "Ship", options: [
+        { label: "Yes", description: "" }, { label: "No", description: "" }] }] } },
+    "t", { signal: new AbortController().signal },
+  );
+  await tick();
+  session.answer(of("ask").at(-1)?.id, null);
+  const out = await pending;
+  check("I1e a dismissed question refuses the call rather than answering it with nothing",
+    out?.hookSpecificOutput?.permissionDecision === "deny");
+  check("...and says the user dismissed it",
+    /dismissed/i.test(out?.hookSpecificOutput?.permissionDecisionReason ?? ""));
   session.dispose();
 }
 
@@ -1312,14 +1373,24 @@ fake.__instances.length = 0;
 }
 
 // ---- T. questions render in the lane and wait for a real answer -----------
+// Driven through the PreToolUse hook, which is where the question is collected:
+// `canUseTool` does not run on `autonomous`, and a question has to reach the
+// user at every level.
 fake.__instances.length = 0;
 {
   const { session, of } = makeSession();
   await session.prepare();
   session.send("x");
   await tick();
-  const gate = fake.__instances[0].options.canUseTool;
   const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  const hook = fake.__instances[0].options.hooks?.PreToolUse?.[0]?.hooks?.[0];
+  check("T0 the hook that collects questions is installed", typeof hook === "function");
+  const gate = (_name, input) =>
+    (typeof hook === "function" ? hook : async () => ({}))(
+      { hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_input: input, tool_use_id: "t" },
+      "t", { signal: ctx.signal },
+    );
+  const out = (r) => r?.hookSpecificOutput ?? {};
   const long =
     "Native Urdu quality comes from either a paid API or a self-hosted model you fine-tune. " +
     "Which fits your constraints — this changes the whole plan, so I want your answer before committing?";
@@ -1344,20 +1415,20 @@ fake.__instances.length = 0;
   check("T4 the teammate is shown as waiting",
     of("status").some((e) => e.status === "waiting"));
 
-  session.answer(asked.id, { [long]: "Paid API is fine" });
+  session.answer(asked?.id, { [long]: "Paid API is fine" });
   const answered = await pending;
   check("T5 the answer reaches the model on the tool input",
-    answered.updatedInput?.answers?.[long] === "Paid API is fine");
+    out(answered).updatedInput?.answers?.[long] === "Paid API is fine");
   check("T6 the card is told it was settled",
     of("askClosed").at(-1)?.answered === true);
 
   // Skipping is a real answer.
   const second = gate("AskUserQuestion", ask, ctx);
   await tick();
-  session.answer(of("ask").at(-1).id, null);
+  session.answer(of("ask").at(-1)?.id, null);
   const skipped = await second;
   check("T7 skipping denies rather than inventing an answer",
-    skipped.behavior === "deny" && /dismissed/i.test(skipped.message));
+    out(skipped).permissionDecision === "deny" && /dismissed/i.test(out(skipped).permissionDecisionReason ?? ""));
 
   // A question left open must not survive an interrupt.
   const third = gate("AskUserQuestion", ask, ctx);
@@ -1365,7 +1436,7 @@ fake.__instances.length = 0;
   await session.interrupt();
   const abandoned = await third;
   check("T8 an interrupt settles an open question instead of hanging",
-    abandoned.behavior === "deny");
+    out(abandoned).permissionDecision === "deny");
   session.dispose();
 }
 
@@ -1461,8 +1532,13 @@ fake.__instances.length = 0;
   session.send("go");
   await tick();
   const main = fake.__instances[0];
-  const gate = main.options.canUseTool;
   const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
+  const hook = main.options.hooks?.PreToolUse?.[0]?.hooks?.[0];
+  const gate = (_name, input) =>
+    (typeof hook === "function" ? hook : async () => ({}))(
+      { hook_event_name: "PreToolUse", tool_name: "AskUserQuestion", tool_input: input, tool_use_id: "t" },
+      "t", { signal: ctx.signal },
+    );
   const ask = {
     questions: [{
       question: "Which corpus should I fine-tune on, since it changes the whole plan?",
