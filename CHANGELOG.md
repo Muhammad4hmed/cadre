@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.15.2 — the README described the wrong half of what happens to a loop
+
+It said a `then` arrow that comes back on itself is refused a save. The builder
+does the opposite, on purpose: a loop is kept, because a half-drawn workflow is
+a normal state to be in and refusing to keep one is how work gets lost. What it
+refuses is the **launch** — the button is disabled while any error stands, and
+the reason is on screen.
+
+Both halves are now checked, so neither can drift: a loop leaves Save available
+and Launch disabled, and removing the loop makes Launch available again.
+
+This is the sentence that describes what stops a workflow running forever, so it
+mattered that it described the right mechanism. Found by reading the README's
+behavioural claims against the code, which is also what turned up the half-typed
+prompt in 0.15.1.
+
+1313 checks.
+
 ## 0.15.1 — an agent's prompt left half-typed was not saved
 
 The inspector's boxes commit on `change`, which fires on blur. Type a prompt for

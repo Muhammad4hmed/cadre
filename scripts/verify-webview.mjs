@@ -1131,6 +1131,41 @@ send({ kind: "projects", roots: [], active: "", items: [
   check("a short path is left alone", shown[3] === "/opt/app");
 }
 
+// ---- a loop is kept but not launched ---------------------------------------
+// A "then" arrow that comes back on itself would never finish. The builder is
+// deliberately permissive about saving one — a half-drawn workflow is a normal
+// state to be in, and refusing to keep it is how work gets lost — but it must
+// not run. The README said the builder refuses to save a loop, which is the
+// wrong half of that.
+{
+  const looped = {
+    id: "w", name: "Loop", entry: "a",
+    agents: [
+      { id: "a", name: "A", role: "", prompt: "p", preset: "build", x: 0, y: 0 },
+      { id: "b", name: "B", role: "", prompt: "p", preset: "build", x: 200, y: 0 },
+    ],
+    edges: [{ from: "a", to: "b", kind: "then" }, { from: "b", to: "a", kind: "then" }],
+  };
+  send({ kind: "screen", screen: "builder" });
+  send({ kind: "editing", authoritative: true, workflow: looped, problems: [
+    { level: "error", message: "\u2018then\u2019 arrows form a loop (a \u2192 b \u2192 a) and would never finish." },
+  ] });
+
+  const launch = document.getElementById("builder-launch");
+  const save = document.getElementById("builder-save");
+  check("a loop is refused a launch", launch !== null && launch.disabled === true);
+  check("...but saving it is still offered, so the work is not lost",
+    save !== null && save.disabled === false);
+  check("...and the reason is on screen",
+    /never finish/.test(document.getElementById("screen-builder").textContent));
+
+  // Take the loop out and it becomes launchable again.
+  send({ kind: "editing", authoritative: true, problems: [], workflow: {
+    ...looped, edges: [{ from: "a", to: "b", kind: "then" }],
+  } });
+  check("without the loop it can be launched", launch.disabled === false);
+}
+
 // ---- an edit still in the box when you walk away ---------------------------
 // The inspector's fields commit on change, which fires on blur. Type a prompt,
 // then hide the window or leave the builder without clicking away first, and

@@ -43,7 +43,7 @@ dropped it you have already forgotten which one you meant.
 | | |
 |---|---|
 | **A → B** *delegate* | B becomes a tool on A. A writes a brief, B runs with an empty context, returns one report, A carries on. **Cycles are fine** — A→B→A is how a peer asks back — so depth is bounded by a counter rather than by the shape of the graph. |
-| **A ⇥ B** *then* | B starts automatically when A finishes, with A's output as its input. No tool call, no decision. These must be acyclic, and the builder refuses to save a loop. |
+| **A ⇥ B** *then* | B starts automatically when A finishes, with A's output as its input. No tool call, no decision. These must be acyclic: a loop is kept — a half-drawn workflow is a normal state to be in — but Launch is refused until you break it. |
 
 You talk to the **entry agent** by default, and a dropdown switches to any other — it has
 not seen what you said to anyone else, and Cadre says so rather than letting you find out
