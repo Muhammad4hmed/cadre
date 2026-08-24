@@ -1124,6 +1124,128 @@ send({ kind: "projects", roots: [], active: "", items: [
   check("a short path is left alone", shown[3] === "/opt/app");
 }
 
+// ---- how full the context window is ---------------------------------------
+// The chip, its CSS and the event all existed; the function that draws them did
+// not, so every context event threw and the chip stayed hidden — while the
+// README said the header shows this.
+{
+  const chip = document.getElementById("context");
+  check("there is a chip for it", chip !== null);
+
+  send({ kind: "context", percent: 8, tokens: 16000, max: 200000 });
+  check("a nearly empty window is not worth a number in the header", chip.hidden === true);
+
+  send({ kind: "context", percent: 62.4, tokens: 124800, max: 200000 });
+  check("a window worth knowing about is shown", chip.hidden === false);
+  check("...as a percentage", /62% context/.test(chip.textContent));
+  check("...with the real numbers behind it", /125K of 200K/.test(chip.title));
+  check("...and not marked as a worry yet", chip.classList.contains("warn") === false);
+
+  send({ kind: "context", percent: 91, tokens: 182000, max: 200000 });
+  check("close to the limit is marked", chip.classList.contains("warn") === true);
+  check("...and says what happens next", /summarised/.test(chip.title));
+
+  send({ kind: "context", percent: 140, tokens: 1, max: 1 });
+  check("a percentage past the end is clamped rather than shown raw",
+    /100% context/.test(chip.textContent));
+}
+
+// ---- events the host should never send, but might ------------------------
+// The page trusts what it is given. A field that is missing, null, the wrong
+// type or absurd should leave it standing — a webview that throws stops
+// rendering everything after it, and the user sees a board frozen mid-run with
+// no way to tell why. Every one of these is caught by the error channel, so a
+// throw here shows up as a failed check rather than as silence.
+{
+  send({ kind: "screen", screen: "run" });
+  send({ kind: "clear" });
+    // Two shapes we can anticipate. The blanket guard would catch these as well,
+  // but catching is for what we did not foresee — a case we know about should
+  // draw nothing quietly rather than log an error every time it arrives.
+  {
+    const quietBefore = (window.__noise || []).length;
+    send({ kind: "assign" });
+    send({ kind: "assign", assignment: null });
+    send({ kind: "spend" });
+    send({ kind: "spend", usd: NaN, totalUsd: undefined, turns: -1, durationMs: "soon" });
+    check("an assignment with nothing in it is ignored quietly, not caught and logged",
+      (window.__noise || []).length === quietBefore);
+    check("...and a cost line of nothing reads as zero rather than throwing",
+      /0 turns/.test(document.getElementById("floor").textContent));
+  }
+
+  const noiseBefore = (window.__noise || []).length;
+  for (const bad of [
+    { kind: "say" },
+    { kind: "say", who: null, turn: null, delta: null },
+    { kind: "say", who: "one", turn: "t", delta: 12345 },
+    { kind: "sayEnd" },
+    { kind: "act", who: "one" },
+    { kind: "actEnd", act: "missing", ok: "yes" },
+    { kind: "assign" },
+    { kind: "assign", assignment: null },
+    { kind: "assign", assignment: { id: "x" } },
+    { kind: "deliver", id: "never-assigned", outcome: undefined, summary: null },
+    { kind: "status" },
+    { kind: "status", who: "ghost", status: "invented" },
+    { kind: "spend" },
+    { kind: "spend", usd: NaN, totalUsd: undefined, turns: -1, durationMs: "soon" },
+    { kind: "context", percent: 1e9, tokens: null, max: 0 },
+    { kind: "compacted" },
+    { kind: "notice" },
+    { kind: "notice", level: "unknown", text: null },
+    { kind: "roster" },
+    { kind: "roster", members: null, edges: null },
+    { kind: "roster", members: [{ id: null }], edges: [{ from: null, to: null }] },
+    { kind: "sessions", items: null },
+    { kind: "workflows", items: [null, { id: null }] },
+    { kind: "detail" },
+    { kind: "editing" },
+    { kind: "editing", workflow: null },
+    { kind: "ask", id: "q", who: "one" },
+    { kind: "askClosed" },
+    { kind: "restoreInput" },
+    { kind: "channel" },
+    { kind: "busy" },
+    { kind: "active" },
+    { kind: "saved" },
+    { kind: "refined" },
+    { kind: "building" },
+    { kind: "auth" },
+    { kind: "projects" },
+  ]) {
+    // Dispatching is synchronous here, so a handler that throws would abort this
+    // loop. In the extension each message is its own event and the browser
+    // catches it — the event is dropped and logged rather than killing the page.
+    // Recorded either way: a dropped event is a lane that stops updating.
+    try { send(bad); } catch (err) {
+      (window.__noise ||= []).push("threw on " + bad.kind + ": " + String(err && err.message ? err.message : err));
+    }
+  }
+    const raised = (window.__noise || []).slice(noiseBefore);
+  // Caught and logged is the designed outcome: one event is dropped and the
+  // page carries on. What must never happen is an uncaught throw, which leaves
+  // the handler half-finished with nothing to correct it.
+  const uncaught = raised.filter((n) => String(n).startsWith("error:"));
+  check("no malformed event throws uncaught: " + JSON.stringify(uncaught.slice(0, 3)),
+    uncaught.length === 0);
+  check("...and anything unhandleable is reported rather than swallowed",
+    raised.every((n) => /could not handle|could not render|threw on/.test(String(n))));
+  // Deliberate noise, so it does not count against the page's own error check.
+  window.__noise.length = noiseBefore;
+  check("...and the board is still there afterwards",
+    document.getElementById("floor") !== null);
+  send({ kind: "roster", workflowId: "ok", workflowName: "Fine", autonomy: "", billing: "",
+    workspace: "d", connectors: [], edges: [],
+    members: [{ id: "one", name: "One", role: "", preset: "build", model: "opus",
+      effort: "high", status: "idle", entry: true, x: 0, y: 0 }] });
+  send({ kind: "say", who: "one", turn: "z", delta: "still working" });
+  send({ kind: "sayEnd", who: "one", turn: "z" });
+  check("...and still renders after all that",
+    (document.getElementById("stream-one") || document.getElementById("stream-all"))
+      .textContent.includes("still working"));
+}
+
 document.title = "done";
 window.__results = results;
 `;

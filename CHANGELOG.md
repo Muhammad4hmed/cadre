@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.15.0 — the context meter never worked
+
+The header is meant to show how full the context window is. The chip is in the
+markup, the CSS for it is written, the event carries the numbers, and the
+handler is wired to a function called `renderContext`.
+
+There is no `renderContext`. There never was. So every context event threw, the
+chip stayed hidden for the life of the product, and the README went on saying
+"the header shows how full the context window is".
+
+The same shape as the missing `fmtTokens` in 0.11.0, and found the same way it
+should have been the first time: by fuzzing the webview with events the host
+should never send, now that the page reports its own errors. It shows a
+percentage once it is worth knowing, the real token counts behind it, and marks
+itself when a summarisation is close.
+
+Three other things the fuzz turned up, all in handlers that assumed a field was
+there:
+
+- An assignment with nothing in it read `.handoff` off `undefined`.
+- A cost line with no figures called `.toFixed` on `undefined`.
+- A question with no questions was not iterable.
+
+Anticipated shapes now draw nothing, quietly. Anything unforeseen is caught and
+logged rather than left half-drawn — the live path is guarded the same way
+replaying a remembered event already was, which is the asymmetry that made this
+worth doing: the identical object was fatal when it arrived and handled when it
+came back. And an event that cannot be drawn is now dropped from the replay log
+rather than kept to fail again on every rebuild for the rest of the session.
+
+1274 checks.
+
 ## 0.14.8 — a message that could not be sent kept its words and lost its picture
 
 When a send cannot start a conversation, what you typed comes back to the

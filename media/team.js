@@ -549,6 +549,7 @@
 
       case "assign": {
         const a = e.assignment;
+        if (!a) return;
         const card = node("div", "assignment");
         if (a.handoff) card.classList.add("handoff");
         // A handoff was not a decision anyone made in the moment, so it reads
@@ -685,10 +686,13 @@
         // The header is a session total — the spend cap is measured against
         // the session, and a teammate's cost counts towards it. The card below
         // is what this one run cost.
-        state.spendUsd = typeof e.totalUsd === "number" ? e.totalUsd : e.usd;
-        const seconds = (e.durationMs / 1000).toFixed(1);
+        // Numbers, whatever arrived: a run's cost line is not worth throwing
+        // the lane over, and a NaN reads better as 0.00 than as a stopped board.
+        const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+        state.spendUsd = typeof e.totalUsd === "number" ? num(e.totalUsd) : num(e.usd);
+        const seconds = (num(e.durationMs) / 1000).toFixed(1);
         place(e.who || mainLane(),
-          node("div", "spend", e.turns + " turns · " + seconds + "s · $" + e.usd.toFixed(4)));
+          node("div", "spend", num(e.turns) + " turns · " + seconds + "s · $" + num(e.usd).toFixed(4)));
         el.spend.textContent = "$" + state.spendUsd.toFixed(4);
         return;
       }
@@ -947,6 +951,35 @@
   }
 
   /** A chip with nothing to say is hidden rather than showing a placeholder. */
+  /**
+   * How full the context window is.
+   *
+   * The chip, its CSS and the event were all here; the function that draws them
+   * was not, so every context event threw and the chip stayed hidden for the
+   * life of the product. The README has been claiming this works.
+   *
+   * Only shown once it is worth knowing — a run that has used a tenth of the
+   * window does not need a number in the header — and marked when it is close
+   * enough that a summarisation is coming.
+   */
+  function renderContext(e) {
+    if (!el.context) return;
+    const percent = Number(e && e.percent);
+    if (!Number.isFinite(percent) || percent < 10) {
+      el.context.hidden = true;
+      return;
+    }
+    const shown = Math.max(0, Math.min(100, Math.round(percent)));
+    el.context.hidden = false;
+    el.context.textContent = shown + "% context";
+    const tokens = Number(e && e.tokens);
+    const max = Number(e && e.max);
+    el.context.title = Number.isFinite(tokens) && Number.isFinite(max) && max > 0
+      ? `${fmtTokens(tokens)} of ${fmtTokens(max)} used. At the limit the history is summarised and the run carries on.`
+      : "At the limit the history is summarised and the run carries on.";
+    el.context.classList.toggle("warn", shown >= 80);
+  }
+
   function setChip(node, value) {
     const has = Boolean(value) && value !== "—";
     node.hidden = !has;
@@ -1098,11 +1131,29 @@
     if (!e || typeof e.kind !== "string") return;
 
     const handler = handlers[e.kind];
-    if (handler) { handler(e); return; }
+    // Guarded the same way replaying one is. An event is remembered before it
+    // is drawn, so the identical object is handled on a later rerender and
+    // would throw here and be caught there — and half-drawing then throwing
+    // leaves the lane in a state nothing will correct.
+    try {
+      if (handler) { handler(e); return; }
+    } catch (err) {
+      console.error("Cadre: could not handle a " + e.kind + " event", err);
+      return;
+    }
 
     clearEmpty();
     remember(e);
-    renderEvent(e);
+    try {
+      renderEvent(e);
+    } catch (err) {
+      console.error("Cadre: could not render a " + e.kind + " event", err);
+      // An event that cannot be drawn must not be kept: it is replayed on every
+      // rebuild of the board, so keeping it turns one bad event into an error
+      // on every layout change for the rest of the session.
+      const at = state.log.lastIndexOf(e);
+      if (at !== -1) state.log.splice(at, 1);
+    }
   });
 
   // ------------------------------------------------------------ attachments
