@@ -22,12 +22,17 @@ import { spawnSync } from "node:child_process";
   console.log("  typecheck          ok");
 }
 
-const suites = ["verify-workflow", "verify-ui", "verify-lifecycle", "verify-auth", "verify-trust", "verify-tools", "verify-mcp", "verify-webview", "verify-sidebar", "verify-package"];
+const suites = ["verify-workflow", "verify-ui", "verify-lifecycle", "verify-auth", "verify-trust", "verify-tools", "verify-mcp", "verify-webview", "verify-sidebar", "verify-package",
+  // The live suite's harness, everything up to the first paid token. It is in
+  // here because nothing ran the live suite for many releases, so it quietly
+  // stopped building against a module that had been renamed, and no one knew.
+  ["verify-team", "--dry"]];
 let total = 0;
 let failed = false;
 
-for (const suite of suites) {
-  const run = spawnSync("node", [`scripts/${suite}.mjs`], { encoding: "utf8", timeout: 180_000 });
+for (const entry of suites) {
+  const [suite, ...args] = Array.isArray(entry) ? entry : [entry];
+  const run = spawnSync("node", [`scripts/${suite}.mjs`, ...args], { encoding: "utf8", timeout: 180_000 });
   const out = (run.stdout ?? "") + (run.stderr ?? "");
   const passed = (out.match(/^PASS/gm) ?? []).length;
   const fails = (out.match(/^FAIL/gm) ?? []).length;

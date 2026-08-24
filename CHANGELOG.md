@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.18.4 — the live end-to-end test had not built for months
+
+Chasing the last release's finding — a module invisible to every suite — every
+source file was checked for whether it is compiled into any test at all. Two
+are not, and both are correct: one holds types only, which the bundler erases,
+and the other is a declaration file.
+
+The sweep turned up something else on the way. Two scripts point at
+`src/team/orchestrator.ts`, a module renamed several releases ago. Neither has
+built since. One of them is the live end-to-end test: the only thing in this
+repo that runs a real team against the real SDK, spends real money, and checks
+that the Lead delegates instead of editing, that a teammate's work lands in its
+own lane, and that the file on disk actually changed. It was also still passing
+the fixed-roster config that was removed with the rename.
+
+`npm run verify:all` therefore did not work. CI was unaffected — it runs
+`verify:fast` — which is exactly why nobody found out.
+
+Both are rebuilt against the current API. The live test gains a `--dry` mode
+that does everything up to the first paid token: builds the bundle, constructs
+the session, resolves the CLI binary, wires the editor stub. That runs inside
+`verify:fast` now, so the live harness cannot rot again without CI going red,
+and the live run itself says plainly that it spends quota before it does.
+
+Seven checks, and the reason they exist is that a test nothing runs is not a
+test.
+
+1426 checks.
+
 ## 0.18.3 — the fence markers were going into the agent's system prompt
 
 Refinement is on by default. It takes "you review contracts" and writes the

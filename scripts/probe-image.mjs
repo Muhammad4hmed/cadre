@@ -17,18 +17,32 @@ const orig = Module._load;
 Module._load = (r, p, m) => (r === "vscode" ? stub : orig.call(Module, r, p, m));
 
 const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cadre-img-")), "o.cjs");
-await esbuild.build({ ...baseOptions({ entry: "src/team/orchestrator.ts", outfile }), logLevel: "warning" });
+await esbuild.build({ ...baseOptions({ entry: "src/workflow/runner.ts", outfile }), logLevel: "warning" });
 const require = createRequire(import.meta.url);
-const { TeamSession } = require(outfile);
+const { WorkflowSession } = require(outfile);
 const exe = require.resolve(`@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`);
 
-const data = fs.readFileSync("/tmp/cadre-vision-probe.png").toString("base64");
+const PROBE = "/tmp/cadre-vision-probe.png";
+if (!fs.existsSync(PROBE)) {
+  console.log(`No probe image at ${PROBE}.`);
+  console.log('Make one with the words "purple otter" in it, e.g.:');
+  console.log(`  convert -size 480x160 xc:white -pointsize 48 -gravity center -annotate 0 "purple otter" ${PROBE}`);
+  process.exit(2);
+}
+const data = fs.readFileSync(PROBE).toString("base64");
 let text = "";
 const done = Promise.withResolvers();
 
-const session = new TeamSession(
-  { cwd: os.tmpdir(), executablePath: exe, autonomy: "plan", inheritGlobalConfig: false,
-    directLine: false, models: {}, efforts: { lead: "low" }, skills: undefined, connectors: {},
+const WORKFLOW = {
+  id: "probe", name: "Vision probe", entry: "lead",
+  agents: [{ id: "lead", name: "Lead", role: "answers", prompt: "", preset: "readonly", x: 0, y: 0 }],
+  edges: [], createdAt: 0, updatedAt: 0, revision: 1,
+};
+
+const session = new WorkflowSession(
+  { workflow: WORKFLOW, cwd: os.tmpdir(), executablePath: exe, autonomy: "plan",
+    inheritGlobalConfig: false, model: "sonnet", effort: "low", maxDepth: 1, maxContinues: 0,
+    skills: undefined, connectors: {},
     thinking: "off", fallbackModel: "", maxSpendUsd: 0, checkpoints: false,
     additionalDirectories: [], plugins: [], exclusiveConnectors: false, persistSessions: false,
     documentation: "off", docsPath: "docs" },

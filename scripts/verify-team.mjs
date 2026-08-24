@@ -1,10 +1,20 @@
 /**
- * Live end-to-end test of the three-agent team against the real SDK.
+ * Live end-to-end test of a three-agent team against the real SDK.
  *
  * Runs in a throwaway git repo so `git_view` behaves as it would in a real
- * workspace. Asserts that the Lead actually delegates rather than doing the work
- * itself, that the teammate's activity is attributed to its own lane, and that
- * the file on disk really changed.
+ * workspace. Asserts that the Lead actually delegates rather than doing the
+ * work itself, that the teammate's activity is attributed to its own lane, and
+ * that the file on disk really changed.
+ *
+ * THIS SPENDS REAL QUOTA. It is deliberately not part of `verify:fast`, which
+ * is what CI runs. Pass `--dry` to build and wire everything without sending a
+ * turn: that proves the harness itself still works, so a live failure is about
+ * the product rather than this file.
+ *
+ * It was pointed at `src/team/orchestrator.ts` long after that module was
+ * renamed, so it had not built — let alone run — for many releases. Nothing
+ * noticed, because nothing runs it. `--dry` is the part that can be checked
+ * every time, and it is checked by `verify:team:dry`.
  */
 import * as esbuild from "esbuild";
 import { baseOptions } from "./esbuild-shared.mjs";
@@ -15,8 +25,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
+const DRY = process.argv.includes("--dry");
+
 // ---- a disposable workspace -------------------------------------------------
-const repo = fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-live-"));
+const repo = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-live-"));
 fs.writeFileSync(
   path.join(repo, "scratch.py"),
   'def fizzbuzz(n):\n    if n % 15 == 0:\n        return "FizzBuzz"\n    if n % 3 == 0:\n        return "Fizz"\n    if n % 5 == 0:\n        return "Buzz"\n    return str(n)\n',
@@ -45,31 +57,49 @@ const vscodeStub = {
 const originalLoad = Module._load;
 Module._load = (r, p, m) => (r === "vscode" ? vscodeStub : originalLoad.call(Module, r, p, m));
 
-const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ai-team-build-")), "orchestrator.cjs");
-await esbuild.build({ ...baseOptions({ entry: "src/team/orchestrator.ts", outfile }), logLevel: "warning" });
+const outfile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "cadre-build-")), "runner.cjs");
+await esbuild.build({ ...baseOptions({ entry: "src/workflow/runner.ts", outfile }), logLevel: "warning" });
 
 const require = createRequire(import.meta.url);
-const { TeamSession } = require(outfile);
+const { WorkflowSession } = require(outfile);
 const executablePath = require.resolve(
   `@anthropic-ai/claude-agent-sdk-${process.platform}-${process.arch}/claude`,
 );
 
+// ---- the team ----------------------------------------------------------------
+const agent = (id, name, role, preset) => ({ id, name, role, prompt: "", preset, x: 0, y: 0 });
+const WORKFLOW = {
+  id: "live", name: "Live team", entry: "lead",
+  agents: [
+    agent("lead", "Lead", "decides what needs doing and delegates it", "readonly"),
+    agent("researcher", "Researcher", "reads the codebase and reports back", "research"),
+    agent("engineer", "Engineer", "makes the change", "build"),
+  ],
+  edges: [
+    { from: "lead", to: "researcher", kind: "delegate" },
+    { from: "lead", to: "engineer", kind: "delegate" },
+  ],
+  createdAt: 0, updatedAt: 0, revision: 1,
+};
+
 // ---- run --------------------------------------------------------------------
 const events = [];
-const seen = new Set();
-const session = new TeamSession(
+const session = new WorkflowSession(
   {
+    workflow: WORKFLOW,
     cwd: repo,
     executablePath,
     autonomy: "standard",
     inheritGlobalConfig: false,
-    directLine: false,
+    model: "sonnet",
+    maxDepth: 3,
+    maxContinues: 0,
     // Effort is dialled down: this exercises wiring, not judgement.
-    models: {}, efforts: { lead: "low", researcher: "low", engineer: "low" },
+    effort: "low",
     skills: undefined, connectors: {},
     thinking: "adaptive", fallbackModel: "", maxSpendUsd: 0, checkpoints: true,
     additionalDirectories: [], plugins: [], exclusiveConnectors: false,
-    persistSessions: true, documentation: "substantial", docsPath: "docs",
+    persistSessions: false, documentation: "substantial", docsPath: "docs",
   },
   {
     environment: async () => ({ ...process.env }),
@@ -77,10 +107,6 @@ const session = new TeamSession(
   },
   (e) => {
     events.push(e);
-    const key = `${e.kind}:${e.who ?? ""}`;
-    if (!seen.has(key) && !["say", "think"].includes(e.kind)) {
-      seen.add(key);
-    }
     if (e.kind === "assign") console.log(`  [assign] ${e.assignment.from} → ${e.assignment.to}: ${e.assignment.brief.slice(0, 90)}`);
     if (e.kind === "deliver") console.log(`  [deliver] ${e.id} ${e.outcome}: ${e.summary.slice(0, 90)}`);
     if (e.kind === "act") console.log(`  [${e.who}] ${e.tool} ${String(e.summary).slice(0, 80)}`);
@@ -91,6 +117,30 @@ const session = new TeamSession(
 );
 
 await session.prepare();
+
+if (DRY) {
+  // Everything up to the first paid token. If this passes, a live failure is
+  // the product's, not the harness's.
+  const wired = [
+    ["the runner bundle builds and exports WorkflowSession", typeof WorkflowSession === "function"],
+    ["a session constructs from the current config shape", Boolean(session)],
+    ["the CLI binary the SDK would spawn is present", fs.existsSync(executablePath)],
+    ["prepare() resolves without touching the model", true],
+    ["the vscode stub is what the bundle resolved", require("vscode") === vscodeStub],
+    ["the workspace is a real git repo", fs.existsSync(path.join(repo, ".git"))],
+    ["nothing was spent", !events.some((e) => e.kind === "spend")],
+  ];
+  console.log("\n=== live harness (dry) ===");
+  let bad = false;
+  for (const [label, ok] of wired) { if (!ok) bad = true; console.log(`${ok ? "PASS" : "FAIL"}  ${label}`); }
+  console.log("\nNot run: the turn itself. `npm run verify:team` spends real quota.");
+  session.dispose();
+  fs.rmSync(repo, { recursive: true, force: true });
+  process.exit(bad ? 1 : 0);
+}
+
+console.log("\n*** This run sends real turns and spends real quota. Ctrl-C now if");
+console.log("*** that is not what you want. `--dry` checks the harness for free.");
 
 const finished = new Promise((resolve) => {
   const timer = setInterval(() => {
