@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.18.0 — the usage limit a subscription actually hits
+
+Cadre's premise is that you sign in and go: no API key, one Claude
+subscription, a whole team on it. A team is the heaviest thing a five-hour
+window ever sees.
+
+The CLI says so. It sends a `rate_limit_event` as the window fills and again
+when it is spent, and nothing here handled that message type at all — it fell
+through to `default: break`. So a run slowed, stalled, or died, and the panel
+said nothing about why. For a product whose whole pitch is "no API keys, just
+your subscription", that is the most confusing way it can fail.
+
+It is a warning as the window fills, naming which window and when it comes
+back, and an error when it is spent. Once each, not on every turn — and again
+for the next window, because that is news again. Not gated to the main thread:
+the limit is account-wide and a teammate's run hits it just as hard.
+
+`auth_status` was dropped the same way, so a token expiring or signing out in
+another window looked like the team simply going quiet. It says so now.
+
+Two things the SDK does not write down anywhere, handled rather than guessed:
+`resetsAt` may be seconds or milliseconds, and both are accepted — a Unix time
+is 1.7e9 in one and 1.7e12 in the other, so they cannot be confused. And
+`utilization` may be a fraction or a percentage, so no percentage is shown at
+all: a confidently wrong number is worse than no number.
+
+Nine checks. Six mutations, each caught by exactly the checks that should catch
+it, including one that treats every `resetsAt` as milliseconds.
+
+1384 checks.
+
 ## 0.17.2 — a connector only ever broke on the first run
 
 A connector that was down when the session started was reported. One that broke

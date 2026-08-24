@@ -9,6 +9,7 @@ import {
   type PermissionResult,
   type PermissionUpdate,
   type Query,
+  type SDKRateLimitInfo,
   type SDKUserMessage,
 } from "@anthropic-ai/claude-agent-sdk";
 
@@ -153,6 +154,9 @@ export class WorkflowSession implements vscode.Disposable {
   /** The connector health last shown on the roster, so the chips are republished
    * when it changes and left alone when it has not. */
   private connectorHealth = "";
+  /** Usage limits already reported, keyed by window and reset time, so one is
+   * named when it is reached and not again on every turn until it clears. */
+  private readonly limitsAnnounced = new Set<string>();
   /** User turns, newest last. Checkpointing rewinds to one of these. */
   private readonly turns: { id: string; text: string; at: number }[] = [];
 
@@ -874,6 +878,32 @@ export class WorkflowSession implements vscode.Disposable {
           break;
         }
 
+        /**
+         * The limit a subscription actually hits.
+         *
+         * Cadre's premise is that you sign in and go: no API key, one Claude
+         * subscription, a whole team on it. A team is the heaviest thing a
+         * five-hour window ever sees. This is the CLI saying so, on a message
+         * type nothing handled — so a run slowed, stalled or died with nothing
+         * said about why, which is the most confusing way this product can
+         * fail. Not gated to the main thread: the limit is account-wide, and a
+         * teammate's run hits it just as hard.
+         */
+        case "rate_limit_event":
+          this.reportRateLimit(message.rate_limit_info);
+          break;
+
+        /** A token expiring, or signing out in another window, mid-run. */
+        case "auth_status":
+          if (message.error) {
+            this.emit({
+              kind: "notice",
+              level: "error",
+              text: `Claude sign-in failed: ${message.error}. Cadre cannot run until you sign back in.`,
+            });
+          }
+          break;
+
         default:
           break;
       }
@@ -1376,6 +1406,49 @@ export class WorkflowSession implements vscode.Disposable {
       return { behavior: "deny", message: "The user dismissed the question without answering." };
     }
     return { behavior: "allow", updatedInput: { ...input, answers } };
+  }
+
+  /**
+   * Names the window that is filling and when it comes back.
+   *
+   * `utilization` is deliberately not shown: the SDK does not say whether it
+   * is a fraction or a percentage, and a confidently wrong number is worse
+   * than no number. Which window and when it clears is the actionable part.
+   */
+  private reportRateLimit(info: SDKRateLimitInfo | undefined): void {
+    if (!info || info.status === "allowed") return;
+
+    // Keyed on the window too, so the next one is news again.
+    const key = `${info.status}:${info.rateLimitType ?? ""}:${info.resetsAt ?? ""}`;
+    if (this.limitsAnnounced.has(key)) return;
+    this.limitsAnnounced.add(key);
+
+    const WINDOWS: Record<string, string> = {
+      five_hour: "five-hour limit",
+      seven_day: "weekly limit",
+      seven_day_opus: "weekly Opus limit",
+      seven_day_sonnet: "weekly Sonnet limit",
+      seven_day_overage_included: "weekly limit",
+      overage: "overage limit",
+    };
+    const window = WINDOWS[info.rateLimitType ?? ""] ?? "usage limit";
+
+    // The SDK does not write down whether `resetsAt` is seconds or
+    // milliseconds. A Unix time in seconds is about 1.7e9 and in milliseconds
+    // about 1.7e12, so the two cannot be confused for any plausible date.
+    // Accepting both beats picking one and being wrong half the time.
+    const at = info.resetsAt === undefined
+      ? undefined
+      : new Date(info.resetsAt < 1e11 ? info.resetsAt * 1000 : info.resetsAt);
+    const resets = at && !Number.isNaN(at.getTime())
+      ? ` It resets ${info.rateLimitType === "five_hour" ? `at ${at.toLocaleTimeString()}` : `on ${at.toLocaleString()}`}.`
+      : "";
+
+    this.emit(info.status === "rejected"
+      ? { kind: "notice", level: "error",
+          text: `Claude's ${window} has been reached.${resets} The team cannot run until then.` }
+      : { kind: "notice", level: "warn",
+          text: `Close to Claude's ${window}.${resets} A long run may not finish.` });
   }
 
   /** Called when the webview sends the user's answer back. */

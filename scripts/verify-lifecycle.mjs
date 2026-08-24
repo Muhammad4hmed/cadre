@@ -424,6 +424,65 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// ---- V. the usage limit a subscription actually hits -----------------------
+// Cadre's whole premise is that you sign in and go: no API key, one Claude
+// subscription, five agents on it. A team is the heaviest thing a five-hour
+// window ever sees. The CLI says so on a message type the runner did not
+// handle at all, so the run slowed, stalled or died with nothing said about
+// why — the single most confusing way for this product to fail.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  await session.prepare();
+  session.send("x");
+  await tick();
+  const cli = fake.__instances[0];
+  const limits = () => of("notice").filter((n) => /limit/i.test(n.text));
+  const rate = (info) =>
+    cli.emit({ type: "rate_limit_event", uuid: "u", session_id: "s", rate_limit_info: info });
+  const RESETS = 1772000000;
+
+  rate({ status: "allowed", rateLimitType: "five_hour", utilization: 0.1 });
+  await tick();
+  check("V1 a healthy usage window says nothing", limits().length === 0);
+
+  rate({ status: "allowed_warning", rateLimitType: "five_hour", resetsAt: RESETS });
+  await tick();
+  check("V2 approaching the limit is a warning",
+    limits().length === 1 && limits()[0].level === "warn");
+  check("V3 ...naming the window that is filling", /five-hour/i.test(limits()[0]?.text ?? ""));
+  check("V4 ...and when it comes back", /resets/i.test(limits()[0]?.text ?? ""));
+
+  rate({ status: "allowed_warning", rateLimitType: "five_hour", resetsAt: RESETS });
+  await tick();
+  check("V5 ...said once, not on every turn of a long run", limits().length === 1);
+
+  rate({ status: "rejected", rateLimitType: "five_hour", resetsAt: RESETS });
+  await tick();
+  check("V6 being cut off is an error, not a warning",
+    limits().length === 2 && limits().at(-1)?.level === "error");
+
+  // The SDK does not write down whether resetsAt is seconds or milliseconds.
+  // Both are accepted rather than guessed at, and both name the same moment.
+  rate({ status: "rejected", rateLimitType: "seven_day", resetsAt: RESETS });
+  await tick();
+  const inSeconds = limits().at(-1)?.text;
+  rate({ status: "rejected", rateLimitType: "seven_day", resetsAt: RESETS * 1000 });
+  await tick();
+  const inMillis = limits().at(-1)?.text;
+  check("V7 resetsAt in seconds and in milliseconds name the same moment",
+    Boolean(inSeconds) && inSeconds === inMillis);
+  check("V8 ...and a weekly window is not called a five-hour one",
+    /week/i.test(inSeconds ?? ""));
+
+  // Signing out elsewhere, or a token expiring mid-run.
+  cli.emit({ type: "auth_status", isAuthenticating: false, output: [], error: "token expired", uuid: "u", session_id: "s" });
+  await tick();
+  check("V9 losing your Claude sign-in mid-run is surfaced, not swallowed",
+    of("notice").some((n) => n.level === "error" && /token expired/.test(n.text)));
+  session.dispose();
+}
+
 // ---- H. the parity options actually reach the SDK --------------------------
 fake.__instances.length = 0;
 {
