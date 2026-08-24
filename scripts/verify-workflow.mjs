@@ -1330,6 +1330,59 @@ check("skills are empty until the CLI has been asked", models.cachedSkills().len
 check("the fallback knows Haiku takes no effort level",
   models.FALLBACK_MODELS.find((m) => m.value === "haiku").efforts.length === 0);
 
+/* ------------------------------------------------- two writers, one file */
+
+// Workflows are plain files the product tells you to review in a diff and edit
+// by hand, so a second writer is not hypothetical: another VS Code window, a
+// pull, or an editor. Last-writer-wins loses an afternoon silently.
+{
+  const shared = fs.mkdtempSync(path.join(os.tmpdir(), "cadre-two-"));
+  const made = store.createWorkflow(shared, "Shared");
+  store.writeWorkflow(shared, {
+    ...made, entry: "a", edges: [],
+    agents: [{ id: "a", name: "A", role: "", prompt: "original", preset: "readonly", x: 0, y: 0 }],
+  });
+
+  const windowA = store.readWorkflow(shared, made.id);
+  const windowB = store.readWorkflow(shared, made.id);
+  check("two readers see the same revision", windowA.revision === windowB.revision);
+
+  store.writeWorkflow(shared, { ...windowA, name: "Renamed by A" }, undefined, windowA.revision);
+
+  let conflict;
+  try {
+    store.writeWorkflow(shared, { ...windowB, name: "Renamed by B" }, undefined, windowB.revision);
+  } catch (err) { conflict = err; }
+
+  check("a stale writer is refused rather than allowed to clobber",
+    conflict?.name === "WorkflowConflict");
+  check("...and the refusal says which revisions disagreed",
+    /expected revision \d+, found \d+/.test(conflict?.message ?? ""));
+  check("...and the first writer's work is still on disk",
+    store.readWorkflow(shared, made.id).name === "Renamed by A");
+
+  // Having seen the newer version, the second writer can proceed.
+  const fresh = store.readWorkflow(shared, made.id);
+  store.writeWorkflow(shared, { ...fresh, name: "Renamed by B" }, undefined, fresh.revision);
+  check("a writer that has caught up may write", store.readWorkflow(shared, made.id).name === "Renamed by B");
+
+  // An explicit overwrite is still possible: the user may have chosen it.
+  const stale = { ...windowB, name: "Forced" };
+  store.writeWorkflow(shared, stale);
+  check("omitting the expectation still writes unconditionally",
+    store.readWorkflow(shared, made.id).name === "Forced");
+
+  // A deleted file is not a conflict — re-creating what is being edited loses
+  // nothing, and refusing would strand the user with no way to save.
+  const current = store.readWorkflow(shared, made.id);
+  store.deleteWorkflow(shared, made.id);
+  let threw = false;
+  try { store.writeWorkflow(shared, current, undefined, current.revision + 99); }
+  catch { threw = true; }
+  check("a workflow deleted underneath you is re-created, not refused", !threw);
+  check("...and is readable again", Boolean(store.readWorkflow(shared, made.id)));
+}
+
 console.log("=== workflow model ===");
 // Last, so it covers everything above: no promise in this suite may reject with
 // nobody listening.

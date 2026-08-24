@@ -53,6 +53,28 @@ export class TeamController implements vscode.Disposable {
   private editing: Workflow | undefined;
   /** The workflow whose page is open, which need not be either of the above. */
   private viewing: Workflow | undefined;
+  /**
+   * The revision we last put on disk, per workflow.
+   *
+   * Tracked here rather than trusting the draft the webview sends back: the
+   * draft is whatever the user is editing, and its revision is whatever it was
+   * when the builder opened. What matters for a conflict is whether the FILE
+   * has moved since we last wrote it, and only the host knows that.
+   */
+  private readonly onDisk = new Map<string, number>();
+
+  /**
+   * Records the revision we believe is on disk for a workflow.
+   *
+   * Every path that loads or writes one goes through here. Missing a single one
+   * is not a small bug: a stale expectation makes the NEXT ordinary save look
+   * like someone else's edit, and the save is then silently refused. Moving a
+   * workflow between scopes did exactly that.
+   */
+  private trackRevision<T extends Workflow | undefined>(workflow: T): T {
+    if (workflow) this.onDisk.set(workflow.id, workflow.revision ?? 0);
+    return workflow;
+  }
   /** Set by "Resume Session"; consumed by the next session that starts. */
   private pendingResume: string | undefined;
   /** True while a stored transcript is being written into the lanes. */
@@ -587,14 +609,14 @@ export class TeamController implements vscode.Disposable {
       name = entered.trim();
     }
 
-    let created = workflows.createWorkflow(root, name, scope);
+    let created = this.trackRevision(workflows.createWorkflow(root, name, scope));
     if (chosen) {
       const built = chosen.build(Date.now());
-      created = workflows.writeWorkflow(
+      created = this.trackRevision(workflows.writeWorkflow(
         root,
         { ...created, ...built, id: created.id, name, scope },
         scope,
-      );
+      ));
     }
     this.log.info(`created ${scope} workflow ${created.id}${chosen ? ` from ${chosen.id}` : ""}`);
     await this.intoBuilder(created);
@@ -610,7 +632,7 @@ export class TeamController implements vscode.Disposable {
   private async showWorkflow(id: string): Promise<void> {
     const root = this.root();
     if (!root) return;
-    const workflow = workflows.readWorkflow(root, id);
+    const workflow = this.trackRevision(workflows.readWorkflow(root, id));
     if (!workflow) {
       void vscode.window.showWarningMessage("That workflow could not be read.");
       await this.publishScreen();
@@ -666,7 +688,7 @@ export class TeamController implements vscode.Disposable {
   private async moveWorkflow(id: string, to: Scope): Promise<void> {
     const root = this.root();
     if (!root) return;
-    const moved = workflows.moveWorkflow(root, id, to);
+    const moved = this.trackRevision(workflows.moveWorkflow(root, id, to));
     if (!moved) return;
     this.log.info(`moved workflow ${id} to ${to}`);
     if (this.viewing?.id === id) this.viewing = moved;
@@ -686,7 +708,7 @@ export class TeamController implements vscode.Disposable {
   private async openWorkflow(id: string, fresh = false): Promise<void> {
     const root = this.root();
     if (!root) return;
-    const workflow = workflows.readWorkflow(root, id);
+    const workflow = this.trackRevision(workflows.readWorkflow(root, id));
     if (!workflow) {
       void vscode.window.showWarningMessage("That workflow could not be read.");
       await this.publishScreen();
@@ -724,6 +746,10 @@ export class TeamController implements vscode.Disposable {
    */
   private async intoBuilder(workflow: Workflow): Promise<void> {
     this.editing = workflow;
+    // What we believe is on disk, from the moment it is opened. Without this
+    // the first save has nothing to compare against and overwrites blindly,
+    // which is exactly the case that loses another window's work.
+    this.onDisk.set(workflow.id, workflow.revision ?? 0);
     this.screen = "builder";
     this.broadcastTo(this.editorState(workflow, true));
     await this.publishScreen();
@@ -733,7 +759,7 @@ export class TeamController implements vscode.Disposable {
   private async editWorkflow(id: string): Promise<void> {
     const root = this.root();
     if (!root) return;
-    const workflow = workflows.readWorkflow(root, id);
+    const workflow = this.trackRevision(workflows.readWorkflow(root, id));
     if (!workflow) return;
     await this.intoBuilder(workflow);
   }
@@ -747,8 +773,16 @@ export class TeamController implements vscode.Disposable {
     // rejection surface as an unhandled promise nobody sees.
     let saved: Workflow;
     try {
-      saved = workflows.writeWorkflow(root, workflow, workflow.scope);
+      // Refuse to clobber a file someone else moved — another window, a pull,
+      // or a hand edit. Unknown means we have not written it yet, so there is
+      // nothing to conflict with.
+      const expect = this.onDisk.get(workflow.id);
+      saved = workflows.writeWorkflow(root, workflow, workflow.scope, expect);
     } catch (err) {
+      if (err instanceof workflows.WorkflowConflict) {
+        await this.resolveConflict(workflow, err, launch, auto);
+        return;
+      }
       this.log.error(`refused to save workflow: ${describeError(err)}`);
       this.broadcastTo({ kind: "saved", workflowId: workflow.id, at: Date.now(), auto });
       this.broadcast({
@@ -759,6 +793,7 @@ export class TeamController implements vscode.Disposable {
       return;
     }
     this.editing = saved;
+    this.onDisk.set(saved.id, saved.revision);
     if (this.viewing?.id === saved.id) this.viewing = saved;
     this.log.info(`${auto ? "autosaved" : "saved"} workflow ${saved.id} (${saved.agents.length} agents, ${saved.edges.length} arrows)`);
     this.broadcastTo({ kind: "saved", workflowId: saved.id, at: saved.updatedAt, auto });
@@ -785,10 +820,82 @@ export class TeamController implements vscode.Disposable {
     if (!auto) await this.publishScreen();
   }
 
+  /**
+   * Someone else changed the file while it was open here.
+   *
+   * An autosave never asks and never overwrites: it fires while the user is
+   * typing, and a modal every 45 seconds is its own kind of data loss. It says
+   * so once and leaves the choice for a deliberate save, where the user is
+   * actually present to make it.
+   */
+  private async resolveConflict(
+    workflow: Workflow,
+    conflict: workflows.WorkflowConflict,
+    launch: boolean,
+    auto: boolean,
+  ): Promise<void> {
+    this.log.warn(conflict.message);
+    this.broadcastTo({ kind: "saved", workflowId: workflow.id, at: Date.now(), auto, conflict: true });
+
+    if (auto) {
+      this.broadcast({
+        kind: "notice",
+        level: "warn",
+        text: `"${workflow.name}" changed on disk since you opened it — another window, a pull, or an edit by hand. Nothing was overwritten. Save deliberately to decide what happens to it.`,
+      });
+      return;
+    }
+
+    const KEEP = "Keep mine, overwrite theirs";
+    const THEIRS = "Discard mine, reload theirs";
+    const choice = await vscode.window.showWarningMessage(
+      `"${workflow.name}" changed on disk since you opened it.`,
+      {
+        modal: true,
+        detail:
+          "Another VS Code window, a git pull, or an edit by hand got there first.\n\n" +
+          "Keeping yours overwrites their version. Reloading discards the edits you have made here.",
+      },
+      KEEP,
+      THEIRS,
+    );
+
+    const root = this.root();
+    if (!root) return;
+
+    if (choice === KEEP) {
+      // Unconditional: the user has looked at the choice and made it.
+      const saved = workflows.writeWorkflow(root, workflow, workflow.scope);
+      this.onDisk.set(saved.id, saved.revision);
+      this.editing = saved;
+      this.broadcastTo({ kind: "saved", workflowId: saved.id, at: saved.updatedAt, auto: false });
+      this.broadcast({ kind: "notice", level: "info", text: "Saved. The other version was overwritten." });
+      if (launch) await this.openWorkflow(saved.id);
+      else await this.publishScreen();
+      return;
+    }
+
+    if (choice === THEIRS) {
+      const fresh = this.trackRevision(workflows.readWorkflow(root, workflow.id));
+      if (!fresh) return;
+      this.onDisk.set(fresh.id, fresh.revision);
+      await this.intoBuilder(fresh);
+      this.broadcast({ kind: "notice", level: "info", text: "Reloaded the version from disk." });
+      return;
+    }
+
+    // Dismissed: nothing was written, and the edits are still on screen.
+    this.broadcast({
+      kind: "notice",
+      level: "warn",
+      text: "Not saved — the version on disk is newer. Your edits are still here.",
+    });
+  }
+
   private async deleteWorkflow(id: string): Promise<void> {
     const root = this.root();
     if (!root) return;
-    const workflow = workflows.readWorkflow(root, id);
+    const workflow = this.trackRevision(workflows.readWorkflow(root, id));
     const sessions = workflows.listSessions(root, id).length;
     const confirmed = await vscode.window.showWarningMessage(
       `Delete "${workflow?.name ?? id}"?`,
@@ -813,7 +920,7 @@ export class TeamController implements vscode.Disposable {
   private async duplicateWorkflow(id: string): Promise<void> {
     const root = this.root();
     if (!root) return;
-    const copy = workflows.duplicateWorkflow(root, id);
+    const copy = this.trackRevision(workflows.duplicateWorkflow(root, id));
     if (!copy) return;
     await this.intoBuilder(copy);
   }
@@ -853,12 +960,12 @@ export class TeamController implements vscode.Disposable {
         return;
       }
 
-      const created = workflows.createWorkflow(root, result.workflow.name, scope);
-      const saved = workflows.writeWorkflow(
+      const created = this.trackRevision(workflows.createWorkflow(root, result.workflow.name, scope));
+      const saved = this.trackRevision(workflows.writeWorkflow(
         root,
         { ...created, ...result.workflow, id: created.id, scope },
         scope,
-      );
+      ));
       this.log.info(`built workflow ${saved.id}: ${saved.agents.length} agents, ${saved.edges.length} edges`);
       this.broadcastTo({ kind: "building", busy: false });
       await this.intoBuilder(saved);

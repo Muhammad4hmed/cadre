@@ -148,6 +148,8 @@
     advancedOpen: false,
     dirty: false,
     savedAt: 0,
+    /** The file moved underneath us; the last save was refused. */
+    conflict: false,
     /** The workflow whose page is open. */
     detail: null,
     /** The graph being run, for the live map. */
@@ -1136,8 +1138,13 @@
       if (e.note !== undefined) el.buildNote.textContent = e.note;
     },
     saved(e) {
-      state.savedAt = e.at;
-      state.dirty = false;
+      // A conflict means nothing was written. Saying "saved" would be a lie,
+      // and the edits are still only in this window.
+      state.conflict = e.conflict === true;
+      if (!state.conflict) {
+        state.savedAt = e.at;
+        state.dirty = false;
+      }
       renderSaveState();
     },
     channel(e) { setChannel(e.to); },
@@ -1912,6 +1919,12 @@
   function renderSaveState() {
     const node = document.getElementById("builder-saved");
     if (!node) return;
+    if (state.conflict) {
+      node.textContent = "not saved — changed on disk";
+      node.dataset.state = "conflict";
+      node.title = "Someone else changed this workflow. Press Save to decide what happens to it.";
+      return;
+    }
     if (state.dirty) {
       node.textContent = "unsaved";
       node.dataset.state = "dirty";

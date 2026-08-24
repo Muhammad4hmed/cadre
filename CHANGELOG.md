@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.20.0 — two windows, one file
+
+**A second VS Code window could silently destroy your work.** Workflows are plain files in
+the project — the product tells you to review them in a diff, commit them, and fix them by
+hand — so a second writer is routine, not hypothetical: another window, a `git pull`, or
+you editing the JSON. Both windows loaded revision 3; one saved; the other saved from its
+stale copy a moment later and the first one's changes were gone, with nothing on screen to
+say so. The `revision` field that would have caught it was being incremented and never
+read.
+
+Saves now declare the revision they expect to find. If the file moved, the write is
+refused rather than performed:
+
+- **An autosave never asks and never overwrites.** It fires while you are typing, and a
+  modal every 45 seconds is its own kind of data loss. It says the file changed, writes
+  nothing, and stops claiming "saved" — the indicator reads *not saved — changed on disk*.
+- **A deliberate save asks**, because you are present to answer: keep yours and overwrite
+  theirs, or discard yours and reload theirs. Dismissing writes nothing and keeps your
+  edits on screen.
+- **A workflow deleted underneath you is re-created, not refused** — re-creating what you
+  are actively editing loses nothing, and refusing would strand you with no way to save.
+
+The other half of that is not letting it cry wolf. A stale expectation makes the *next
+ordinary save* look like someone else's edit and silently refuses it, which loses work just
+as surely — moving a workflow between scopes did exactly that, and it is why every path
+that loads or writes one now goes through a single tracker.
+
+1502 checks.
+
 ## 0.19.2 — a reply was re-parsed on every token
 
 Rendering re-parses the whole message, and it ran on every delta. A reply of two

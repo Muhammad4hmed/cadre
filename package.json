@@ -2,7 +2,7 @@
   "name": "cadre",
   "displayName": "Cadre",
   "description": "Build a team of AI agents, wire them together with arrows, and watch them work.",
-  "version": "0.19.2",
+  "version": "0.20.0",
   "publisher": "Cadre",
   "license": "MIT",
   "engines": {
@@ -250,9 +250,9 @@
           "scope": "application",
           "enumDescriptions": [
             "Use the login your Claude Code CLI already has. Any ANTHROPIC_API_KEY in your shell is ignored.",
-            "Bill the Anthropic API per token. Set the key with \u201cCadre: Set API Key\u201d."
+            "Bill the Anthropic API per token. Set the key with “Cadre: Set API Key”."
           ],
-          "markdownDescription": "How the team's work is paid for. The API key is never stored in settings \u2014 it lives in VS Code's encrypted secret storage."
+          "markdownDescription": "How the team's work is paid for. The API key is never stored in settings — it lives in VS Code's encrypted secret storage."
         },
         "cadre.autonomy": {
           "type": "string",
@@ -282,7 +282,7 @@
           "type": "string",
           "default": "default",
           "scope": "resource",
-          "markdownDescription": "Default model for agents that do not set their own. Use whatever your installed Claude Code offers \u2014 `default`, `opus`, `sonnet`, `haiku`, or a full id such as `claude-fable-5[1m]`. **Cadre: Settings \u2192 Default model** lists exactly what your CLI supports, including which models accept an effort level. Each agent can override this in the workflow builder."
+          "markdownDescription": "Default model for agents that do not set their own. Use whatever your installed Claude Code offers — `default`, `opus`, `sonnet`, `haiku`, or a full id such as `claude-fable-5[1m]`. **Cadre: Settings → Default model** lists exactly what your CLI supports, including which models accept an effort level. Each agent can override this in the workflow builder."
         },
         "cadre.effort": {
           "type": "string",
@@ -312,7 +312,7 @@
           "minimum": 1,
           "maximum": 8,
           "scope": "resource",
-          "markdownDescription": "How many delegate arrows one chain of briefs may follow. A workflow may contain cycles \u2014 an agent asking back is a legitimate thing to draw \u2014 so this counter, not the shape of the graph, is what makes a run terminate. At the limit an agent keeps every other tool and simply loses its delegate tools."
+          "markdownDescription": "How many delegate arrows one chain of briefs may follow. A workflow may contain cycles — an agent asking back is a legitimate thing to draw — so this counter, not the shape of the graph, is what makes a run terminate. At the limit an agent keeps every other tool and simply loses its delegate tools."
         },
         "cadre.maxContinuations": {
           "type": "number",
@@ -320,7 +320,7 @@
           "minimum": 0,
           "maximum": 8,
           "scope": "resource",
-          "markdownDescription": "How many times an agent may be continued after it runs out of turns. It is handed its own account of what it did and what it wrote, and carries on in the same lane \u2014 so a long job finishes instead of stopping halfway. Set to `0` to have a run simply stop and report. The context window is handled separately by Claude Code, which summarises the history and continues automatically."
+          "markdownDescription": "How many times an agent may be continued after it runs out of turns. It is handed its own account of what it did and what it wrote, and carries on in the same lane — so a long job finishes instead of stopping halfway. Set to `0` to have a run simply stop and report. The context window is handled separately by Claude Code, which summarises the history and continues automatically."
         },
         "cadre.playbooks": {
           "type": "array",
@@ -335,7 +335,7 @@
           "type": "object",
           "default": {},
           "scope": "resource",
-          "markdownDescription": "MCP servers the team can reach, in the same shape as Claude Code's `mcpServers`. Give a teammate a connector and it appears in their tool list.\n\n```json\n{ \"kaggle\": { \"type\": \"stdio\", \"command\": \"\u2026\" } }\n```"
+          "markdownDescription": "MCP servers the team can reach, in the same shape as Claude Code's `mcpServers`. Give a teammate a connector and it appears in their tool list.\n\n```json\n{ \"kaggle\": { \"type\": \"stdio\", \"command\": \"…\" } }\n```"
         },
         "cadre.claudeExecutablePath": {
           "type": "string",
@@ -368,7 +368,7 @@
           "default": 0,
           "minimum": 0,
           "scope": "resource",
-          "markdownDescription": "Hard spend ceiling for the whole conversation, in USD \u2014 every agent in it, not just the one you are talking to. Work stops when it is reached. `0` means no cap."
+          "markdownDescription": "Hard spend ceiling for the whole conversation, in USD — every agent in it, not just the one you are talking to. Work stops when it is reached. `0` means no cap."
         },
         "cadre.checkpoints": {
           "type": "boolean",
@@ -416,7 +416,7 @@
           ],
           "scope": "resource",
           "enumDescriptions": [
-            "Document work that is substantial \u2014 the same threshold that creates a spec. A one-line fix gets nothing.",
+            "Document work that is substantial — the same threshold that creates a spec. A one-line fix gets nothing.",
             "Document every change. Thorough, and noisy on small work.",
             "No documentation duty. The team still reports to you in chat."
           ],
@@ -435,7 +435,7 @@
           },
           "default": [],
           "scope": "window",
-          "markdownDescription": "Folders to scan for projects on the home screen. Empty scans beside the folders already open \u2014 e.g. with `~/Desktop/ai-team` open, it lists the projects in `~/Desktop`."
+          "markdownDescription": "Folders to scan for projects on the home screen. Empty scans beside the folders already open — e.g. with `~/Desktop/ai-team` open, it lists the projects in `~/Desktop`."
         }
       }
     }

@@ -798,6 +798,116 @@ check("...and says history was dropped instead of starting mid-sentence",
 late.dispose();
 emit({ kind: "clear" });
 
+// ---- another writer got there first -----------------------------------------
+// Workflows are files the product tells you to commit and hand-edit, so a
+// second writer is routine: another window, a pull, an editor. An autosave that
+// clobbers it loses work with no trace.
+receive({ kind: "editWorkflow", id: "software_team" });
+await settle();
+const opened = last("editing").workflow;
+
+// Someone else writes a newer revision while the builder holds an older one.
+const theirs = JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"));
+theirs.name = "Renamed in another window";
+theirs.revision = (theirs.revision ?? 0) + 5;
+fs.writeFileSync(path.join(wfDir, "software_team.json"), JSON.stringify(theirs, null, 2));
+
+posted.length = 0;
+const mine = JSON.parse(JSON.stringify(opened));
+mine.agents[0].role = "changed here";
+receive({ kind: "saveWorkflow", workflow: mine, auto: true });
+await settle();
+
+check("an autosave does not overwrite a workflow that moved on disk",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"))
+    .name === "Renamed in another window");
+check("...and says so rather than failing silently",
+  posted.some((m) => m.kind === "notice" && /changed on disk/i.test(m.text)));
+check("...and does not claim to have saved",
+  last("saved")?.conflict === true);
+check("...and never asks during an autosave — the user is mid-sentence",
+  !posted.some((m) => m.kind === "notice" && /overwrite/i.test(m.text)));
+
+// A deliberate save asks, because now the user is present to answer.
+vscodeStub.__warn = "Keep mine, overwrite theirs";
+posted.length = 0;
+receive({ kind: "saveWorkflow", workflow: mine });
+await settle();
+check("a deliberate save can overwrite once the user has chosen to",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"))
+    .agents[0].role === "changed here");
+
+// Or discard local edits and take what is on disk.
+const newer = JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"));
+newer.name = "Renamed again elsewhere";
+newer.revision = (newer.revision ?? 0) + 9;
+fs.writeFileSync(path.join(wfDir, "software_team.json"), JSON.stringify(newer, null, 2));
+
+vscodeStub.__warn = "Discard mine, reload theirs";
+posted.length = 0;
+receive({ kind: "saveWorkflow", workflow: mine });
+await settle();
+check("the other choice reloads what is on disk instead",
+  last("editing")?.workflow.name === "Renamed again elsewhere");
+check("...and the file is left as the other writer left it",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"))
+    .name === "Renamed again elsewhere");
+
+// Dismissing the dialog must lose nothing and write nothing.
+const untouched = JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8"));
+untouched.revision += 3;
+fs.writeFileSync(path.join(wfDir, "software_team.json"), JSON.stringify(untouched, null, 2));
+vscodeStub.__warn = undefined;
+posted.length = 0;
+receive({ kind: "saveWorkflow", workflow: mine });
+await settle();
+check("dismissing the conflict writes nothing",
+  JSON.parse(fs.readFileSync(path.join(wfDir, "software_team.json"), "utf8")).revision === untouched.revision);
+check("...and says the edits are still there",
+  posted.some((m) => m.kind === "notice" && /still here/i.test(m.text)));
+vscodeStub.__warn = undefined;
+
+// A conflict check is only as good as the expectation behind it. Every path
+// that writes a workflow has to refresh what we believe is on disk — moving one
+// between scopes did not, so the next ordinary save looked like someone else's
+// edit and was silently refused. A false conflict loses work just as surely as
+// no conflict check at all.
+receive({ kind: "editWorkflow", id: "software_team" });
+await settle();
+for (const [label, to] of [["global", "global"], ["back into the project", "local"]]) {
+  posted.length = 0;
+  receive({ kind: "moveWorkflow", id: "software_team", to });
+  await settle();
+
+  const after = last("editing")?.workflow
+    ?? JSON.parse(fs.readFileSync(path.join(
+      to === "global" ? path.join(os.homedir(), ".cadre", "workflows") : wfDir,
+      "software_team.json"), "utf8"));
+  const touched = JSON.parse(JSON.stringify(after));
+  touched.agents[0].role = `saved after moving ${label}`;
+  posted.length = 0;
+  receive({ kind: "saveWorkflow", workflow: touched, auto: true });
+  await settle();
+
+  check(`saving after moving a workflow ${label} is not mistaken for a conflict`,
+    last("saved")?.conflict !== true);
+
+  // The invariant behind that, asserted directly: what the host believes is on
+  // disk must equal what is on disk. Every write path has to maintain it, and a
+  // path that forgets turns the next ordinary save into a false conflict.
+  const where = to === "global"
+    ? path.join(os.homedir(), ".cadre", "workflows") : wfDir;
+  const real = JSON.parse(fs.readFileSync(path.join(where, "software_team.json"), "utf8"));
+  check(`after moving ${label}, the tracked revision matches the file`,
+    controller["onDisk"].get("software_team") === real.revision);
+}
+
+// Leave the file in a state the autosave tests below can work from.
+receive({ kind: "moveWorkflow", id: "software_team", to: "local" });
+await settle();
+receive({ kind: "editWorkflow", id: "software_team" });
+await settle();
+
 // ---- autosave --------------------------------------------------------------
 // The whole point is that it never interrupts. It must reach disk without
 // moving the user, and without resetting the session they are talking to.

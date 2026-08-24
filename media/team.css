@@ -1350,3 +1350,10 @@ button.chip.account[data-state="out"] {
   border-color: var(--edge);
   background: var(--surface);
 }
+
+/* The save indicator when the file moved underneath us. Not an error — nothing
+   is broken and nothing was lost — but it must not read as "saved". */
+#builder-saved[data-state="conflict"] {
+  color: var(--vscode-inputValidation-warningForeground, #fbbf24);
+  border-color: var(--vscode-inputValidation-warningBorder, #fbbf24);
+}
