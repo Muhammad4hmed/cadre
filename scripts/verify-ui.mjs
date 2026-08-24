@@ -1171,6 +1171,58 @@ if (serializer) {
     ignored.length === 0);
 }
 
+// ---- changing how the work is paid for, mid-conversation -------------------
+// A session works out its environment once, when it starts. So switching
+// billing reaches the next conversation and not the one already running: the
+// chip says "Claude subscription" while the run in front of you goes on being
+// billed per token, and nothing says so. Logging out already resets the session
+// for exactly this reason — the credential is gone — but these are subtler,
+// because the old credential still works and nothing breaks.
+{
+  const asked = [];
+  const realWarn = vscodeStub.window.showWarningMessage;
+  vscodeStub.window.showWarningMessage = async (msg, opts, ...choices) => {
+    asked.push({ msg, modal: Boolean(opts && opts.modal), choices });
+    return vscodeStub.__billingChoice;
+  };
+
+  // With a conversation running, the switch has to say it misses this one.
+  fake.__instances.length = 0;
+  receive({ kind: "openWorkflow", id: "software_team" });
+  await settle();
+  receive({ kind: "send", text: "start working" });
+  await settle();
+  const running = fake.__instances.find((i) => i.options?.mcpServers?.team);
+  check("a conversation is running for the switch to miss", running !== undefined);
+
+  asked.length = 0;
+  vscodeStub.__billingChoice = undefined;      // the user declines the offer
+  await vscodeStub.__commands["cadre.clearApiKey"]();
+  check("switching billing mid-conversation says the running one is unaffected",
+    asked.some((a) => a.modal && /already running/i.test(a.msg)));
+  check("...and offers to start a new one", 
+    asked.some((a) => a.choices.some((c) => /new conversation/i.test(String(c)))));
+  check("...and declining leaves the conversation alone",
+    running?.options.abortController?.signal.aborted === false);
+
+  // Accepting has to actually apply it.
+  asked.length = 0;
+  vscodeStub.__billingChoice = "Start a new conversation";
+  await vscodeStub.__commands["cadre.clearApiKey"]();
+  check("accepting ends the conversation so the change takes effect",
+    running?.options.abortController?.signal.aborted === true);
+
+  // With nothing running there is nothing to warn about.
+  asked.length = 0;
+  vscodeStub.__billingChoice = undefined;
+  await vscodeStub.__commands["cadre.clearApiKey"]();
+  check("with no conversation running, the switch is silent",
+    !asked.some((a) => /already running/i.test(a.msg)));
+
+  vscodeStub.window.showWarningMessage = realWarn;
+  vscodeStub.__billingChoice = undefined;
+}
+
 // ---- onboarding with nothing to onboard with -------------------------------
 // "Onboard this project" surveys the repo and writes PROJECT.md, which is a
 // message to a team. Someone running it for the first time has most likely just

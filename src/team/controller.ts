@@ -1013,6 +1013,17 @@ export class TeamController implements vscode.Disposable {
     this.provisionalTitle = "";
   }
 
+  /**
+   * Is there a conversation already running?
+   *
+   * It matters for anything that changes a credential: the environment a
+   * session runs in is resolved once, when it starts, so a change made now
+   * reaches the next conversation and not this one.
+   */
+  hasLiveSession(): boolean {
+    return this.session !== undefined;
+  }
+
   /** The workflow a conversation is open on, if any. */
   openWorkflowName(): string | undefined {
     return this.running?.name;

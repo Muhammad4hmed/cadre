@@ -40,14 +40,14 @@ export function activate(context: vscode.ExtensionContext): void {
     vscode.commands.registerCommand("cadre.setApiKey", async () => {
       if (await controller.billing.promptForApiKey()) {
         void vscode.window.showInformationMessage("API key stored. Cadre will bill the API from now on.");
-        await controller.refreshSendability();
+        await billingChanged(controller, "Cadre will bill the API from now on.");
       }
     }),
     vscode.commands.registerCommand("cadre.clearApiKey", async () => {
       await controller.billing.clearApiKey();
       await controller.billing.setMode("subscription");
       void vscode.window.showInformationMessage("API key cleared. Back to your Claude subscription.");
-      await controller.refreshSendability();
+      await billingChanged(controller, "Back to your Claude subscription.");
     }),
     vscode.commands.registerCommand("cadre.chooseBilling", () => chooseBilling(controller)),
     vscode.commands.registerCommand("cadre.setAutonomy", () => chooseAutonomy(controller)),
@@ -183,6 +183,38 @@ function webviewOptions(context: vscode.ExtensionContext): vscode.WebviewOptions
 
 // ---------------------------------------------------------------- settings UX
 
+
+/**
+ * Anything that changes how the work is paid for.
+ *
+ * A session resolves its environment once, when it starts, so switching now
+ * reaches the next conversation and not the one already running. Logging out
+ * resets the session because the credential is gone; these are subtler — the
+ * old credential still works, so nothing breaks and nothing says anything. The
+ * user is left watching a chip that says "Claude subscription" while the run in
+ * front of them goes on being billed per token.
+ *
+ * Not reset silently: killing a conversation someone is in the middle of, to
+ * apply a setting, is its own kind of rude. Told, and offered.
+ */
+async function billingChanged(controller: TeamController, what: string): Promise<void> {
+  await controller.refreshSendability();
+  if (!controller.hasLiveSession()) return;
+
+  const choice = await vscode.window.showWarningMessage(
+    `${what} The conversation already running is still on the old one.`,
+    {
+      modal: true,
+      detail: "A conversation works out how it is paid for when it starts, so this takes effect on the next one. Starting a new conversation now applies it immediately; the one you are in is kept and can be reopened.",
+    },
+    "Start a new conversation",
+  );
+  if (choice === "Start a new conversation") {
+    controller.newSession();
+    await controller.refreshSendability();
+  }
+}
+
 async function chooseBilling(controller: TeamController): Promise<void> {
   const current = controller.billing.mode;
   const picked = await vscode.window.showQuickPick(
@@ -209,7 +241,10 @@ async function chooseBilling(controller: TeamController): Promise<void> {
   } else {
     await controller.billing.setMode(picked.mode);
   }
-  await controller.refreshSendability();
+  await billingChanged(
+    controller,
+    picked.mode === "apiKey" ? "Cadre will bill the API from now on." : "Back to your Claude subscription.",
+  );
 }
 
 async function chooseAutonomy(controller: TeamController): Promise<void> {

@@ -239,7 +239,7 @@ changing.
 | | |
 |---|---|
 | `cadre.autonomy` | How much rope the agents get |
-| `cadre.billing` | Subscription, or an API key in encrypted storage |
+| `cadre.billing` | Subscription, or an API key in encrypted storage. A conversation keeps the billing it started with, so switching applies to the next one — you are told, and offered a new one |
 | `cadre.model` / `.effort` | Defaults for agents that do not override them. **Cadre: Settings → Default model** lists exactly what your CLI offers |
 | `cadre.maxDelegationDepth` | How far a chain of briefs may go |
 | `cadre.maxSpendUsd` | Hard ceiling for the whole conversation — every agent in it, not just the one you are talking to |

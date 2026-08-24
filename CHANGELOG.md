@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.5 — switching billing left the running conversation on the old one
+
+A conversation works out how it is paid for once, when it starts, and keeps that
+for its whole life. Switching billing therefore reaches the *next* conversation,
+not the one in front of you.
+
+Nothing said so. You could realise you were on an API key, switch to your
+subscription, watch the chip change to "Claude subscription" — and go on being
+billed per token for the rest of that conversation. Silently, because nothing
+was broken: the old credential still worked.
+
+This is the failure the billing code already takes seriously elsewhere. Its own
+comment says an `ANTHROPIC_API_KEY` in the shell has to be unset or "the user
+silently gets billed per-token while believing they are on their plan". Logging
+out resets the session for the same reason, and says so where it does it. The
+three ways of switching billing did not.
+
+They now say the running conversation is unaffected and offer to start a new one
+so it takes effect. Not done silently — ending a conversation someone is in the
+middle of, to apply a setting, is its own kind of rude — and with nothing
+running there is nothing to say, so nothing is said.
+
+1229 checks.
+
 ## 0.14.4 — "Onboard this project" promised a survey and delivered a wall of text
 
 Onboarding surveys the repository and writes `PROJECT.md`. It does that by
