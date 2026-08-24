@@ -89,6 +89,81 @@ check("...and the webview it loads", files.includes("media/team.js"));
 // pointed back at the repository, this is the file that reappears.
 check("the repository has no stray workflow directory", !fs.existsSync(".cadre"));
 
+// ---- the manifest and the code have to agree --------------------------------
+// A command sitting in the palette that nothing registered fails the moment it
+// is clicked, and nothing says so until a user tries it. Neither the compiler
+// nor any other suite compares these two lists: one lives in JSON, the other in
+// a string literal.
+const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const ext = fs.readFileSync("src/extension.ts", "utf8");
+const declared = (pkg.contributes?.commands ?? []).map((c) => c.command);
+const registered = [...ext.matchAll(/registerCommand\(\s*["'`]([^"'`]+)["'`]/g)].map((m) => m[1]);
+
+check("the manifest declares some commands at all", declared.length > 0);
+const unregistered = declared.filter((c) => !registered.includes(c));
+check("every command in the palette is registered in code", unregistered.length === 0);
+if (unregistered.length) console.log(`      ${unregistered.join(", ")}`);
+
+const undeclared = registered.filter((c) => !declared.includes(c));
+check("every registered command is declared, or nothing can reach it", undeclared.length === 0);
+if (undeclared.length) console.log(`      ${undeclared.join(", ")}`);
+
+check("no command is registered twice", new Set(registered).size === registered.length);
+
+// Menus and keybindings name command ids too, and a dangling one is a button
+// that does nothing.
+const pointed = new Set();
+for (const group of Object.values(pkg.contributes?.menus ?? {})) {
+  for (const item of group ?? []) if (item.command) pointed.add(item.command);
+}
+for (const k of pkg.contributes?.keybindings ?? []) if (k.command) pointed.add(k.command);
+const dangling = [...pointed].filter((c) => !declared.includes(c));
+check("every menu entry and keybinding points at a command that exists", dangling.length === 0);
+if (dangling.length) console.log(`      ${dangling.join(", ")}`);
+
+// The view id is a string in the manifest and a constant in the code. If they
+// drift the panel never binds, and the extension looks like it did not load.
+const viewIds = Object.values(pkg.contributes?.views ?? {}).flat().map((v) => v.id);
+const codeViewId = /static readonly viewId = "([^"]+)"/.exec(ext)?.[1];
+check("the sidebar view the code registers is the one the manifest declares",
+  Boolean(codeViewId) && viewIds.includes(codeViewId));
+if (codeViewId && !viewIds.includes(codeViewId)) {
+  console.log(`      code says ${codeViewId}, manifest says ${viewIds.join(", ")}`);
+}
+
+// A default outside its own enum is an invalid setting the first time it is read.
+const props = pkg.contributes?.configuration?.properties ?? {};
+const badDefault = Object.entries(props).filter(
+  ([, v]) => Array.isArray(v.enum) && v.default !== undefined && !v.enum.includes(v.default),
+);
+check("every enum setting's default is one of its own options", badDefault.length === 0);
+if (badDefault.length) console.log(`      ${badDefault.map(([k]) => k).join(", ")}`);
+
+check("every setting has a description, or the settings UI shows a bare key",
+  Object.values(props).every((v) => typeof (v.description ?? v.markdownDescription) === "string"));
+
+check("every setting is namespaced under cadre.",
+  Object.keys(props).every((k) => k.startsWith("cadre.")));
+
+// ---- the webview's own sandbox ----------------------------------------------
+// The panel renders model output. This policy is what stops that output from
+// reaching the network or running anything, and nothing asserted it: two other
+// suites only use the script tag as a place to cut the file in half.
+const cspBlock = /const csp = \[([\s\S]*?)\]\.join/.exec(ext)?.[1] ?? "";
+check("the webview declares a content security policy", cspBlock.length > 0);
+check("...denying everything by default", /default-src 'none'/.test(cspBlock));
+check("...running only scripts that carry the generated nonce",
+  /script-src 'nonce-\$\{nonce\}'/.test(cspBlock));
+check("...and never allowing inline script or eval",
+  !/unsafe-inline|unsafe-eval/.test(cspBlock));
+// With default-src 'none' and no connect-src, the panel cannot open a socket:
+// whatever a model writes into it stays in the editor.
+check("the panel cannot reach the network on its own", !/connect-src/.test(cspBlock));
+check("the nonce is generated per render rather than fixed",
+  /const nonce = crypto\.randomUUID\(\)/.test(ext));
+check("the webview may only load files from media/",
+  /localResourceRoots:\s*\[vscode\.Uri\.joinPath\(context\.extensionUri,\s*"media"\)\]/.test(ext));
+
 let failed = false;
 for (const [label, ok] of checks) {
   if (!ok) failed = true;

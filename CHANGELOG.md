@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.19.0 — a link is not a path, and three things nothing was watching
+
+**The paper tool could be aimed out of the workspace with a symlink.** It is the
+one team tool that takes a directory, and its confinement was `path.resolve`
+plus a prefix test. That is string work. A `docs/paper` that is a link to
+somewhere else passes every prefix test while each read and write lands outside
+— and `paper check` reports whether a quoted line exists in a file, so escaping
+is a read as much as a write.
+
+Resolved through links now, on both sides. Both, because a workspace under
+`/tmp` is itself a link on macOS: resolving only the child and comparing it to
+an unresolved parent would refuse every legitimate paper on that platform. The
+existing part of the path is resolved and the missing tail appended, since a
+paper directory usually does not exist yet and `realpathSync` throws on what is
+not there. Two checks, and the mutation that resolves only the child is caught
+by the second one rather than passing as a fix.
+
+**The manifest and the code are now compared.** Twelve checks. A command sitting
+in the palette that nothing registered fails the moment it is clicked, and
+nothing said so — one list lives in JSON, the other in a string literal, and no
+suite had ever read both. Also checked: no command registered twice, every menu
+entry pointing at a command that exists, the sidebar view id matching between
+manifest and code, every enum setting's default being one of its own options,
+and every setting carrying a description. All twenty-seven commands were in
+sync; the point is that they stay that way.
+
+**The webview's sandbox is now asserted.** Seven checks. The panel renders model
+output, and its content security policy is what stops that output from running
+anything or reaching the network. Nothing verified it: two suites used the
+script tag only as a place to cut the file in half. It denies everything by
+default, runs only scripts carrying a per-render nonce, allows no inline script
+or eval, declares no `connect-src`, and may load files from `media/` alone.
+
+1464 checks.
+
 ## 0.18.5 — two core paths that ran in no test, and a correction
 
 No bug in this one. Two paths that nothing exercised, now held down, and a

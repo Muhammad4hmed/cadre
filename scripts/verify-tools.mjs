@@ -226,6 +226,41 @@ check("status still reports what changed", /app\.ts/.test(await view("status")))
 
 fs.rmSync(repo, { recursive: true, force: true });
 
+// A link is not a path. `path.resolve` is string work, so a `docs/paper` that
+// is a symlink to somewhere else passes every prefix test above while each read
+// and write lands outside the workspace. Real directories, because this is
+// exactly the part that string tests cannot see.
+{
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cadre-paper-")));
+  const outside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "cadre-outside-")));
+  fs.mkdirSync(path.join(root, "docs"), { recursive: true });
+  fs.symlinkSync(outside, path.join(root, "docs", "paper"));
+  fs.writeFileSync(path.join(outside, "claims.json"), "{}");
+
+  const serverFor = (cwd) => Object.fromEntries(createWorkflowServer({
+    cwd, signal: new AbortController().signal, workflow: WORKFLOW,
+    runAgent: async () => "VERDICT: DONE",
+  }, "lead").tools.map((t) => [t.name, t]));
+
+  const linked = await serverFor(root).paper.handler({ action: "check", dir: "docs/paper" }, {});
+  check("a symlink inside the workspace pointing out of it is refused",
+    /inside the workspace/i.test(linked.content[0].text));
+
+  // The other half, or the fix is a new bug: a workspace reached THROUGH a link
+  // is how every macOS temp directory behaves, and refusing those would break
+  // the feature for everyone on that platform.
+  const viaLink = path.join(os.tmpdir(), `cadre-linked-${process.pid}`);
+  fs.rmSync(viaLink, { force: true });
+  fs.symlinkSync(root, viaLink);
+  const ok = await serverFor(viaLink).paper.handler({ action: "check", dir: "docs/notes" }, {});
+  check("a workspace reached through a symlink is not refused as outside itself",
+    !/inside the workspace/i.test(ok.content[0].text));
+
+  fs.rmSync(viaLink, { force: true });
+  fs.rmSync(root, { recursive: true, force: true });
+  fs.rmSync(outside, { recursive: true, force: true });
+}
+
 // ---- the paper tool must stay inside the workspace ------------------------
 // It takes a directory, so it is the one team tool that can be pointed
 // somewhere. The confinement was a bare prefix test, which a sibling directory
