@@ -1145,6 +1145,7 @@ if (serializer) {
 
   const outbound = kindsIn(cut("TeamEvent", "Screen"));
   const inbound = kindsIn(cut("UiCommand", null));
+  globalThis.__inboundKinds = inbound;
   check("the event union is not empty, or this checks nothing", outbound.length > 10);
   check("the command union is not empty either", inbound.length > 10);
 
@@ -1368,6 +1369,74 @@ if (serializer) {
 
   vscodeStub.window.showWarningMessage = realWarn;
   vscodeStub.__billingChoice = undefined;
+}
+
+// ---- every command, well formed, handled without throwing ------------------
+// The mirror of the event check in the webview suite. That one found two
+// features whose drawing function did not exist — reachable by simply sending
+// the event, and nothing sent it. The same is true in this direction: a command
+// handler that throws on a valid payload would take out whatever called it, and
+// half of these have never been sent by a test.
+{
+  const wf = JSON.parse(fs.readFileSync(path.join(wfDir,
+    fs.readdirSync(wfDir).find((f) => f.endsWith(".json") && !f.endsWith(".sessions.json"))), "utf8"));
+  const anyAgent = wf.agents[0];
+
+  const WELL_FORMED = {
+    ready: {},
+    send: { text: "hello", images: [] },
+    stop: {},
+    newSession: {},
+    setChannel: { to: wf.agents[1]?.id ?? anyAgent.id },
+    openTeamFloor: {},
+    selectProject: {},
+    openProject: { path: state.workspaceFolders?.[0]?.uri.fsPath ?? ".", alreadyOpen: true },
+    goHome: {},
+    resumeSession: { id: "s-1", title: "an earlier chat" },
+    answer: { id: "no-such-question", answers: { q: "a" } },
+    answerCancelled: { id: "no-such-question" },
+    signIn: {},
+    useApiKey: {},
+    refreshAuth: {},
+    account: {},
+    configure: { setting: "cadre.autonomy" },
+    newWorkflow: { template: "solo", scope: "local" },
+    showWorkflow: { id: wf.id },
+    startSession: { id: wf.id },
+    moveWorkflow: { id: wf.id, to: "local" },
+    buildWorkflow: { description: "a team that reads tickets and drafts replies", scope: "local" },
+    openWorkflow: { id: wf.id },
+    editWorkflow: { id: wf.id },
+    duplicateWorkflow: { id: wf.id },
+    saveWorkflow: { workflow: wf, auto: true },
+    checkWorkflow: { workflow: wf },
+    refinePrompt: { agent: anyAgent, workflow: wf },
+    // Deliberately last: it removes the workflow the others act on.
+    deleteWorkflow: { id: wf.id },
+  };
+
+  const inboundKinds = globalThis.__inboundKinds ?? [];
+  check("the command union was read", inboundKinds.length > 20);
+  const uncovered = inboundKinds.filter((k) => !(k in WELL_FORMED));
+  check("every command kind has a well-formed example to send" +
+    (uncovered.length ? " (" + uncovered.join(", ") + ")" : ""), uncovered.length === 0);
+
+  const failures = [];
+  const order = [...inboundKinds.filter((k) => k !== "deleteWorkflow"), "deleteWorkflow"];
+  vscodeStub.__warn = "Delete";
+  for (const kind of order) {
+    const payload = WELL_FORMED[kind];
+    if (!payload) continue;
+    try {
+      receive({ kind, ...payload });
+      await settle();
+    } catch (err) {
+      failures.push(`${kind}: ${err && err.message ? err.message : err}`);
+    }
+  }
+  vscodeStub.__warn = undefined;
+  check("no well-formed command throws: " + JSON.stringify(failures.slice(0, 3)),
+    failures.length === 0);
 }
 
 // ---- a message that could not be sent keeps its attachments ----------------
