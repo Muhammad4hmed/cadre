@@ -1131,6 +1131,65 @@ send({ kind: "projects", roots: [], active: "", items: [
   check("a short path is left alone", shown[3] === "/opt/app");
 }
 
+// ---- an edit still in the box when you walk away ---------------------------
+// The inspector's fields commit on change, which fires on blur. Type a prompt,
+// then hide the window or leave the builder without clicking away first, and
+// the draft never learned about it: autosave looks at a draft that says nothing
+// changed and writes nothing. The workflow's own name had this and was fixed;
+// the agent's name, role and prompt have it too, and they are where the work is.
+{
+  send({ kind: "screen", screen: "builder" });
+  send({ kind: "editing", authoritative: true, problems: [], workflow: {
+    id: "w", name: "Team", entry: "one",
+    agents: [{ id: "one", name: "One", role: "does things", prompt: "old prompt",
+      preset: "build", x: 40, y: 40 }],
+    edges: [],
+  } });
+
+  const node0 = document.querySelector("#canvas .agent-node");
+  node0.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 50, clientY: 50 }));
+  window.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: 50, clientY: 50 }));
+  const inspector = document.getElementById("inspector");
+  const box = inspector.querySelector("textarea");
+  check("the prompt box is there to type in", box !== null);
+
+  // Typing, with no blur: exactly what leaving mid-sentence looks like.
+  box.value = "a prompt I typed and did not click away from";
+  box.dispatchEvent(new Event("input", { bubbles: true }));
+
+  sent.length = 0;
+  Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+  document.dispatchEvent(new Event("visibilitychange"));
+
+  const saved = sent.find((m) => m.kind === "saveWorkflow");
+  check("hiding the window saves what was still in the box", Boolean(saved));
+  check("...with the words that were typed",
+    saved?.workflow?.agents?.[0]?.prompt === "a prompt I typed and did not click away from");
+
+  // The other two fields hold an edit the same way.
+  const nameBox = inspector.querySelector('[data-commits="name"]');
+  const roleBox = inspector.querySelector('[data-commits="role"]');
+  check("the name and role boxes are there too", nameBox !== null && roleBox !== null);
+  nameBox.value = "Renamed mid-sentence";
+  roleBox.value = "a role I did not click away from";
+  sent.length = 0;
+  Object.defineProperty(document, "visibilityState", { value: "hidden", configurable: true });
+  document.dispatchEvent(new Event("visibilitychange"));
+  const again = sent.find((m) => m.kind === "saveWorkflow");
+  check("a half-typed name is saved too", again?.workflow?.agents?.[0]?.name === "Renamed mid-sentence");
+  check("...and a half-typed role", again?.workflow?.agents?.[0]?.role === "a role I did not click away from");
+
+  // The idle timer must not do this: taking focus or committing under someone
+  // still typing is worse than saving a moment later. Nothing changed since the
+  // last save, so an idle autosave has nothing to write.
+  sent.length = 0;
+  Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+  send({ kind: "saved", workflowId: "w", at: Date.now(), auto: true });
+  roleBox.value = "typed but still typing";
+  check("an idle autosave does not reach into a box someone is still in",
+    !sent.some((m) => m.kind === "saveWorkflow"));
+}
+
 // ---- every screen shows something ------------------------------------------
 // Six screens, and the host decides which is up. One that fails to render is a
 // blank panel with no error the user can see — and an unknown name, which is

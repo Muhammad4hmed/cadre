@@ -1805,9 +1805,48 @@
    * running session. A broken graph is saved too: a half-drawn workflow is a
    * normal state to be in, and refusing to keep it is how you lose it.
    */
-  function autosave() {
+  /**
+   * @param {{ flush?: boolean }} [opts] flush: the window is going away or the
+   * user is leaving the builder, so anything half-typed has to be committed
+   * first. Not done on the idle timer, which can fire while someone is still
+   * in a field — taking focus away mid-sentence to save is worse than saving a
+   * moment later.
+   */
+  /**
+   * Pulls whatever is currently in the inspector's boxes into the draft.
+   *
+   * Returns whether anything moved, so a flush can mark the draft unsaved on
+   * the strength of it. Only the agent the inspector is open on: the fields
+   * belong to that one, and nothing else is on screen to read.
+   */
+  function commitOpenFields() {
+    if (!state.draft) return false;
+    const agent = state.draft.agents.find((a) => a.id === state.selected);
+    if (!agent) return false;
+    let moved = false;
+    for (const box of document.querySelectorAll("#inspector [data-commits]")) {
+      const key = box.dataset.commits;
+      const value = box.value;
+      if (typeof value !== "string" || agent[key] === value) continue;
+      agent[key] = value;
+      if (key === "prompt" && !agent.rawPrompt) agent.rawPrompt = value;
+      moved = true;
+    }
+    return moved;
+  }
+
+  function autosave(opts) {
     cancelAutosave();
     if (!state.draft) return;
+
+    // The inspector's fields commit on change, which fires on blur. Leaving
+    // mid-sentence therefore left the draft unaware of what was typed, and a
+    // draft that says nothing changed is not written.
+    //
+    // Read rather than blurred: a change event only fires for a value the user
+    // altered themselves, so blurring is both unreliable and untestable. The
+    // box is the truth here, exactly as it is for the workflow's own name.
+    if (opts && opts.flush && commitOpenFields()) state.dirty = true;
     // The name field commits on blur, so a name being typed right now is not in
     // the draft yet and the draft can look clean while the box says otherwise.
     // Reading it here and then refusing to write, which is what happened, threw
@@ -2169,6 +2208,7 @@
     // must not merely commit, because a value that arrives without an input
     // event — set programmatically, or by an autofill — would otherwise be
     // drawn on screen and never reach the model.
+    name.dataset.commits = "name";
     name.addEventListener("input", () => { agent.name = name.value; drawGraph(); });
     name.addEventListener("change", () => { agent.name = name.value; touch(); });
     field("Name", name);
@@ -2176,6 +2216,7 @@
     const role = document.createElement("input");
     role.value = agent.role || "";
     role.placeholder = "One line — shown under the name";
+    role.dataset.commits = "role";
     role.addEventListener("change", () => { agent.role = role.value; touch(); });
     field("Role", role);
 
@@ -2183,6 +2224,7 @@
     prompt.rows = 10;
     prompt.value = agent.prompt || "";
     prompt.placeholder = "What is this agent for? A sentence or two is enough — refinement turns it into a real prompt.";
+    prompt.dataset.commits = "prompt";
     prompt.addEventListener("change", () => {
       agent.prompt = prompt.value;
       if (!agent.rawPrompt) agent.rawPrompt = prompt.value;
@@ -2645,8 +2687,9 @@
     });
   });
   el.builderBack?.addEventListener("click", () => {
-    // Leaving is the one moment a pending autosave must not be pending.
-    autosave();
+    // Leaving is the one moment a pending autosave must not be pending — and
+    // anything still in a field has to be committed before it is written.
+    autosave({ flush: true });
     vscode.postMessage({ kind: "goHome" });
   });
   el.builderAdd?.addEventListener("click", addAgent);
@@ -2763,9 +2806,9 @@
 
   // A hidden or closing webview is the last chance to keep unsaved work.
   document.addEventListener("visibilitychange", () => {
-    if (document.visibilityState === "hidden") autosave();
+    if (document.visibilityState === "hidden") autosave({ flush: true });
   });
-  window.addEventListener("pagehide", () => autosave());
+  window.addEventListener("pagehide", () => autosave({ flush: true }));
 
   el.runEdit?.addEventListener("click", () => {
     const id = state.workflowId || state.detail?.id || state.draft?.id;

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.15.1 — an agent's prompt left half-typed was not saved
+
+The inspector's boxes commit on `change`, which fires on blur. Type a prompt for
+an agent and then hide the window, or leave the builder, without clicking away
+first — the draft never learned about it, so the autosave looked at a draft that
+said nothing had changed and wrote nothing.
+
+The workflow's own name had this and was fixed in 0.11.13. The agent's name,
+role and prompt have the same shape, and they are where the work actually is: a
+prompt is the thing you spend minutes on.
+
+Flushing now reads what is in the boxes before deciding whether anything
+changed. Deliberately only on a flush — the idle timer can fire while someone is
+still in a field, and reaching into a box under a person who is still typing is
+worse than saving a moment later.
+
+**An approach that did not survive.** The obvious fix is to blur the focused
+element, which fires the change handlers that already exist. A change event only
+fires for a value the user altered themselves, so it does nothing for a value
+set any other way — which made it both unreliable and impossible to test. The
+box is read directly instead, exactly as the workflow name already is.
+
+1309 checks.
+
 ## 0.15.0 — the context meter never worked
 
 The header is meant to show how full the context window is. The chip is in the

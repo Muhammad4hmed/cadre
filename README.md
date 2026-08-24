@@ -80,7 +80,8 @@ Model, effort, turn limit, skills and connectors can also be set once for the **
 workflow** — the builder panel you get when no agent is selected. Three tiers, narrowest
 wins: the agent, then the workflow, then the workspace.
 
-Edits autosave — 45 seconds after you stop, and always before you leave the builder — and
+Edits autosave — 45 seconds after you stop, and always before you leave the builder,
+including whatever is still in a box you have not clicked away from — and
 **Ctrl+Z** undoes anything on the canvas.
 
 **Advanced** opens the rest: model and effort per agent, individual tools, which skills it
