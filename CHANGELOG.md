@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.19.1 — a button that quietly did nothing
+
+Every command from the panel was fire-and-forget. `void this.deleteWorkflow(id)`,
+and eighteen more like it. If one of those failed, the promise rejected with
+nobody listening: the click did nothing, the panel sat there looking fine, and
+the only trace was in a console no user has open.
+
+Eight of those handlers have no error handling of their own — delete, duplicate,
+move, new, open, show, edit, and opening a project — and all of them touch the
+disk. A read-only checkout, a full disk, a file another window is holding, a
+folder someone renamed underneath you. Each of those was a dead button.
+
+The dispatcher returns its promises now instead of voiding them, so one catch
+covers all nineteen branches, and a failure is an error in the panel naming the
+command that failed. A handler that throws before it ever awaits is caught too:
+that is not a rejected promise at all and a bare `.catch` would miss it.
+
+The suite now also refuses to let this class of thing pass again anywhere in it.
+Node exits the process on an unhandled rejection, which meant the first mutation
+I tried against this fix took the whole suite down and printed nothing — a
+failure detected and unreadable, which is the same trap that has come up several
+times now. Unhandled rejections are collected and asserted on as a named check,
+so any fire-and-forget rejection anywhere in the UI suite is a red line with a
+message rather than a dead process.
+
+Five checks. Five mutations, each caught by the check that should catch it,
+including reporting at warn instead of error and dropping the command name.
+
+1470 checks.
+
 ## 0.19.0 — a link is not a path, and three things nothing was watching
 
 **The paper tool could be aimed out of the workspace with a symlink.** It is the

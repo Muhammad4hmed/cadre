@@ -198,6 +198,17 @@ vscodeStub.__provider.resolveWebviewView(view);
  * `private` in TypeScript is a compile-time fiction, so the controller the
  * provider is holding is reachable here.
  */
+/**
+ * Anything that rejects with nobody listening. Node exits on an unhandled
+ * rejection, so without this a fire-and-forget handler that fails takes the
+ * whole suite down and prints no results at all — the failure is detected and
+ * unreadable. Collected here, it becomes a check with a name.
+ */
+const escaped = [];
+process.on("unhandledRejection", (reason) => {
+  escaped.push(reason instanceof Error ? reason.message : String(reason));
+});
+
 const controller = vscodeStub.__provider.controller;
 function makeSurface() {
   const seen = [];
@@ -1516,6 +1527,45 @@ if (serializer) {
 }
 
 console.log("=== ui ===");
+// ---- a command that fails has to say so ------------------------------------
+// Every branch of the dispatcher was fire-and-forget, so a handler that
+// rejected became an unhandled promise: the click did nothing, the panel looked
+// fine, and the only trace was in a console the user does not have open. Most
+// of these handlers touch the disk — a read-only checkout, a full disk, a file
+// another window is holding.
+{
+  controller.showWorkflow = async () => { throw new Error("the checkout is read-only"); };
+  receive({ kind: "showWorkflow", id: "anything" });
+  const rejected = await waitFor("notice", (n) => /read-only/.test(n.text ?? ""));
+  check("a command whose handler rejects is reported, not swallowed", Boolean(rejected));
+  check("...as an error rather than a passing remark", rejected?.level === "error");
+  check("...naming which command it was", /showWorkflow/.test(rejected?.text ?? ""));
+
+  // A handler can also throw before it ever awaits, which is not a rejected
+  // promise at all and would sail past a .catch on its own.
+  controller.showWorkflow = () => { throw new Error("threw before awaiting"); };
+  receive({ kind: "showWorkflow", id: "anything" });
+  const threw = await waitFor("notice", (n) => /before awaiting/.test(n.text ?? ""));
+  check("...and one that throws before awaiting anything is reported too", Boolean(threw));
+
+  // A handler that simply succeeds must stay quiet.
+  controller.showWorkflow = async () => {};
+  const before = posted.filter((m) => m.kind === "notice" && m.level === "error").length;
+  receive({ kind: "showWorkflow", id: "anything" });
+  await settle();
+  check("...while a command that works says nothing",
+    posted.filter((m) => m.kind === "notice" && m.level === "error").length === before);
+
+  delete controller.showWorkflow;
+}
+
+// Last, so it covers everything above it: no promise anywhere in this suite
+// may reject with nobody listening.
+await settle();
+check(escaped.length
+  ? `nothing rejected unhandled (${escaped.slice(0, 3).join(" | ")})`
+  : "nothing rejected unhandled", escaped.length === 0);
+
 let failed = false;
 for (const [label, ok] of checks) {
   if (!ok) failed = true;

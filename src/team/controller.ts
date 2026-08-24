@@ -448,7 +448,17 @@ export class TeamController implements vscode.Disposable {
     this.handle(command);
   }
 
-  private handle(command: UiCommand): void {
+  /**
+   * Every branch that produces a promise returns it rather than voiding it, so
+   * the single catch in `handle` covers all of them.
+   *
+   * A rejected handler used to be an unhandled rejection: the click did
+   * nothing, the panel sat there looking fine, and the only trace was in a
+   * console the user does not have open. Most of these touch the disk — a
+   * read-only checkout, a full disk, a file another window is holding — and
+   * none of that should fail silently.
+   */
+  private dispatch(command: UiCommand): void | Promise<unknown> | Thenable<unknown> {
     switch (command.kind) {
       case "ready":
         for (const surface of this.surfaces) this.hydrate(surface);
@@ -456,27 +466,22 @@ export class TeamController implements vscode.Disposable {
       case "send":
         return this.send(command.text, command.images);
       case "stop":
-        void this.session?.interrupt();
-        return;
+        return this.session?.interrupt();
       case "newSession":
         return this.newSession();
       case "setChannel":
         return this.setChannel(command.to);
       case "openTeamFloor":
-        void vscode.commands.executeCommand("cadre.openTeamFloor");
-        return;
+        return vscode.commands.executeCommand("cadre.openTeamFloor");
       case "selectProject":
         this.screen = "projects";
-        void this.publishScreen();
-        return;
+        return this.publishScreen();
       case "goHome":
         this.stopBuilderWork();
         this.screen = "home";
-        void this.publishScreen();
-        return;
+        return this.publishScreen();
       case "openProject":
-        void this.openProject(command.path, command.alreadyOpen);
-        return;
+        return this.openProject(command.path, command.alreadyOpen);
 
       case "answer":
         this.session?.answer(command.id, command.answers);
@@ -487,64 +492,68 @@ export class TeamController implements vscode.Disposable {
       case "resumeSession":
         this.resumeSession(command.id, command.title);
         this.screen = "run";
-        void this.publishScreen();
-        return;
+        return this.publishScreen();
       case "signIn":
-        void vscode.commands.executeCommand("cadre.login");
-        return;
+        return vscode.commands.executeCommand("cadre.login");
       case "useApiKey":
-        void vscode.commands.executeCommand("cadre.setApiKey");
-        return;
+        return vscode.commands.executeCommand("cadre.setApiKey");
       case "account":
-        void vscode.commands.executeCommand("cadre.account");
-        return;
+        return vscode.commands.executeCommand("cadre.account");
       case "refreshAuth":
         this.authProblem = undefined;
         this.authCache = undefined;
-        void this.publishScreen();
-        return;
+        return this.publishScreen();
       case "configure":
-        void vscode.commands.executeCommand("workbench.action.openSettings", command.setting);
-        return;
+        return vscode.commands.executeCommand("workbench.action.openSettings", command.setting);
 
       // ----------------------------------------------------------- workflows
       case "newWorkflow":
-        void this.newWorkflow(command.template, command.scope);
-        return;
+        return this.newWorkflow(command.template, command.scope);
       case "showWorkflow":
-        void this.showWorkflow(command.id);
-        return;
+        return this.showWorkflow(command.id);
       case "startSession":
-        void this.openWorkflow(command.id, true);
-        return;
+        return this.openWorkflow(command.id, true);
       case "moveWorkflow":
-        void this.moveWorkflow(command.id, command.to);
-        return;
+        return this.moveWorkflow(command.id, command.to);
       case "openWorkflow":
-        void this.openWorkflow(command.id);
-        return;
+        return this.openWorkflow(command.id);
       case "editWorkflow":
-        void this.editWorkflow(command.id);
-        return;
+        return this.editWorkflow(command.id);
       case "saveWorkflow":
-        void this.saveWorkflow(command.workflow, command.launch === true, command.auto === true);
-        return;
+        return this.saveWorkflow(command.workflow, command.launch === true, command.auto === true);
       case "checkWorkflow":
         this.broadcastTo(this.editorState(command.workflow, false));
         return;
       case "deleteWorkflow":
-        void this.deleteWorkflow(command.id);
-        return;
+        return this.deleteWorkflow(command.id);
       case "duplicateWorkflow":
-        void this.duplicateWorkflow(command.id);
-        return;
+        return this.duplicateWorkflow(command.id);
       case "refinePrompt":
-        void this.refine(command.workflow, command.agent);
-        return;
+        return this.refine(command.workflow, command.agent);
       case "buildWorkflow":
-        void this.buildWorkflow(command.description, command.scope ?? "local");
-        return;
+        return this.buildWorkflow(command.description, command.scope ?? "local");
     }
+  }
+
+  private handle(command: UiCommand): void {
+    let work: void | Promise<unknown> | Thenable<unknown>;
+    try {
+      work = this.dispatch(command);
+    } catch (err) {
+      this.reportCommandFailure(command.kind, err);
+      return;
+    }
+    if (work && typeof (work as Promise<unknown>).then === "function") {
+      void Promise.resolve(work).catch((err) => this.reportCommandFailure(command.kind, err));
+    }
+  }
+
+  /** Said out loud, in the panel. A button that quietly does nothing is worse
+   *  than one that reports why it could not. */
+  private reportCommandFailure(kind: string, err: unknown): void {
+    const detail = describeError(err);
+    this.log.error(`${kind} failed: ${detail}`);
+    this.broadcast({ kind: "notice", level: "error", text: `${kind} failed: ${detail}` });
   }
 
   // -------------------------------------------------------------- workflows
