@@ -94,7 +94,7 @@ export type TeamEvent =
   | { kind: "context"; percent: number; tokens: number; max: number }
   | { kind: "busy"; busy: boolean }
   | { kind: "sendability"; ok: boolean; reason?: string }
-  | { kind: "restoreInput"; text: string }
+  | { kind: "restoreInput"; text: string; images?: Attachment[] }
   | { kind: "channel"; to: AgentId }
 
   /** Which screen the webview should be showing. */

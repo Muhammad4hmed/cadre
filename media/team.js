@@ -1073,6 +1073,12 @@
     },
     restoreInput(e) {
       if (!el.input.value.trim()) { el.input.value = e.text; resize(); }
+      // Whatever was attached comes back with it, unless the user has since
+      // attached something else — their newer choice wins over a restore.
+      if (!state.pending.length && e.images?.length) {
+        state.pending = e.images.slice(0, MAX_IMAGES);
+        renderAttachments();
+      }
       el.input.focus();
     },
     context(e) { renderContext(e); },

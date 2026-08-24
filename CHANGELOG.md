@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.14.8 — a message that could not be sent kept its words and lost its picture
+
+When a send cannot start a conversation, what you typed comes back to the
+composer instead of vanishing. The comment where that happens says "never
+swallow what the user typed". Attachments were swallowed.
+
+So a screenshot with a sentence came back as the sentence, with the picture gone
+and nothing to say so — and an image on its own, which is a complete message
+here, came back as nothing at all.
+
+The window is narrow: the composer refuses to send when it knows a conversation
+cannot start, so this needs its view of that to be a moment out of date — a
+workflow closed, a folder changed, an executable moved between the last check
+and the press. Narrow is not never, and re-taking a screenshot because the tool
+quietly dropped one is a bad minute.
+
+Both ends now: the host hands the attachments back with the words, and the
+composer puts them where they were. Something attached since wins over a
+restore, because a newer choice should.
+
+1259 checks.
+
 ## 0.14.7 — a command that did nothing, and two audits so none can again
 
 **Compact context did nothing at all** when no conversation had started. The

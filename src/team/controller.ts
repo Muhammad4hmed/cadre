@@ -1071,8 +1071,12 @@ export class TeamController implements vscode.Disposable {
 
     const session = this.ensureSession();
     if (!session) {
-      // Never swallow what the user typed.
-      for (const surface of this.surfaces) void surface.postMessage({ kind: "restoreInput", text: trimmed });
+      // Never swallow what the user typed — or attached. An image on its own is
+      // a complete message, so handing back the words and dropping the picture
+      // can hand back nothing at all.
+      for (const surface of this.surfaces) {
+        void surface.postMessage({ kind: "restoreInput", text: trimmed, images });
+      }
       return;
     }
     session.send(trimmed, images);

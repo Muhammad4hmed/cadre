@@ -1370,6 +1370,38 @@ if (serializer) {
   vscodeStub.__billingChoice = undefined;
 }
 
+// ---- a message that could not be sent keeps its attachments ----------------
+// When a send cannot start a session, the text comes back to the composer
+// rather than vanishing — the comment where that happens says "never swallow
+// what the user typed". Attachments were swallowed: an image-only message, or a
+// screenshot with a sentence, came back as the sentence alone with the image
+// gone and nothing to say so.
+{
+  // No workflow open, so nothing can start.
+  const open = fs.readdirSync(wfDir).filter((f) => f.endsWith(".json") && !f.endsWith(".sessions.json"));
+  vscodeStub.__warn = "Delete";
+  for (const f of open) { receive({ kind: "deleteWorkflow", id: f.replace(/\.json$/, "") }); await settle(); }
+  vscodeStub.__warn = undefined;
+
+  posted.length = 0;
+  const shot = { name: "screen.png", mediaType: "image/png", data: "iVBORw0KGgo=", bytes: 11 };
+  receive({ kind: "send", text: "look at this", images: [shot] });
+  await settle();
+
+  const back = posted.find((m) => m.kind === "restoreInput");
+  check("a send that cannot start hands the text back", back?.text === "look at this");
+  check("...and hands the attachments back too", (back?.images ?? []).length === 1);
+  check("...the same one that was attached", back?.images?.[0]?.name === "screen.png");
+
+  // An image on its own is a complete message, so it must survive on its own.
+  posted.length = 0;
+  receive({ kind: "send", text: "", images: [shot] });
+  await settle();
+  const imageOnly = posted.find((m) => m.kind === "restoreInput");
+  check("an image sent with no words is handed back rather than dropped",
+    (imageOnly?.images ?? []).length === 1);
+}
+
 // ---- onboarding with nothing to onboard with -------------------------------
 // "Onboard this project" surveys the repo and writes PROJECT.md, which is a
 // message to a team. Someone running it for the first time has most likely just

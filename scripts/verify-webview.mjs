@@ -961,6 +961,31 @@ send({ kind: "clear" });
     document.getElementById("stream-a7") === null);
 }
 
+// A send that could not start hands back what was typed and what was attached.
+// The picture has to come back to the composer, not just to the host's memory.
+{
+  const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+  const attachments = document.getElementById("attachments");
+  const shots = () => attachments.querySelectorAll("img").length;
+
+  document.getElementById("input").value = "";
+  send({ kind: "restoreInput", text: "look at this", images: [{ name: "a.png", mediaType: "image/png", data: png, bytes: 11 }] });
+  check("a handed-back message restores the words", document.getElementById("input").value === "look at this");
+  check("...and the picture with them", shots() === 1);
+  check("...and the composer shows the attachment row", attachments.hidden === false);
+
+  // Sending it again must carry the restored image, not an empty list. The
+  // composer has to be enabled first, or submit() returns before doing anything
+  // and the checks below pass for the wrong reason.
+  send({ kind: "sendability", ok: true });
+  send({ kind: "busy", busy: false });
+  sent.length = 0;
+  document.getElementById("send").click();
+  const outgoing = sent.find((m) => m.kind === "send");
+  check("...and sending again carries it", (outgoing?.images ?? []).length === 1);
+  check("...leaving the composer empty afterwards", shots() === 0);
+}
+
 // ---- attaching an image ----------------------------------------------------
 // Reading, downscaling and encoding an attachment is asynchronous, so it runs
 // after the synchronous driver and rewrites the results when it finishes. This
