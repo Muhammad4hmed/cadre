@@ -147,6 +147,12 @@ export class WorkflowSession implements vscode.Disposable {
   /** Which agent the user is currently addressing. */
   private channel: AgentId;
   private initSeen = false;
+  /** Connector name to the failure already announced for it, so a broken one is
+   * reported when it breaks and not once per run for the rest of the session. */
+  private readonly connectorTrouble = new Map<string, string>();
+  /** The connector health last shown on the roster, so the chips are republished
+   * when it changes and left alone when it has not. */
+  private connectorHealth = "";
   /** User turns, newest last. Checkpointing rewinds to one of these. */
   private readonly turns: { id: string; text: string; at: number }[] = [];
 
@@ -687,21 +693,46 @@ export class WorkflowSession implements vscode.Disposable {
           if (isMain && message.session_id) {
             this.emit({ kind: "sessionStarted", sessionId: message.session_id });
           }
-          if (isMain && !this.initSeen) {
-            this.initSeen = true;
-            // Our own in-process server is plumbing, not a user connector.
-            const connectors = (message.mcp_servers ?? [])
-              .filter((s) => s.name !== "team")
-              .map((s) => ({ name: s.name, ok: s.status === "connected", status: s.status }));
-            const failed = connectors.filter((c) => !c.ok);
-            if (failed.length) {
-              this.emit({
-                kind: "notice",
-                level: "warn",
-                text: `Connector${failed.length > 1 ? "s" : ""} unavailable: ${failed.map((c) => `${c.name} (${c.status})`).join(", ")}. The team will work without ${failed.length > 1 ? "them" : "it"}.`,
-              });
+          // Our own in-process server is plumbing, not a user connector.
+          const connectors = (message.mcp_servers ?? [])
+            .filter((s) => s.name !== "team")
+            .map((s) => ({ name: s.name, ok: s.status === "connected", status: s.status }));
+
+          // Checked on every run and every teammate's run, not only the first
+          // init of the session. A token expires, a server is restarted, a
+          // teammate carries a connector the entry agent does not. This hung
+          // off `initSeen`, which is set once and never again — so after the
+          // first run the team went on working without a connector and said
+          // nothing about it.
+          const fresh: typeof connectors = [];
+          for (const connector of connectors) {
+            // Recovered: forget it, so breaking again is news a second time.
+            if (connector.ok) { this.connectorTrouble.delete(connector.name); continue; }
+            // Once is a warning. Every run is noise, and noise is how a real
+            // warning stops being read.
+            if (this.connectorTrouble.get(connector.name) === connector.status) continue;
+            this.connectorTrouble.set(connector.name, connector.status);
+            fresh.push(connector);
+          }
+          if (fresh.length) {
+            this.emit({
+              kind: "notice",
+              level: "warn",
+              text: `Connector${fresh.length > 1 ? "s" : ""} unavailable: ${fresh.map((c) => `${c.name} (${c.status})`).join(", ")}. The team will work without ${fresh.length > 1 ? "them" : "it"}.`,
+            });
+          }
+
+          if (isMain) {
+            // Republished when connector health changes, so the chips do not go
+            // on showing a connector as healthy after it has dropped. Not on
+            // every run: publishing asks the billing layer for its status, and
+            // the answer has not changed just because a turn started.
+            const health = connectors.map((c) => `${c.name}:${c.ok}`).join(",");
+            if (!this.initSeen || health !== this.connectorHealth) {
+              this.initSeen = true;
+              this.connectorHealth = health;
+              void this.publishRoster(message.model, message.tools.length, connectors);
             }
-            void this.publishRoster(message.model, message.tools.length, connectors);
           }
           break;
         }

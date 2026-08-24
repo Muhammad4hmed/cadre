@@ -361,6 +361,69 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
+// A connector is not only ever broken on the first run of a session. A token
+// expires, a server is restarted, the user edits their connector config — and
+// the notice hung off `initSeen`, which is set once and never again, so from
+// then on the team silently worked without it.
+fake.__instances.length = 0;
+{
+  const { session, of } = makeSession();
+  const kaggle = (status) => fake.initMessage({
+    mcp_servers: [{ name: "team", status: "connected" }, { name: "kaggle", status }],
+  });
+  const saidAboutKaggle = () => of("notice").filter((n) => /kaggle/.test(n.text)).length;
+
+  await session.prepare();
+  session.send("first");
+  await tick();
+  fake.__instances[0].emit(kaggle("connected"));
+  await tick();
+  check("G4 a healthy connector is not announced", saidAboutKaggle() === 0);
+
+  fake.__instances[0].end();
+  await tick();
+  session.send("second");
+  await tick();
+  fake.__instances.at(-1).emit(kaggle("failed"));
+  await tick();
+  check("G5 a connector that fails on a later run is still called out",
+    saidAboutKaggle() === 1 && of("notice").some((n) => n.level === "warn" && /kaggle/.test(n.text)));
+  check("G8 ...and the roster stops showing it as healthy",
+    of("roster").at(-1)?.connectors?.find((c) => c.name === "kaggle")?.ok === false);
+  const rostersSoFar = of("roster").length;
+
+  // Once is a warning. Every run is noise, and noise is how a real warning
+  // stops being read.
+  fake.__instances.at(-1).end();
+  await tick();
+  session.send("third");
+  await tick();
+  fake.__instances.at(-1).emit(kaggle("failed"));
+  await tick();
+  check("G6 ...and not repeated on every run after that", saidAboutKaggle() === 1);
+  // Publishing the roster asks the billing layer for its status. That answer
+  // has not changed just because another turn started.
+  check("G9 ...and the roster is not republished when nothing changed",
+    of("roster").length === rostersSoFar);
+
+  // Recovered, then broken again: that is news a second time.
+  fake.__instances.at(-1).end();
+  await tick();
+  session.send("fourth");
+  await tick();
+  fake.__instances.at(-1).emit(kaggle("connected"));
+  await tick();
+  fake.__instances.at(-1).end();
+  await tick();
+  session.send("fifth");
+  await tick();
+  fake.__instances.at(-1).emit(kaggle("failed"));
+  await tick();
+  check("G7 a connector that recovers and breaks again is called out again",
+    saidAboutKaggle() === 2);
+  session.dispose();
+}
+
 // ---- H. the parity options actually reach the SDK --------------------------
 fake.__instances.length = 0;
 {

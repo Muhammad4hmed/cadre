@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.17.2 — a connector only ever broke on the first run
+
+A connector that was down when the session started was reported. One that broke
+later was not, because the check hung off a flag set on the first init and never
+looked again. Tokens expire, servers get restarted, a machine goes to sleep
+mid-afternoon — and from that point the team worked without the connector and
+said nothing, while the roster chip still showed it green.
+
+Checked on every run now, and on every teammate's run rather than only the
+entry agent's. A failure is announced when it happens, once — not once per turn,
+because that is how a real warning stops being read — and announced again if the
+connector recovers and drops a second time, because that is news again.
+
+The roster is republished when connector health changes and left alone when it
+has not: publishing asks the billing layer for its status, and that answer has
+not changed just because another turn started.
+
+Nine checks. Five mutations, each caught by exactly the check that should catch
+it: never re-check, never dedupe, never forget a recovery, never republish the
+roster, always republish it.
+
+1375 checks.
+
 ## 0.17.1 — on `autonomous`, your team's questions reached nobody
 
 The same callback, one more thing hanging off it.
