@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.17.0 — a read-only agent could write anywhere on `autonomous`
+
+A read-only agent has `Write` and `Edit`. It needs them: `.cadre/` is its
+scratchpad and the docs folder is a deliverable. What made it read-only for
+everything else was a check inside the permission handler.
+
+The SDK says, in its own words, what `bypassPermissions` does to that:
+
+> canUseTool will not be invoked: permissionMode 'bypassPermissions'
+> auto-approves every tool call (except explicit deny rules) before the callback
+> is consulted. To gate every tool call, use a PreToolUse hook instead.
+
+`autonomous` asks for exactly that mode. So the confinement held on the three
+levels that prompt and was absent on the one built to run unwatched — where a
+coordinator quietly doing the engineer's work is precisely the failure the roles
+exist to prevent, and where nobody is watching it happen.
+
+It is a `PreToolUse` hook now, which runs whatever the permission mode is. The
+handler still refuses too; the hook is what makes the refusal independent of
+there being someone to ask.
+
+I raised this last release as something I could not establish and documented it
+as a limitation rather than guessing. It was settled by reading the SDK's own
+bundle, where that warning string is written out in full — no workflow run
+needed, and no inference left.
+
+Twenty checks, at all four levels: the hook is installed, it denies a write
+outside the roots, it says where the agent may write, it leaves the scratchpad
+alone, and it has no opinion about reading.
+
+1346 checks.
+
 ## 0.16.0 — the depth cap did not hold on the one level that runs unattended
 
 A delegate arrow may loop: A briefs B, B briefs A back. That is how a peer asks

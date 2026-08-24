@@ -1039,6 +1039,45 @@ export class WorkflowSession implements vscode.Disposable {
       includePartialMessages: true,
       env: this.envSnapshot,
       canUseTool: (name, input, context) => this.requestPermission(spec.id, name, input, context),
+      /**
+       * The read-only confinement, where a bypassed permission mode cannot
+       * reach past it.
+       *
+       * A read-only agent has Write and Edit — it needs them for `.cadre/` and
+       * the docs folder — and what kept it out of everything else was a check
+       * inside `canUseTool`. On `autonomous` the CLI is asked for
+       * `bypassPermissions`, and the SDK says plainly what that means:
+       *
+       *   "canUseTool will not be invoked: permissionMode 'bypassPermissions'
+       *    auto-approves every tool call (except explicit deny rules) before
+       *    the callback is consulted. To gate every tool call, use a PreToolUse
+       *    hook instead."
+       *
+       * So the confinement held on the three levels that prompt and not on the
+       * one built to run unwatched — where a coordinator quietly doing the
+       * work itself is exactly the failure the roles exist to prevent. This is
+       * that hook, and it runs whatever the mode.
+       */
+      hooks: {
+        PreToolUse: [{
+          hooks: [async (event) => {
+            if (event.hook_event_name !== "PreToolUse") return {};
+            const refusal = this.checkScratchpadOnly(
+              spec.id,
+              event.tool_name,
+              (event.tool_input ?? {}) as Record<string, unknown>,
+            );
+            if (!refusal) return {};
+            return {
+              hookSpecificOutput: {
+                hookEventName: "PreToolUse" as const,
+                permissionDecision: "deny" as const,
+                permissionDecisionReason: refusal,
+              },
+            };
+          }],
+        }],
+      },
       stderr: (data) => this.log.debug(`[${spec.id}] ${data.trimEnd()}`),
     };
   }

@@ -447,32 +447,61 @@ fake.__instances.length = 0;
   session.dispose();
 }
 
-// ---- I1b. where the read-only confinement actually lives -------------------
+// ---- I1b. the read-only confinement holds when nothing prompts -------------
 // A read-only agent HAS Write and Edit — it needs them for `.cadre/` and the
-// docs folder. What makes it read-only for everything else is the check inside
-// `canUseTool`, and that is worth stating plainly in a test because it is a
-// dependency, not an implementation detail: the confinement holds only for as
-// long as the CLI consults our permission handler.
+// docs folder. What keeps it out of everything else used to be a check inside
+// `canUseTool`, and the SDK says what `bypassPermissions` does to that:
 //
-// On `autonomous` the SDK is asked for `bypassPermissions`, documented as
-// "bypass all permission checks", and it offers a tighten-only per-server
-// override that exists because that mode auto-allows. Whether our handler is
-// still consulted there is the CLI's behaviour and cannot be established from
-// here — so this pins our side of it: the handler is supplied at every level,
-// and it refuses. If the handler ever stops being passed, this goes red.
+//   "canUseTool will not be invoked: permissionMode 'bypassPermissions'
+//    auto-approves every tool call (except explicit deny rules) before the
+//    callback is consulted. To gate every tool call, use a PreToolUse hook."
+//
+// So the confinement held on the three levels that prompt, and not on
+// `autonomous` — the one built to run unwatched, where a coordinator quietly
+// doing the work itself is the failure the roles exist to prevent. It is a
+// PreToolUse hook now, which runs whatever the mode.
 fake.__instances.length = 0;
 for (const level of ["standard", "supervised", "plan", "autonomous"]) {
-  const { session } = makeSession({ ...CONFIG, autonomy: level });
+  const { session } = makeSession({ ...CONFIG, cwd: "/repo", autonomy: level });
   await session.prepare();
   session.send("x");
   await tick();
   const o = fake.__instances.at(-1).options;
-  check(`I1b a permission handler is supplied on ${level}`, typeof o.canUseTool === "function");
-
   const ctx = { signal: new AbortController().signal, toolUseID: "t", requestId: "r" };
-  const outside = await o.canUseTool("Write", { file_path: "/repo/src/app.ts" }, ctx);
-  check(`...and it refuses a read-only agent writing outside its roots on ${level}`,
-    outside.behavior === "deny");
+
+  check(`I1b a permission handler is supplied on ${level}`, typeof o.canUseTool === "function");
+  const gate = await o.canUseTool("Write", { file_path: "/repo/src/app.ts" }, ctx);
+  check(`...and it refuses a write outside the roots on ${level}`, gate.behavior === "deny");
+
+  // The hook is the half that survives a mode which never calls the handler.
+  const hook = o.hooks?.PreToolUse?.[0]?.hooks?.[0];
+  check(`I1c a PreToolUse hook is installed on ${level}`, typeof hook === "function");
+  // A missing hook is a failed check, not a crash that takes the rest with it.
+  const ask = typeof hook === "function" ? hook : async () => ({});
+  const outside = await ask(
+    { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "/repo/src/app.ts" }, tool_use_id: "t" },
+    "t", { signal: ctx.signal },
+  );
+  check(`...and it denies a write outside the roots on ${level}`,
+    outside.hookSpecificOutput?.permissionDecision === "deny");
+  check(`...saying where the agent may write, on ${level}`,
+    /only write inside/i.test(outside.hookSpecificOutput?.permissionDecisionReason ?? ""));
+
+  // Its own scratchpad is untouched, or a read-only agent cannot take notes.
+  const inside = await ask(
+    { hook_event_name: "PreToolUse", tool_name: "Write", tool_input: { file_path: "/repo/.cadre/notes.md" }, tool_use_id: "t" },
+    "t", { signal: ctx.signal },
+  );
+  check(`...while its own scratchpad is left alone on ${level}`,
+    inside.hookSpecificOutput === undefined);
+
+  // And it has no opinion about anything that is not an edit.
+  const reading = await ask(
+    { hook_event_name: "PreToolUse", tool_name: "Read", tool_input: { file_path: "/repo/src/app.ts" }, tool_use_id: "t" },
+    "t", { signal: ctx.signal },
+  );
+  check(`...and does not interfere with reading on ${level}`,
+    reading.hookSpecificOutput === undefined);
   session.dispose();
 }
 
