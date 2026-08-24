@@ -1171,6 +1171,114 @@ if (serializer) {
     ignored.length === 0);
 }
 
+// ---- every command is wired at both ends -----------------------------------
+// A command declared in package.json but never registered shows in the palette
+// and does nothing. One registered but not declared cannot be found. And one
+// invoked by another command has to exist, or the caller silently no-ops.
+{
+  const ext = fs.readFileSync("src/extension.ts", "utf8");
+  const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+  const registered = new Set([...ext.matchAll(/registerCommand\("([\w.]+)"/g)].map((m) => m[1]));
+  const declared = new Set((pkg.contributes.commands ?? []).map((c) => c.command));
+  const viewIds = new Set(
+    Object.values(pkg.contributes.views ?? {}).flat().map((v) => v.id),
+  );
+
+  check("there are commands to check", declared.size > 10);
+  const ghosts = [...declared].filter((c) => !registered.has(c));
+  check(`every command in the palette is registered${ghosts.length ? " (" + ghosts.join(", ") + ")" : ""}`,
+    ghosts.length === 0);
+  const hidden = [...registered].filter((c) => !declared.has(c));
+  check(`every registered command can be found${hidden.length ? " (" + hidden.join(", ") + ")" : ""}`,
+    hidden.length === 0);
+
+  // Commands one command asks for. VS Code generates "<viewId>.focus" itself.
+  const invoked = [...new Set([...ext.matchAll(/executeCommand\("(cadre[\w.]*)"/g)].map((m) => m[1]))];
+  const dangling = invoked.filter((c) =>
+    !registered.has(c) && !(c.endsWith(".focus") && viewIds.has(c.slice(0, -".focus".length))));
+  check(`every command invoked from another exists${dangling.length ? " (" + dangling.join(", ") + ")" : ""}`,
+    dangling.length === 0);
+}
+
+// Compacting with nothing to compact must say so rather than doing nothing.
+{
+  posted.length = 0;
+  controller.newSession();
+  await settle();
+  posted.length = 0;
+  // Caught, so that a command which throws is a failed check rather than a
+  // crashed suite that takes every result after it down as well.
+  let threw = false;
+  try { await vscodeStub.__commands["cadre.compact"](); } catch { threw = true; }
+  await settle();
+  check("compacting with no conversation does not throw", !threw);
+  check("compacting with no conversation says so rather than nothing at all",
+    posted.some((m) => m.kind === "notice" && /nothing to compact/i.test(m.text)));
+}
+
+// ---- choosing how much rope the team gets ----------------------------------
+// The setting that removes every permission prompt. Three things about it are
+// load-bearing and none had a test: autonomous asks for confirmation first,
+// declining changes nothing, and the choice is written globally rather than
+// into the folder — because the folder is where a cloned repo's settings live,
+// and writing there would make the user's own choice indistinguishable from one
+// a repository shipped. The trust layer would then clamp it back and the
+// setting would appear not to work.
+{
+  const folderPath = state.workspaceFolders?.[0]?.uri.fsPath;
+  const writes = [];
+  const realUpdate = vscodeStub.workspace.getConfiguration;
+  vscodeStub.workspace.getConfiguration = (prefix, scope) => {
+    const cfg = realUpdate(prefix, scope);
+    return { ...cfg, update: async (k, v, target) => { writes.push({ k, v, target }); return cfg.update(k, v, target); } };
+  };
+  const realWarn = vscodeStub.window.showWarningMessage;
+  let askedToConfirm = 0;
+  vscodeStub.window.showWarningMessage = async (msg, opts, ...choices) => {
+    if (opts && opts.modal && /autonomous/i.test(String(msg))) {
+      askedToConfirm += 1;
+      return vscodeStub.__autonomyConfirm;
+    }
+    return undefined;
+  };
+
+  // A safe level needs no confirmation.
+  writes.length = 0;
+  vscodeStub.__pick = (items) => items.find((i) => i.value === "supervised");
+  await vscodeStub.__commands["cadre.setAutonomy"]();
+  check("choosing a safer level does not stop to confirm", askedToConfirm === 0);
+  check("...and is written", writes.some((w) => w.k === "autonomy" && w.v === "supervised"));
+  check("...globally, not into the folder a repository can also write to",
+    writes.filter((w) => w.k === "autonomy").every((w) => w.target === 1));
+
+  // Autonomous must ask, and taking it back must change nothing.
+  writes.length = 0;
+  askedToConfirm = 0;
+  vscodeStub.__pick = (items) => items.find((i) => i.value === "autonomous");
+  vscodeStub.__autonomyConfirm = undefined;      // dismissed
+  await vscodeStub.__commands["cadre.setAutonomy"]();
+  check("autonomous asks before it is set", askedToConfirm === 1);
+  check("...and dismissing the question writes nothing at all", writes.length === 0);
+
+  // Agreeing sets it.
+  writes.length = 0;
+  vscodeStub.__autonomyConfirm = "I understand";
+  await vscodeStub.__commands["cadre.setAutonomy"]();
+  check("agreeing sets it", writes.some((w) => w.k === "autonomy" && w.v === "autonomous"));
+  check("...still globally", writes.filter((w) => w.k === "autonomy").every((w) => w.target === 1));
+
+  // Choosing nothing at all is not a choice.
+  writes.length = 0;
+  vscodeStub.__pick = () => undefined;
+  await vscodeStub.__commands["cadre.setAutonomy"]();
+  check("dismissing the picker writes nothing", writes.length === 0);
+
+  vscodeStub.workspace.getConfiguration = realUpdate;
+  vscodeStub.window.showWarningMessage = realWarn;
+  vscodeStub.__pick = undefined;
+  settings["cadre.autonomy"] = "standard";
+}
+
 // ---- reviewing what a repository asked for ---------------------------------
 // Every warning about a repo's settings points at this command. It lists what
 // the folder is asking for and lets you allow it. Approving is recorded per

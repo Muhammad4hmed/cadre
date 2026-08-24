@@ -1144,7 +1144,18 @@ export class TeamController implements vscode.Disposable {
   }
 
   compactNow(): void {
-    this.session?.compactNow();
+    if (!this.session) {
+      // The runner says so itself when there is a session but nothing running.
+      // With no session at all there is nobody to say it, and a command that
+      // does nothing visible is indistinguishable from one that is broken.
+      this.broadcast({
+        kind: "notice",
+        level: "info",
+        text: "Nothing to compact — no conversation has started yet.",
+      });
+      return;
+    }
+    this.session.compactNow();
   }
 
   /** Reopens a stored conversation, transcript and all. */

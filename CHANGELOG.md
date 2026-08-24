@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.14.7 — a command that did nothing, and two audits so none can again
+
+**Compact context did nothing at all** when no conversation had started. The
+runner says "nothing to compact" when there is a session but nothing running;
+with no session there was nobody to say it, so the command returned in silence.
+A command that produces no visible effect is indistinguishable from one that is
+broken, and this is in the settings hub where people go looking.
+
+Two audits behind it, both cheap and both permanent:
+
+- **Every command is wired at both ends.** One declared in `package.json` and
+  never registered appears in the palette and does nothing; one registered but
+  not declared cannot be found; one invoked from another command has to exist.
+  All three are checked, allowing for the `<viewId>.focus` command VS Code
+  generates itself. Clean today.
+- **Choosing autonomy is guarded.** It removes every permission prompt, and
+  three things about it are load-bearing: autonomous confirms first, declining
+  changes nothing, and the choice is written globally rather than into the
+  folder — because the folder is where a cloned repo's settings live, and
+  writing there would make the user's own choice indistinguishable from one a
+  repository shipped. Correct, and now none of the three can be dropped quietly.
+
+1250 checks.
+
 ## 0.14.6 — the review command kept asking about settings you had already allowed
 
 **A regression I introduced in 0.14.0.** Scoping approvals to the folder they
