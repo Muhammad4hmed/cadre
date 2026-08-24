@@ -1,5 +1,34 @@
 # Changelog
 
+## 0.18.3 — the fence markers were going into the agent's system prompt
+
+Refinement is on by default. It takes "you review contracts" and writes the
+prompt an experienced practitioner of that role would run with, and whatever
+comes out of it becomes that agent's system prompt verbatim. So anything left
+behind sits in front of that agent on every run it ever does.
+
+The cleanup matched a fence only when it was the entire reply. Models do not
+often stop at the closing fence — a line of chatter after it, or an
+announcement before it, and the ```` ``` ```` markers stayed in. Any tag other
+than `markdown` or `md` did the same. The agent then ran with "```markdown" and
+"Here is the prompt:" as the opening lines of its instructions.
+
+Worse, in the other direction: the line that strips an announcement matched any
+first line beginning "Here's" or "Here is". A prompt whose own first line reads
+"Here's what good work looks like:" lost it — silently, and that line is usually
+the most important thing the agent was told. Stripping now requires the line to
+actually name the prompt.
+
+The reason none of this was caught is worth recording: `refine.ts` was not in
+the test entry barrel at all. Not under-tested — never compiled into a suite.
+It is in the barrel now, which is how the four failures above turned up within
+a minute of looking.
+
+Ten checks. Five mutations, each caught by the checks that should catch it,
+including restoring the old anchored fence and the old greedy announcement rule.
+
+1419 checks.
+
 ## 0.18.2 — "Build with Claude" read the wrong half of the reply
 
 Found by measuring instead of guessing. Every suite was run under V8 coverage

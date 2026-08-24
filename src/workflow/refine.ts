@@ -192,12 +192,27 @@ export async function refinePrompt(request: RefineRequest): Promise<RefineResult
   };
 }
 
-/** Models like to wrap a returned document in a fence, or announce it first. */
-function strip(text: string): string {
+/**
+ * Models like to wrap a returned document in a fence, or announce it first.
+ *
+ * What survives this becomes an agent's system prompt verbatim, so anything
+ * left behind sits in front of that agent on every run it ever does. The fence
+ * was matched only when it was the entire reply, which meant a single line of
+ * chatter after the closing fence — or an announcement before the opening one
+ * — left the ``` markers themselves in the prompt.
+ */
+export function strip(text: string): string {
   let out = text.trim();
-  const fence = /^```(?:markdown|md)?\n([\s\S]*?)\n```$/.exec(out);
+
+  // A fence anywhere, and whatever the model chose to tag it.
+  const fence = /```[a-zA-Z]*[^\S\n]*\n([\s\S]*?)```/.exec(out);
   if (fence) out = fence[1].trim();
-  out = out.replace(/^(?:here(?:'s| is)[^\n]*|the (?:refined )?prompt[^\n]*):?\s*\n+/i, "");
+
+  // An announcement that sat outside the fence. It has to actually name the
+  // prompt: a real first line can open "Here's what good work looks like:",
+  // and dropping that costs the agent the most important thing it was told.
+  out = out.replace(/^(?:here(?:'s| is)[^\n]*\bprompt\b|the (?:refined )?prompt\b)[^\n]*\n+/i, "");
+
   return out.trim();
 }
 

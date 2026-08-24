@@ -24,7 +24,7 @@ await esbuild.build({
   logLevel: "warning",
 });
 const wf = createRequire(import.meta.url)(outfile);
-const { model, presets, protocol, store, templates, generate, models, replay, describe, policy, project, paper } = wf;
+const { model, presets, protocol, store, templates, generate, models, replay, describe, policy, project, paper, refine } = wf;
 
 
 /**
@@ -1092,6 +1092,39 @@ const design = (over = {}) => ({
   edges: [{ from: "triage", to: "fixer", kind: "delegate", label: "reproduce it" }],
   ...over,
 });
+
+/* ------------------------------------- cleaning a refined system prompt */
+// What comes out of here becomes an agent's system prompt verbatim. Anything
+// left behind — a fence marker, a line of the model announcing itself — is
+// then in front of that agent on every single run it ever does.
+{
+  const S = refine.strip;
+  const BODY = "## What good looks like\n\nYou read the contract before pricing it.";
+
+  check("RS1 a clean prompt is left alone", S(BODY) === BODY);
+  check("RS2 a fenced document is unwrapped", S("```markdown\n" + BODY + "\n```") === BODY);
+  check("RS3 an untagged fence is unwrapped", S("```\n" + BODY + "\n```") === BODY);
+
+  // Models rarely stop at the closing fence.
+  check("RS4 a line of chatter after the fence does not keep the fence",
+    S("```markdown\n" + BODY + "\n```\n\nLet me know if you want it shorter.") === BODY);
+  check("RS5 an announcement before the fence does not keep the fence",
+    S("Here is the prompt:\n\n```markdown\n" + BODY + "\n```") === BODY);
+  check("RS6 a tag we did not think of is still a fence", S("```text\n" + BODY + "\n```") === BODY);
+
+  // No fence at all, just an announcement.
+  check("RS7 an announcement with no fence is dropped",
+    S("Here is the prompt:\n\n" + BODY) === BODY);
+
+  // And the line that must never be dropped: a prompt whose own first line
+  // happens to begin the same way. Losing it silently costs the agent the
+  // single most important thing it was told.
+  const OPENS = "Here's what good work looks like:\n\nYou read the contract before pricing it.";
+  check("RS8 a real first line that merely reads like an announcement is kept", S(OPENS) === OPENS);
+
+  check("RS9 nothing in, nothing out", S("") === "");
+  check("RS10 a fence with nothing in it yields nothing", S("```markdown\n\n```") === "");
+}
 
 /* ---------------------------------------- reading a design out of prose */
 // The path taken whenever the CLI does not fill structured_output: the model's
