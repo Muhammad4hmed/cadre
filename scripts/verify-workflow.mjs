@@ -1093,6 +1093,58 @@ const design = (over = {}) => ({
   ...over,
 });
 
+/* ---------------------------------------- reading a design out of prose */
+// The path taken whenever the CLI does not fill structured_output: the model's
+// reply arrives as text and this is what turns it back into a design. It is
+// the whole of "Build with Claude" when that happens, and nothing exercised it.
+{
+  const P = generate.parseDesign;
+  const DESIGN = { name: "Team", agents: [{ id: "lead", name: "Lead" }], edges: [] };
+  const J = JSON.stringify(DESIGN);
+
+  check("PD1 a bare JSON object is read", P(J)?.name === "Team");
+  check("PD2 a fenced block is read", P("```json\n" + J + "\n```")?.name === "Team");
+  check("PD3 an untagged fence is read", P("```\n" + J + "\n```")?.name === "Team");
+  check("PD4 prose around the fence is ignored",
+    P("Here is the design.\n\n```json\n" + J + "\n```\n\nTell me if you want changes.")?.name === "Team");
+
+  // Models explain themselves. A short illustrative snippet before the real
+  // answer is normal, and taking the first fence takes the wrong one.
+  check("PD5 the block that is actually a design wins, not merely the first one",
+    P('I will use this shape:\n\n```json\n{"shape": "lead and two workers"}\n```\n\nHere it is:\n\n```json\n' + J + "\n```")?.name === "Team");
+
+  // And notes after the answer, which is the same failure the other way round.
+  check("PD6 a trailing block of notes does not displace the design",
+    P("```json\n" + J + '\n```\n\n```json\n{"note": "read the prompts"}\n```')?.name === "Team");
+
+  // Prose with braces of its own, so the outermost-braces fallback cannot
+  // rescue what follows and each mechanism is tested on its own. Without this
+  // both of these passed with the mechanism they name torn out.
+  const NOISY = "Use {name} placeholders where needed.\n\n";
+  check("PD7 an uppercase language tag is still a fence",
+    P(NOISY + "```JSON\n" + J + "\n```")?.name === "Team");
+
+  // No fence at all: the model just talked, with the JSON in the middle.
+  check("PD8 a design embedded in prose with no fence is recovered",
+    P("Sure! " + J + " — let me know.")?.name === "Team");
+
+  // An opening fence with the closing one cut off by a truncated reply.
+  check("PD9 an unclosed fence still yields the design",
+    P(NOISY + "```json\n" + J)?.name === "Team");
+
+  // An array is not a design, and must not be handed on as one. Recovering the
+  // design inside it is another matter: that is an answer, just wrapped.
+  check("PD10 an array is never handed on as though it were a design",
+    !Array.isArray(P(JSON.stringify([DESIGN]))));
+  check("PD10b ...while a design wrapped in one is still recovered",
+    P(JSON.stringify([DESIGN]))?.name === "Team");
+  check("PD10c an array of things that are not designs yields nothing",
+    P("[1, 2, 3]") === undefined);
+  check("PD11 a bare string is not accepted as a design", P('"just text"') === undefined);
+  check("PD12 nothing readable yields nothing, not a throw", P("I could not do that.") === undefined);
+  check("PD13 an empty reply yields nothing", P("") === undefined);
+}
+
 const built = generate.assemble(design(), []);
 check("a well-formed design assembles", built.ok && built.workflow.agents.length === 2);
 check("the arrows survive", built.workflow.edges.length === 1);

@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.18.2 — "Build with Claude" read the wrong half of the reply
+
+Found by measuring instead of guessing. Every suite was run under V8 coverage
+and the results merged: 145 functions in `src/` are never executed by any test.
+Most are VS Code command handlers and the optional LaTeX toolchain. One was the
+function that turns the model's reply into a workflow.
+
+It is the fallback used whenever the CLI does not fill `structured_output`, so
+it is the whole of "Build with Claude" on that path — and it took the first
+fenced block in the reply. Models explain themselves: a preamble, an
+illustrative snippet before the real answer, notes after it. The first block is
+the wrong one about as often as it is the right one, and picking it produced
+either a nonsense workflow or a flat refusal to read a perfectly good reply.
+
+Every candidate is read now, and the one that looks like a design wins — a
+design has agents; an example the model wrote to explain itself does not. Also
+handled: a language tag in any case, a reply cut off before its closing fence,
+a design sitting in prose with no fence at all, and one wrapped in an array,
+which is recovered rather than thrown away. A malformed design still reaches the
+assembler, which says what is wrong with it far better than this can.
+
+Thirteen checks, none of which existed before, on a function nothing had ever
+run.
+
+Two of the six mutations survived the first attempt, and both said the same
+thing: the checks for the language tag and for the truncated fence were passing
+through the outermost-braces fallback rather than the mechanism they named. Tear
+that mechanism out and they stayed green. Both now sit behind prose containing
+braces of its own, so the fallback cannot rescue them and each mechanism is
+tested alone.
+
+1409 checks.
+
 ## 0.18.1 — the model declined and the agent just stopped
 
 `refusal` is not one of the error codes an assistant frame can carry. When the

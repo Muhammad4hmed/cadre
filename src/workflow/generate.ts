@@ -214,7 +214,7 @@ export async function generateWorkflow(request: GenerateRequest): Promise<Genera
       if (message.type === "result" && message.subtype === "success") {
         raw = (message.structured_output ?? undefined) as RawWorkflow | undefined;
         // Older CLIs return the JSON as text rather than a structured field.
-        if (!raw && message.result) raw = parse(message.result);
+        if (!raw && message.result) raw = parseDesign(message.result);
       }
     }
   } catch (err) {
@@ -349,16 +349,54 @@ export function assemble(raw: RawWorkflow, taken: string[]): GenerateResult {
   };
 }
 
-/** A CLI that does not fill `structured_output` returns the JSON as text. */
-function parse(text: string): RawWorkflow | undefined {
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/.exec(text);
-  const body = (fenced ? fenced[1] : text).trim();
-  try {
-    const parsed: unknown = JSON.parse(body);
-    return typeof parsed === "object" && parsed ? (parsed as RawWorkflow) : undefined;
-  } catch {
-    return undefined;
+/**
+ * A CLI that does not fill `structured_output` returns the JSON as text.
+ *
+ * Models explain themselves. There is a preamble, sometimes an illustrative
+ * snippet before the real answer, often notes after it — so the first fenced
+ * block is the wrong one about as often as it is the right one. Every
+ * candidate is read and the one that looks like a design wins.
+ */
+export function parseDesign(text: string): RawWorkflow | undefined {
+  const objects: Record<string, unknown>[] = [];
+  for (const candidate of candidates(text)) {
+    try {
+      const parsed: unknown = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        objects.push(parsed as Record<string, unknown>);
+      }
+    } catch {
+      // Not JSON. The next candidate might be.
+    }
   }
+  // A design has agents. An example the model wrote to explain itself is an
+  // object too, which is exactly how the first-block rule picked the wrong one.
+  // Falling back to the first object keeps a malformed design reaching the
+  // assembler, which reports what is wrong with it far better than this can.
+  return (objects.find((o) => Array.isArray(o.agents)) ?? objects[0]) as RawWorkflow | undefined;
+}
+
+/** Every substring of a reply that might be the design, best-first. */
+function* candidates(text: string): Generator<string> {
+  // Fenced blocks, in order, whatever the tag and whatever its case.
+  const fence = /```[a-zA-Z0-9]*[^\S\n]*\n?([\s\S]*?)```/g;
+  let block: RegExpExecArray | null;
+  while ((block = fence.exec(text))) yield block[1].trim();
+
+  // An opening fence whose closing one never arrived, because the reply was
+  // cut off. The JSON before the cut is often complete even when the fence is
+  // not.
+  const unclosed = /```[a-zA-Z0-9]*[^\S\n]*\n?([\s\S]*)$/.exec(text);
+  if (unclosed) yield unclosed[1].trim();
+
+  // The whole reply, for a model that answered with nothing else.
+  yield text.trim();
+
+  // And the outermost braces, for one that talked around it. Last, so it is
+  // only reached when nothing better parsed.
+  const open = text.indexOf("{");
+  const close = text.lastIndexOf("}");
+  if (open !== -1 && close > open) yield text.slice(open, close + 1);
 }
 
 function controllerFor(signal?: AbortSignal): AbortController {
